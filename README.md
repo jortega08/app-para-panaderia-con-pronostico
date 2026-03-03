@@ -1,55 +1,53 @@
-# 🍞 Panadería Lean — Sistema de Pronóstico DMAIC
+# Panaderia - Sistema de Ventas y Pronostico
 
-Sistema de gestión de producción y pronóstico de demanda para panaderías,
-basado en la metodología **Lean Six Sigma (DMAIC)**.
+Sistema sencillo para panaderias que combina punto de venta con pronostico
+de produccion. Disenado para ser facil de usar por personas de cualquier edad.
 
 ---
 
-## 📁 Estructura del proyecto
+## Estructura del proyecto
 
 ```
 panaderia_app/
-│
-├── app.py                  ← Punto de entrada (interfaz gráfica)
-├── seed_demo.py            ← Genera datos de prueba (ejecutar 1 vez)
-│
+|
+├── app.py                  <- Interfaz grafica (punto de entrada)
+├── seed_demo.py            <- Genera datos de prueba (ejecutar 1 vez)
+|
 ├── data/
-│   ├── __init__.py
-│   └── database.py         ← Capa de datos (SQLite)
-│
+|   ├── __init__.py
+|   └── database.py         <- Base de datos SQLite
+|
 ├── logic/
-│   ├── __init__.py
-│   └── pronostico.py       ← Motor de pronóstico adaptativo
-│
+|   ├── __init__.py
+|   └── pronostico.py       <- Motor de pronostico
+|
 └── README.md
 ```
 
 ---
 
-## ⚙️ Instalación
+## Instalacion
 
 ### Requisitos
 - Python 3.10 o superior
-- Tkinter (incluido en Python estándar)
-- matplotlib (opcional, para gráficas)
+- Tkinter (ya viene con Python)
+- matplotlib (opcional, para graficas)
 
-### 1. Instalar dependencias
+### 1. Instalar dependencias opcionales
 
 ```bash
 pip install matplotlib
 ```
 
-> Tkinter y SQLite vienen incluidos con Python. No necesitas instalarlos.
-
-### 2. (Opcional) Generar datos de demostración
+### 2. (Opcional) Generar datos de demostracion
 
 ```bash
 python seed_demo.py
 ```
 
-Esto crea 45 días de historial simulado para que puedas explorar todas las funciones.
+Crea 45 dias de historial con ventas simuladas.
 
-### 3. Ejecutar la aplicación
+### 3. Ejecutar
 
 ```bash
 python app.py
@@ -57,47 +55,47 @@ python app.py
 
 ---
 
-## 🔬 Modelos de pronóstico
+## Roles
 
-El sistema selecciona automáticamente el modelo según los datos disponibles:
+| Rol       | PIN default | Que puede hacer                                      |
+|-----------|-------------|------------------------------------------------------|
+| Panadero  | 1234        | Ver pronosticos, registrar produccion, configurar     |
+| Cajero    | 0000        | Registrar ventas, ver resumen del dia                 |
 
-| Historial disponible | Modelo usado           | Confianza |
-|---------------------|------------------------|-----------|
-| < 7 días            | Regla base conservadora | Baja      |
-| 7 – 29 días         | Promedio móvil + buffer | Media     |
-| 30+ días            | Promedio por día semana | Alta      |
-
----
-
-## 📊 Nivel Sigma (DMAIC - Controlar)
-
-El sistema calcula el nivel Sigma automáticamente:
-
-| Nivel Sigma | Significado                        |
-|------------|-------------------------------------|
-| ≥ 3.0σ     | 🟢 Proceso controlado               |
-| ≥ 2.0σ     | 🟡 Proceso mejorable                |
-| < 2.0σ     | 🔴 Alta variabilidad, requiere acción|
+Los PINs y usuarios se pueden cambiar desde Configuracion (rol panadero).
 
 ---
 
-## 🗺️ Relación con DMAIC
+## Funciones principales
 
-| Fase      | Función en el sistema                          |
-|-----------|------------------------------------------------|
-| Definir   | Identificar sobreproducción y desabasto        |
-| Medir     | Registro diario digital (base de datos SQLite) |
-| Analizar  | Pareto de sobrantes, tendencias por producto   |
-| Mejorar   | Ajuste automático de producción sugerida       |
-| Controlar | Alertas, nivel Sigma, dashboard de estado      |
+### Cajero
+- **Registrar Venta**: Selecciona producto, cantidad, y registra. Muestra total.
+- **Ventas de Hoy**: Resumen de todas las ventas del dia.
+
+### Panadero
+- **Cuantos Hornear**: Pronostico por producto con colores de estado.
+- **Registrar Produccion**: Cuantos panes se hornearon (vendido se auto-llena desde ventas del cajero).
+- **Ventas de Hoy**: Ver lo que registro el cajero.
+- **Historial**: Tabla de produccion por dias.
+- **Configuracion**: Productos, precios y usuarios.
 
 ---
 
-## 🚀 Futuras mejoras sugeridas
+## Pronostico
 
+El sistema calcula automaticamente cuantos panes hornear:
+
+| Datos disponibles | Metodo                  | Confianza |
+|-------------------|-------------------------|-----------|
+| < 7 dias          | Estimacion inicial      | Poca      |
+| 7 - 29 dias       | Promedio de la semana   | Media     |
+| 30+ dias          | Promedio por dia        | Buena     |
+
+---
+
+## Futuras mejoras
+
+- [ ] QR en caja para que el cliente registre su pedido
 - [ ] Exportar reportes a Excel/PDF
-- [ ] Modelo ARIMA para series de tiempo largas (con `statsmodels`)
-- [ ] Integración con clima (API) para ajuste por temporada
-- [ ] Notificaciones por WhatsApp/Email al inicio del día
-- [ ] Versión web con Flask o FastAPI + React
-- [ ] Soporte para múltiples sucursales
+- [ ] Notificaciones al inicio del dia
+- [ ] Version web
