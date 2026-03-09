@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title_extra %} - Registrar Produccion{% endblock %}
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h2 class="page-title">Registrar Produccion</h2>
+    </div>
+    <p class="text-muted">Registra lo producido y vendido para controlar sobrantes, faltantes y trazabilidad.</p>
+
+    <div class="card">
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('panadero_produccion') }}">
+                <div class="two-col-form">
+                    <div class="form-group">
+                        <label for="fecha">Fecha</label>
+                        <input type="date" name="fecha" id="fecha" value="{{ hoy }}" class="form-input" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="producto">Producto</label>
+                        <select name="producto" id="producto" class="form-input" required onchange="autoVendido()">
+                            {% for p in productos %}
+                            <option value="{{ p }}">{{ p }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="producido">Cantidad horneada</label>
+                        <input type="number" name="producido" id="producido" class="form-input"
+                               min="0" placeholder="Ej: 100" required oninput="calcBalance()">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="vendido">
+                            Cantidad vendida
+                            <span class="form-hint" id="autoHint"></span>
+                        </label>
+                        <input type="number" name="vendido" id="vendido" class="form-input"
+                               min="0" placeholder="Ej: 85" required oninput="calcBalance()">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Balance</label>
+                    <div class="sobrante-display" id="sobranteDisplay">--</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="observaciones">Notas (opcional)</label>
+                    <input type="text" name="observaciones" id="observaciones" class="form-input"
+                           placeholder="Ej: Fin de semana, evento especial...">
+                </div>
+
+                <button type="submit" class="btn btn-accent btn-lg btn-full">
+                    Guardar Registro
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">Registros recientes de produccion (30 dias)</div>
+        <div class="card-body">
+            <table class="table table-compact">
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Producto</th>
+                        <th class="text-center">Producido</th>
+                        <th class="text-center">Vendido</th>
+                        <th class="text-center">Sobrante</th>
+                        <th class="text-center">Faltante</th>
+                        <th>Registrado por</th>
+                        <th>Registro</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if registros_recientes %}
+                        {% for r in registros_recientes[:40] %}
+                        <tr class="{% if r.faltante > 0 %}row-danger{% elif r.sobrante > 0 %}row-warning{% endif %}">
+                            <td>{{ r.fecha }}</td>
+                            <td>{{ r.producto }}</td>
+                            <td class="text-center">{{ r.producido }}</td>
+                            <td class="text-center">{{ r.vendido }}</td>
+                            <td class="text-center">{{ r.sobrante if r.sobrante > 0 else 0 }}</td>
+                            <td class="text-center">{{ r.faltante if r.faltante > 0 else 0 }}</td>
+                            <td>{{ r.registrado_por or '-' }}</td>
+                            <td>{{ r.registrado_en or '-' }}</td>
+                        </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="8" class="text-center text-muted">No hay registros recientes.</td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+function autoVendido() {
+    const fecha = document.getElementById('fecha').value;
+    const producto = document.getElementById('producto').value;
+    if (!fecha || !producto) return;
+
+    fetch('/api/ventas/vendido?fecha=' + fecha + '&producto=' + encodeURIComponent(producto))
+    .then(r => r.json())
+    .then(data => {
+        if (data.vendido > 0) {
+            document.getElementById('vendido').value = data.vendido;
+            document.getElementById('autoHint').textContent = '(dato del cajero)';
+            calcBalance();
+        } else {
+            document.getElementById('autoHint').textContent = '';
+        }
+    })
+    .catch(() => {});
+}
+
+function calcBalance() {
+    const p = parseInt(document.getElementById('producido').value) || 0;
+    const v = parseInt(document.getElementById('vendido').value) || 0;
+    const el = document.getElementById('sobranteDisplay');
+
+    if (p > 0 || v > 0) {
+        const diff = p - v;
+        if (diff >= 0) {
+            el.textContent = 'Sobrante: ' + diff + ' panes';
+            el.className = 'sobrante-display sobrante-ok';
+        } else {
+            el.textContent = 'Faltante: ' + Math.abs(diff) + ' panes';
+            el.className = 'sobrante-display sobrante-bad';
+        }
+    } else {
+        el.textContent = '--';
+        el.className = 'sobrante-display';
+    }
+}
+
+autoVendido();
+</script>
+{% endblock %}

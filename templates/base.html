@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rich{% block title_extra %}{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body class="{{ layout|default('') }}-layout">
+
+{% if layout == 'panadero' %}
+<button class="mobile-menu-btn" type="button" onclick="toggleSidebar()">Menu</button>
+<aside class="sidebar" id="panaderoSidebar">
+    <div class="sidebar-brand">
+        <span class="sidebar-name">Panaderia RICH</span>
+    </div>
+    <div class="sidebar-user">{{ session.usuario.nombre }}</div>
+    <nav class="sidebar-nav">
+        <a href="{{ url_for('panadero_pronostico') }}" class="{% if active_page == 'pronostico' %}active{% endif %}">
+            Cuantos Hornear
+        </a>
+        <a href="{{ url_for('panadero_produccion') }}" class="{% if active_page == 'produccion' %}active{% endif %}">
+            Registrar Produccion
+        </a>
+        <a href="{{ url_for('panadero_estandarizacion') }}" class="{% if active_page == 'estandarizacion' %}active{% endif %}">
+            Estandarizacion
+        </a>
+        <a href="{{ url_for('panadero_ventas') }}" class="{% if active_page == 'ventas' %}active{% endif %}">
+            Ventas de Hoy
+        </a>
+        <a href="{{ url_for('panadero_historial') }}" class="{% if active_page == 'historial' %}active{% endif %}">
+            Contabilidad
+        </a>
+        <a href="{{ url_for('panadero_config') }}" class="{% if active_page == 'config' %}active{% endif %}">
+            Configuracion
+        </a>
+    </nav>
+    <div class="sidebar-footer">
+        <div class="sidebar-date">{{ ahora.strftime('%d/%m/%Y') }}</div>
+        <a href="{{ url_for('logout') }}" class="sidebar-logout">Cerrar Sesion</a>
+    </div>
+</aside>
+{% elif layout == 'cajero' %}
+<header class="topbar">
+    <div class="topbar-left">
+        <span class="topbar-brand">Rich</span>
+        <span class="topbar-user">{{ session.usuario.nombre }}</span>
+    </div>
+
+    <nav class="topbar-nav">
+        <a href="{{ url_for('cajero_pos') }}" class="{% if active_page == 'pos' %}active{% endif %}">
+            Punto de Venta
+        </a>
+        <a href="{{ url_for('cajero_ventas') }}" class="{% if active_page == 'ventas' %}active{% endif %}">
+            Ventas de Hoy
+        </a>
+    </nav>
+
+    <a href="{{ url_for('logout') }}" class="topbar-logout">Salir</a>
+    <button class="topbar-menu-btn" type="button" onclick="toggleCajeroMenu()">Menu</button>
+</header>
+
+<aside class="cajero-mobile-menu" id="cajeroMobileMenu">
+    <div class="cajero-mobile-header">Navegacion</div>
+    <nav class="cajero-mobile-nav">
+        <a href="{{ url_for('cajero_pos') }}" class="{% if active_page == 'pos' %}active{% endif %}">
+            Punto de Venta
+        </a>
+        <a href="{{ url_for('cajero_ventas') }}" class="{% if active_page == 'ventas' %}active{% endif %}">
+            Ventas de Hoy
+        </a>
+        <a href="{{ url_for('logout') }}">Cerrar Sesion</a>
+    </nav>
+</aside>
+{% endif %}
+
+<div class="mobile-overlay" id="mobileOverlay" onclick="closeMobileMenus()"></div>
+
+<main class="main-content">
+    {% block content %}{% endblock %}
+</main>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="flash-container">
+    {% for category, message in messages %}
+    <div class="flash flash-{{ category }}">
+        {{ message }}
+        <button onclick="this.parentElement.remove()" class="flash-close">&times;</button>
+    </div>
+    {% endfor %}
+</div>
+<script>
+setTimeout(function () {
+    document.querySelectorAll('.flash').forEach(function (el) { el.remove(); });
+}, 4000);
+</script>
+{% endif %}
+{% endwith %}
+
+<script>
+function closeMobileMenus() {
+    document.body.classList.remove('sidebar-open');
+    document.body.classList.remove('cajero-menu-open');
+}
+
+function toggleSidebar() {
+    document.body.classList.toggle('sidebar-open');
+    if (document.body.classList.contains('sidebar-open')) {
+        document.body.classList.remove('cajero-menu-open');
+    }
+}
+
+function toggleCajeroMenu() {
+    document.body.classList.toggle('cajero-menu-open');
+    if (document.body.classList.contains('cajero-menu-open')) {
+        document.body.classList.remove('sidebar-open');
+    }
+}
+
+window.addEventListener('resize', function () {
+    if (window.innerWidth > 900) {
+        closeMobileMenus();
+    }
+});
+</script>
+
+</body>
+</html>
+

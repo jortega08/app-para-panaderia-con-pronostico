@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title_extra %} - Punto de Venta{% endblock %}
+{% block content %}
+<div class="pos-layout">
+    <div class="pos-products">
+        <h2 class="page-title">Toca un producto para agregarlo</h2>
+        <div class="product-grid">
+            {% for p in productos %}
+            <button class="product-card" onclick="addToCart('{{ p.nombre }}', {{ p.precio }})"
+                    style="--prod-color: {{ p.color }}">
+                <div class="product-color-bar" style="background: {{ p.color }}"></div>
+                <span class="product-name">{{ p.nombre }}</span>
+                <span class="product-price">${{ '%.2f'|format(p.precio) }}</span>
+            </button>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="cart-panel">
+        <div class="cart-header">
+            <h3>Pedido Actual</h3>
+            <span class="cart-count" id="cartCount">0 items</span>
+        </div>
+
+        <div class="cart-items" id="cartItems">
+            <div class="cart-empty" id="cartEmpty">
+                <p>El pedido esta vacio</p>
+                <p class="text-muted">Toca un producto para agregarlo</p>
+            </div>
+        </div>
+
+        <div class="cart-footer">
+            <div class="cart-total-row">
+                <span class="cart-total-label">TOTAL</span>
+                <span class="cart-total-value" id="cartTotal">$0.00</span>
+            </div>
+            <div class="cart-actions">
+                <button class="btn btn-danger-outline" onclick="clearCart()">Limpiar</button>
+                <button class="btn btn-success btn-lg" onclick="cobrar()">Cobrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let cart = [];
+
+function addToCart(nombre, precio) {
+    const existing = cart.find(item => item.nombre === nombre);
+    if (existing) {
+        existing.cantidad++;
+    } else {
+        cart.push({ nombre: nombre, precio: precio, cantidad: 1 });
+    }
+    renderCart();
+}
+
+function updateQty(nombre, qty) {
+    qty = parseInt(qty);
+    if (isNaN(qty) || qty < 0) return;
+    const item = cart.find(i => i.nombre === nombre);
+    if (!item) return;
+
+    if (qty === 0) {
+        cart = cart.filter(i => i.nombre !== nombre);
+    } else {
+        item.cantidad = qty;
+    }
+    renderCart();
+}
+
+function removeFromCart(nombre) {
+    cart = cart.filter(i => i.nombre !== nombre);
+    renderCart();
+}
+
+function clearCart() {
+    cart = [];
+    renderCart();
+}
+
+function renderCart() {
+    const container = document.getElementById('cartItems');
+    const countEl = document.getElementById('cartCount');
+    const totalEl = document.getElementById('cartTotal');
+
+    let total = 0;
+    let totalItems = 0;
+
+    if (cart.length === 0) {
+        container.innerHTML = `
+            <div class="cart-empty">
+                <p>El pedido esta vacio</p>
+                <p class="text-muted">Toca un producto para agregarlo</p>
+            </div>`;
+        countEl.textContent = '0 items';
+        totalEl.textContent = '$0.00';
+        return;
+    }
+
+    let html = '';
+    cart.forEach(item => {
+        const subtotal = item.precio * item.cantidad;
+        total += subtotal;
+        totalItems += item.cantidad;
+
+        html += `
+        <div class="cart-item">
+            <div class="cart-item-info">
+                <div>
+                    <div class="cart-item-name">${item.nombre}</div>
+                    <div class="cart-item-price">$${item.precio.toFixed(2)} c/u</div>
+                </div>
+            </div>
+            <div class="cart-item-controls">
+                <button class="qty-btn qty-minus" onclick="updateQty('${item.nombre}', ${item.cantidad - 1})">-</button>
+                <input type="number" class="qty-input" value="${item.cantidad}" min="0"
+                       onchange="updateQty('${item.nombre}', this.value)"
+                       onkeyup="updateQty('${item.nombre}', this.value)">
+                <button class="qty-btn qty-plus" onclick="updateQty('${item.nombre}', ${item.cantidad + 1})">+</button>
+            </div>
+            <div class="cart-item-subtotal">$${subtotal.toFixed(2)}</div>
+            <button class="cart-item-remove" onclick="removeFromCart('${item.nombre}')">&times;</button>
+        </div>`;
+    });
+
+    container.innerHTML = html;
+    countEl.textContent = totalItems + (totalItems === 1 ? ' item' : ' items');
+    totalEl.textContent = '$' + total.toFixed(2);
+}
+
+function cobrar() {
+    if (cart.length === 0) {
+        alert('Agrega productos al pedido primero.');
+        return;
+    }
+
+    const items = cart.map(item => ({
+        producto: item.nombre,
+        cantidad: item.cantidad,
+        precio: item.precio,
+    }));
+
+    fetch('/api/venta', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: items }),
+    })
+        .then(async res => {
+            const data = await res.json();
+            if (!res.ok || !data.ok) {
+                const detalle = (data.detalle || [])
+                    .map(d => '- ' + (d.error || 'Error de validacion'))
+                    .join('\n');
+                const msg = data.error || 'Error al registrar la venta.';
+                throw new Error(detalle ? msg + '\n' + detalle : msg);
+            }
+
+            const total = cart.reduce((s, i) => s + i.precio * i.cantidad, 0);
+            const detalleOk = cart.map(i =>
+                `  ${i.cantidad}x ${i.nombre} = $${(i.precio * i.cantidad).toFixed(2)}`
+            ).join('\n');
+            alert('Venta registrada.\n\n' + detalleOk + '\n\nTotal: $' + total.toFixed(2));
+            cart = [];
+            renderCart();
+        })
+        .catch(err => {
+            alert(err.message || 'Error de conexion.');
+        });
+}
+</script>
+{% endblock %}

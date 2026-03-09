@@ -1,0 +1,370 @@
+{% extends "base.html" %}
+{% block title_extra %} - Dashboard Contable{% endblock %}
+{% block content %}
+<div class="page-container analytics-page">
+    <div class="page-header">
+        <h2 class="page-title">Dashboard Contable y de Ventas</h2>
+        <span class="text-muted">Control financiero y operativo de Panaderia Rich</span>
+    </div>
+
+    <div class="card filters-card">
+        <div class="card-body">
+            <form class="filters-form" onsubmit="event.preventDefault(); cargarDashboardHistorial();">
+                <div class="filter-group">
+                    <label for="filtroProductoHistorial">Producto</label>
+                    <select id="filtroProductoHistorial" class="form-input form-input-sm">
+                        <option value="Todos">Todos</option>
+                        {% for p in productos %}
+                        <option value="{{ p }}" {% if filtro_producto == p %}selected{% endif %}>{{ p }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="filtroDiasHistorial">Periodo</label>
+                    <select id="filtroDiasHistorial" class="form-input form-input-sm">
+                        <option value="7" {% if filtro_dias == 7 %}selected{% endif %}>7 dias</option>
+                        <option value="30" {% if filtro_dias == 30 %}selected{% endif %}>30 dias</option>
+                        <option value="60" {% if filtro_dias == 60 %}selected{% endif %}>60 dias</option>
+                        <option value="90" {% if filtro_dias == 90 %}selected{% endif %}>90 dias</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-accent" id="btnRefrescarHistorial">Actualizar Dashboard</button>
+            </form>
+        </div>
+    </div>
+
+    <h3 class="subsection-title">Resumen contable</h3>
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-label">Ingresos totales</div>
+            <div class="kpi-value" id="kpiIngresos">$0.00</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Panes vendidos</div>
+            <div class="kpi-value" id="kpiPanes">0</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Transacciones</div>
+            <div class="kpi-value" id="kpiTransacciones">0</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Ticket promedio</div>
+            <div class="kpi-value" id="kpiTicket">$0.00</div>
+        </div>
+    </div>
+
+    <h3 class="subsection-title">Control de produccion</h3>
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-label">Total producido</div>
+            <div class="kpi-value" id="kpiProducido">0</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Total sobrante</div>
+            <div class="kpi-value" id="kpiSobrante">0</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Total faltante</div>
+            <div class="kpi-value" id="kpiFaltante">0</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Aprovechamiento</div>
+            <div class="kpi-value" id="kpiAprovechamientoOp">0%</div>
+        </div>
+    </div>
+
+    <div class="analytics-grid">
+        <div class="card analytics-card">
+            <div class="card-header">Evolucion diaria (ingresos y panes)</div>
+            <div class="card-body chart-wrap">
+                <canvas id="chartEvolucionDiaria"></canvas>
+            </div>
+        </div>
+
+        <div class="card analytics-card">
+            <div class="card-header">Control operativo por dia</div>
+            <div class="card-body chart-wrap">
+                <canvas id="chartOperacion"></canvas>
+            </div>
+        </div>
+
+        <div class="card analytics-card">
+            <div class="card-header">Ventas por producto (ingresos)</div>
+            <div class="card-body chart-wrap">
+                <canvas id="chartVentasProductoHistorial"></canvas>
+            </div>
+        </div>
+
+        <div class="card analytics-card">
+            <div class="card-header">Distribucion por hora</div>
+            <div class="card-body chart-wrap">
+                <canvas id="chartHora"></canvas>
+            </div>
+        </div>
+
+        <div class="card analytics-card">
+            <div class="card-header">Participacion por producto</div>
+            <div class="card-body chart-wrap">
+                <canvas id="chartParticipacion"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">Ventas recientes</div>
+        <div class="card-body">
+            <table class="table table-compact">
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Hora</th>
+                        <th>Producto</th>
+                        <th class="text-center">Cantidad</th>
+                        <th class="text-right">Total</th>
+                        <th>Registrado por</th>
+                    </tr>
+                </thead>
+                <tbody id="tablaVentasRecientes">
+                    <tr><td colspan="6" class="text-center text-muted">Cargando...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+let chartEvolucionDiaria = null;
+let chartOperacion = null;
+let chartVentasProductoHistorial = null;
+let chartHora = null;
+let chartParticipacion = null;
+
+function money(v) {
+    return '$' + Number(v || 0).toFixed(2);
+}
+
+function destroyChart(chart) {
+    if (chart) chart.destroy();
+}
+
+function cargarDashboardHistorial() {
+    const producto = document.getElementById('filtroProductoHistorial').value;
+    const dias = document.getElementById('filtroDiasHistorial').value;
+    const btn = document.getElementById('btnRefrescarHistorial');
+
+    btn.disabled = true;
+    btn.textContent = 'Actualizando...';
+
+    fetch(`/api/historial/dashboard?producto=${encodeURIComponent(producto)}&dias=${dias}`)
+        .then(r => r.json())
+        .then(data => {
+            renderKpiHistorial(data.totales || {});
+            renderKpiOperacion(data.operacion || {});
+            renderChartEvolucion(data.serie_diaria || []);
+            renderChartOperacion(data.serie_operativa || []);
+            renderChartProducto(data.resumen_productos || []);
+            renderChartHora(data.serie_horaria || []);
+            renderChartParticipacion(data.resumen_productos || []);
+            renderVentasRecientes(data.ventas_recientes || []);
+        })
+        .catch(err => {
+            console.error(err);
+            alert('No se pudo cargar el dashboard contable.');
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.textContent = 'Actualizar Dashboard';
+        });
+}
+
+function renderKpiHistorial(t) {
+    document.getElementById('kpiIngresos').textContent = money(t.dinero);
+    document.getElementById('kpiPanes').textContent = t.panes || 0;
+    document.getElementById('kpiTransacciones').textContent = t.transacciones || 0;
+    document.getElementById('kpiTicket').textContent = money(t.ticket_promedio);
+}
+
+function renderKpiOperacion(op) {
+    document.getElementById('kpiProducido').textContent = op.total_producido || 0;
+    document.getElementById('kpiSobrante').textContent = op.total_sobrante || 0;
+    document.getElementById('kpiFaltante').textContent = op.total_faltante || 0;
+    document.getElementById('kpiAprovechamientoOp').textContent = (op.aprovechamiento || 0) + '%';
+}
+
+function renderChartEvolucion(serie) {
+    const ctx = document.getElementById('chartEvolucionDiaria');
+    destroyChart(chartEvolucionDiaria);
+
+    chartEvolucionDiaria = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: serie.map(s => s.fecha),
+            datasets: [
+                {
+                    label: 'Ingresos',
+                    data: serie.map(s => s.dinero),
+                    borderColor: '#C17817',
+                    backgroundColor: 'rgba(193,120,23,0.2)',
+                    fill: true,
+                    tension: 0.2,
+                },
+                {
+                    label: 'Panes',
+                    data: serie.map(s => s.panes),
+                    borderColor: '#388E3C',
+                    backgroundColor: 'rgba(56,142,60,0.15)',
+                    fill: true,
+                    tension: 0.2,
+                    yAxisID: 'y1'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+                y: { beginAtZero: true, position: 'left' },
+                y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false } },
+            }
+        }
+    });
+}
+
+function renderChartOperacion(serie) {
+    const ctx = document.getElementById('chartOperacion');
+    destroyChart(chartOperacion);
+
+    chartOperacion = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: serie.map(s => s.fecha),
+            datasets: [
+                {
+                    label: 'Producido',
+                    data: serie.map(s => s.producido),
+                    backgroundColor: '#81B29A',
+                    borderRadius: 6,
+                },
+                {
+                    label: 'Vendido',
+                    data: serie.map(s => s.vendido),
+                    backgroundColor: '#2E7D32',
+                    borderRadius: 6,
+                },
+                {
+                    label: 'Sobrante',
+                    data: serie.map(s => s.sobrante),
+                    backgroundColor: '#E8B44D',
+                    borderRadius: 6,
+                },
+                {
+                    label: 'Faltante',
+                    data: serie.map(s => s.faltante),
+                    backgroundColor: '#D32F2F',
+                    borderRadius: 6,
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: { y: { beginAtZero: true } }
+        }
+    });
+}
+
+function renderChartProducto(resumen) {
+    const ctx = document.getElementById('chartVentasProductoHistorial');
+    destroyChart(chartVentasProductoHistorial);
+
+    const top = resumen.slice(0, 10);
+
+    chartVentasProductoHistorial = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: top.map(r => r.producto),
+            datasets: [{
+                label: 'Ingresos',
+                data: top.map(r => r.dinero),
+                backgroundColor: '#D4722A',
+                borderRadius: 8,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            indexAxis: 'y',
+            scales: { x: { beginAtZero: true } }
+        }
+    });
+}
+
+function renderChartHora(serie) {
+    const ctx = document.getElementById('chartHora');
+    destroyChart(chartHora);
+
+    chartHora = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: serie.map(s => s.hora),
+            datasets: [{
+                label: 'Panes vendidos',
+                data: serie.map(s => s.panes),
+                backgroundColor: '#81B29A',
+                borderRadius: 6,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: { y: { beginAtZero: true } }
+        }
+    });
+}
+
+function renderChartParticipacion(resumen) {
+    const ctx = document.getElementById('chartParticipacion');
+    destroyChart(chartParticipacion);
+
+    const top = resumen.slice(0, 8);
+
+    chartParticipacion = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: top.map(r => r.producto),
+            datasets: [{
+                data: top.map(r => r.dinero),
+                backgroundColor: ['#E8B44D', '#E07A5F', '#81B29A', '#9B8EA0', '#C17817', '#D4722A', '#5D4037', '#B0BEC5']
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'right' } }
+        }
+    });
+}
+
+function renderVentasRecientes(ventas) {
+    const tbody = document.getElementById('tablaVentasRecientes');
+    if (!ventas.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No hay ventas para el filtro seleccionado.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = ventas.map(v => `
+        <tr>
+            <td>${v.fecha}</td>
+            <td>${(v.hora || '').substring(0, 5)}</td>
+            <td>${v.producto}</td>
+            <td class="text-center">${v.cantidad}</td>
+            <td class="text-right">${money(v.total)}</td>
+            <td>${v.registrado_por || '-'}</td>
+        </tr>
+    `).join('');
+}
+
+cargarDashboardHistorial();
+</script>
+{% endblock %}

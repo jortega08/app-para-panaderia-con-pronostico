@@ -1,0 +1,292 @@
+{% extends "base.html" %}
+{% block title_extra %} - Centro de Pronostico{% endblock %}
+{% block content %}
+<div class="page-container analytics-page">
+    <div class="page-header">
+        <h2 class="page-title">Centro de Pronostico Semanal</h2>
+        <span class="text-muted">{{ ahora.strftime('%A %d/%m/%Y')|capitalize }}</span>
+    </div>
+
+    <div class="card filters-card">
+        <div class="card-body">
+            <form class="filters-form" onsubmit="event.preventDefault(); cargarPronosticoDashboard();">
+                <div class="filter-group">
+                    <label for="filtroProductoPronostico">Producto</label>
+                    <select id="filtroProductoPronostico" class="form-input form-input-sm">
+                        {% for p in productos %}
+                        <option value="{{ p }}" {% if p == producto_default %}selected{% endif %}>{{ p }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="filtroDiasPronostico">Periodo historico</label>
+                    <select id="filtroDiasPronostico" class="form-input form-input-sm">
+                        <option value="14">14 dias</option>
+                        <option value="30" selected>30 dias</option>
+                        <option value="60">60 dias</option>
+                        <option value="90">90 dias</option>
+                    </select>
+                </div>
+                <button class="btn btn-accent" type="submit" id="btnRefrescarPronostico">Actualizar Analitica</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-label">Total sugerido semana</div>
+            <div class="kpi-value" id="kpiSugeridoSemana">0</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Promedio sugerido diario</div>
+            <div class="kpi-value" id="kpiPromedioSugerido">0</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Aprovechamiento historico</div>
+            <div class="kpi-value" id="kpiAprovechamiento">0%</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Tendencia del producto</div>
+            <div class="kpi-value" id="kpiTendencia">-</div>
+        </div>
+    </div>
+
+    <div class="analytics-grid">
+        <div class="card analytics-card">
+            <div class="card-header">Prediccion semanal por dia</div>
+            <div class="card-body chart-wrap">
+                <canvas id="chartPrediccionSemanal"></canvas>
+            </div>
+        </div>
+        <div class="card analytics-card">
+            <div class="card-header">Control: producido vs vendido</div>
+            <div class="card-body chart-wrap">
+                <canvas id="chartControlProduccion"></canvas>
+            </div>
+        </div>
+        <div class="card analytics-card">
+            <div class="card-header">Ventas del producto (ingresos diarios)</div>
+            <div class="card-body chart-wrap">
+                <canvas id="chartVentasProducto"></canvas>
+            </div>
+        </div>
+        <div class="card analytics-card">
+            <div class="card-header">Participacion por producto (ventas)</div>
+            <div class="card-body chart-wrap">
+                <canvas id="chartRankingProductos"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">Plan semanal recomendado</div>
+        <div class="card-body">
+            <table class="table table-compact">
+                <thead>
+                    <tr>
+                        <th>Dia</th>
+                        <th>Fecha</th>
+                        <th class="text-center">Sugerido</th>
+                        <th class="text-center">Promedio base</th>
+                        <th>Confianza</th>
+                        <th>Modelo</th>
+                    </tr>
+                </thead>
+                <tbody id="tablaPrediccionBody">
+                    <tr><td colspan="6" class="text-center text-muted">Cargando...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+let chartPrediccionSemanal = null;
+let chartControlProduccion = null;
+let chartVentasProducto = null;
+let chartRankingProductos = null;
+
+function destruirChart(chartRef) {
+    if (chartRef) {
+        chartRef.destroy();
+    }
+}
+
+function cargarPronosticoDashboard() {
+    const producto = document.getElementById('filtroProductoPronostico').value;
+    const dias = document.getElementById('filtroDiasPronostico').value;
+    const btn = document.getElementById('btnRefrescarPronostico');
+    btn.disabled = true;
+    btn.textContent = 'Actualizando...';
+
+    fetch(`/api/pronostico/dashboard?producto=${encodeURIComponent(producto)}&dias=${dias}`)
+        .then(r => r.json())
+        .then(data => {
+            renderKPIsPronostico(data.resumen || {});
+            renderTablaPrediccion(data.prediccion_semana || []);
+            renderChartPrediccion(data.prediccion_semana || []);
+            renderChartControl(data.historial_producto || []);
+            renderChartVentasProducto(data.serie_ventas_producto || []);
+            renderChartRanking(data.ranking_productos || []);
+        })
+        .catch(err => {
+            console.error(err);
+            alert('No se pudo cargar la analitica del pronostico.');
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.textContent = 'Actualizar Analitica';
+        });
+}
+
+function renderKPIsPronostico(resumen) {
+    document.getElementById('kpiSugeridoSemana').textContent = resumen.sugerido_semana || 0;
+    document.getElementById('kpiPromedioSugerido').textContent = resumen.promedio_sugerido || 0;
+    document.getElementById('kpiAprovechamiento').textContent = (resumen.aprovechamiento || 0) + '%';
+    document.getElementById('kpiTendencia').textContent = resumen.tendencia || '-';
+}
+
+function renderTablaPrediccion(filas) {
+    const tbody = document.getElementById('tablaPrediccionBody');
+    if (!filas.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Sin datos para mostrar.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = filas.map(f => `
+        <tr>
+            <td>${f.dia}</td>
+            <td>${f.fecha}</td>
+            <td class="text-center"><strong>${f.sugerido}</strong></td>
+            <td class="text-center">${f.promedio}</td>
+            <td>${f.confianza}</td>
+            <td>${f.modelo}</td>
+        </tr>
+    `).join('');
+}
+
+function renderChartPrediccion(filas) {
+    const ctx = document.getElementById('chartPrediccionSemanal');
+    destruirChart(chartPrediccionSemanal);
+
+    chartPrediccionSemanal = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: filas.map(f => f.dia),
+            datasets: [
+                {
+                    label: 'Sugerido',
+                    data: filas.map(f => f.sugerido),
+                    backgroundColor: '#C17817',
+                    borderRadius: 8,
+                },
+                {
+                    label: 'Promedio base',
+                    data: filas.map(f => f.promedio),
+                    backgroundColor: '#81B29A',
+                    borderRadius: 8,
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'top' } },
+            scales: { y: { beginAtZero: true } }
+        }
+    });
+}
+
+function renderChartControl(historial) {
+    const ctx = document.getElementById('chartControlProduccion');
+    destruirChart(chartControlProduccion);
+
+    const ultimos = historial.slice(-14);
+
+    chartControlProduccion = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: ultimos.map(h => h.fecha),
+            datasets: [
+                {
+                    label: 'Producido',
+                    data: ultimos.map(h => h.producido),
+                    borderColor: '#E07A5F',
+                    backgroundColor: 'rgba(224,122,95,0.2)',
+                    fill: true,
+                    tension: 0.25,
+                },
+                {
+                    label: 'Vendido',
+                    data: ultimos.map(h => h.vendido),
+                    borderColor: '#2E7D32',
+                    backgroundColor: 'rgba(46,125,50,0.2)',
+                    fill: true,
+                    tension: 0.25,
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'top' } },
+            scales: { y: { beginAtZero: true } }
+        }
+    });
+}
+
+function renderChartVentasProducto(serie) {
+    const ctx = document.getElementById('chartVentasProducto');
+    destruirChart(chartVentasProducto);
+
+    chartVentasProducto = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: serie.map(s => s.fecha),
+            datasets: [
+                {
+                    label: 'Ingresos diarios',
+                    data: serie.map(s => s.dinero),
+                    borderColor: '#D4722A',
+                    backgroundColor: 'rgba(212,114,42,0.2)',
+                    fill: true,
+                    tension: 0.2,
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'top' } },
+            scales: { y: { beginAtZero: true } }
+        }
+    });
+}
+
+function renderChartRanking(ranking) {
+    const ctx = document.getElementById('chartRankingProductos');
+    destruirChart(chartRankingProductos);
+    const top = ranking.slice(0, 8);
+
+    chartRankingProductos = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: top.map(r => r.producto),
+            datasets: [{
+                data: top.map(r => r.dinero),
+                backgroundColor: ['#E8B44D', '#E07A5F', '#81B29A', '#9B8EA0', '#C17817', '#D4722A', '#5D4037', '#B0BEC5']
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'right' }
+            }
+        }
+    });
+}
+
+cargarPronosticoDashboard();
+</script>
+{% endblock %}

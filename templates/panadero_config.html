@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title_extra %} - Configuracion{% endblock %}
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h2 class="page-title">Configuracion</h2>
+    </div>
+
+    <div class="card">
+        <div class="card-header">Productos y Precios</div>
+        <div class="card-body" id="productList">
+            {% for p in productos %}
+            <div class="config-row">
+                <span class="config-dot" style="background: {{ p.color }}"></span>
+                <span class="config-name">{{ p.nombre }}</span>
+                <span class="config-price">${{ '%.2f'|format(p.precio) }}</span>
+                <input type="number" step="0.5" min="0" class="form-input form-input-sm price-input"
+                       value="{{ p.precio }}" id="price-{{ loop.index }}">
+                <button class="btn btn-sm btn-primary"
+                        onclick="changePrice('{{ p.nombre }}', document.getElementById('price-{{ loop.index }}').value)">
+                    Cambiar
+                </button>
+            </div>
+            {% endfor %}
+
+            <div class="config-add-row">
+                <input type="text" class="form-input form-input-sm" placeholder="Nombre del producto"
+                       id="newProdName" style="flex: 2;">
+                <input type="number" step="0.5" min="0" class="form-input form-input-sm" placeholder="Precio"
+                       id="newProdPrice" value="10.0" style="width: 100px;">
+                <button class="btn btn-accent" onclick="addProduct()">Agregar</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">Usuarios</div>
+        <div class="card-body" id="userList">
+            {% for u in usuarios %}
+            <div class="config-row">
+                <span class="badge {% if u.rol == 'panadero' %}badge-primary{% else %}badge-accent{% endif %}">
+                    {{ u.rol|upper }}
+                </span>
+                <span class="config-name">{{ u.nombre }}</span>
+                <button class="btn btn-sm btn-danger-outline"
+                        onclick="deleteUser({{ u.id }}, '{{ u.nombre }}')">
+                    Eliminar
+                </button>
+            </div>
+            {% endfor %}
+
+            <div class="config-add-row">
+                <input type="text" class="form-input form-input-sm" placeholder="Nombre"
+                       id="newUserName" style="flex: 1;">
+                <input type="text" class="form-input form-input-sm" placeholder="PIN"
+                       id="newUserPin" style="width: 80px;">
+                <select class="form-input form-input-sm" id="newUserRol" style="width: 120px;">
+                    <option value="cajero">Cajero</option>
+                    <option value="panadero">Panadero</option>
+                </select>
+                <button class="btn btn-accent" onclick="addUser()">Agregar</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">QR para Clientes</div>
+        <div class="card-body">
+            <div class="qr-section">
+                <div class="qr-info">
+                    <p>Los clientes pueden escanear este codigo QR para registrar su compra desde su celular.</p>
+                    <p class="text-muted">URL: <strong>{{ qr_url }}</strong></p>
+                    <p class="text-muted">Imprime este QR y ponlo cerca de la caja.</p>
+                </div>
+                <div class="qr-code" id="qrCode"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">Acerca del Sistema</div>
+        <div class="card-body">
+            <div class="config-row"><span class="text-muted">Version:</span> <strong>3.0.0 (Web)</strong></div>
+            <div class="config-row"><span class="text-muted">Motor:</span> <strong>Python + Flask + SQLite</strong></div>
+            <div class="config-row"><span class="text-muted">Pronostico:</span> <strong>Estimacion -> Promedio Semanal -> Mixto Dia + Recencia</strong></div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script>
+try {
+    new QRCode(document.getElementById('qrCode'), {
+        text: '{{ qr_url }}',
+        width: 200,
+        height: 200,
+        colorDark: '#2C1810',
+        colorLight: '#FFFFFF',
+    });
+} catch (e) {
+    document.getElementById('qrCode').innerHTML =
+        '<p class="text-muted">No se pudo generar el QR.<br>URL: {{ qr_url }}</p>';
+}
+
+function changePrice(nombre, precio) {
+    precio = parseFloat(precio);
+    if (isNaN(precio) || precio < 0) { alert('Precio invalido'); return; }
+    fetch('/api/producto/precio', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ nombre: nombre, precio: precio }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) location.reload();
+        else alert('Error al cambiar precio');
+    });
+}
+
+function addProduct() {
+    const nombre = document.getElementById('newProdName').value.trim();
+    const precio = parseFloat(document.getElementById('newProdPrice').value);
+    if (!nombre) { alert('Escribe el nombre'); return; }
+    if (isNaN(precio)) { alert('Precio invalido'); return; }
+    fetch('/api/producto', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ nombre: nombre, precio: precio }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) location.reload();
+        else alert('Ese producto ya existe');
+    });
+}
+
+function addUser() {
+    const nombre = document.getElementById('newUserName').value.trim();
+    const pin = document.getElementById('newUserPin').value.trim();
+    const rol = document.getElementById('newUserRol').value;
+    if (!nombre || !pin) { alert('Llena nombre y PIN'); return; }
+    fetch('/api/usuario', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ nombre: nombre, pin: pin, rol: rol }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) location.reload();
+        else alert('No se pudo agregar');
+    });
+}
+
+function deleteUser(id, nombre) {
+    if (!confirm('Eliminar a ' + nombre + '?')) return;
+    fetch('/api/usuario/' + id, { method: 'DELETE' })
+    .then(r => r.json())
+    .then(data => { if (data.ok) location.reload(); });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title_extra %} - Estandarizacion{% endblock %}
+{% block content %}
+<div class="page-container analytics-page">
+    <div class="page-header">
+        <h2 class="page-title">Estandarizacion de Recetas y Proceso</h2>
+        <span class="text-muted">Panaderia Rich - control operativo</span>
+    </div>
+
+    <div class="card filters-card">
+        <div class="card-body">
+            <form class="filters-form" method="GET" action="{{ url_for('panadero_estandarizacion') }}">
+                <div class="filter-group">
+                    <label for="producto">Producto</label>
+                    <select id="producto" name="producto" class="form-input form-input-sm" onchange="this.form.submit()">
+                        {% for p in productos %}
+                        <option value="{{ p }}" {% if p == producto_actual %}selected{% endif %}>{{ p }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-accent">Ver Ficha</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="analytics-grid estandarizacion-grid">
+        <div class="card analytics-card">
+            <div class="card-header">Ficha tecnica - {{ producto_actual }}</div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('panadero_estandarizacion') }}">
+                    <input type="hidden" name="producto" value="{{ producto_actual }}">
+
+                    <div class="form-group">
+                        <label for="ingredientes">Ingredientes</label>
+                        <textarea id="ingredientes" name="ingredientes" class="form-input textarea-input" rows="4" placeholder="Ej: harina, levadura, azucar...">{{ ficha.ingredientes }}</textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="cantidades">Cantidades</label>
+                        <textarea id="cantidades" name="cantidades" class="form-input textarea-input" rows="4" placeholder="Ej: harina 1000g, agua 550ml...">{{ ficha.cantidades }}</textarea>
+                    </div>
+
+                    <div class="two-col-form">
+                        <div class="form-group">
+                            <label for="tiempo_amasado_min">Tiempo amasado (min)</label>
+                            <input type="number" min="0" id="tiempo_amasado_min" name="tiempo_amasado_min" class="form-input" value="{{ ficha.tiempo_amasado_min }}" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="tiempo_fermentacion_min">Tiempo fermentacion (min)</label>
+                            <input type="number" min="0" id="tiempo_fermentacion_min" name="tiempo_fermentacion_min" class="form-input" value="{{ ficha.tiempo_fermentacion_min }}" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="temperatura_horneado_c">Temperatura horneado (C)</label>
+                            <input type="number" min="0" id="temperatura_horneado_c" name="temperatura_horneado_c" class="form-input" value="{{ ficha.temperatura_horneado_c }}" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="tiempo_horneado_min">Tiempo horneado (min)</label>
+                            <input type="number" min="0" id="tiempo_horneado_min" name="tiempo_horneado_min" class="form-input" value="{{ ficha.tiempo_horneado_min }}" required>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="pasos_proceso">Pasos del proceso</label>
+                        <textarea id="pasos_proceso" name="pasos_proceso" class="form-input textarea-input" rows="8" placeholder="Describe la secuencia operativa paso a paso">{{ ficha.pasos_proceso }}</textarea>
+                    </div>
+
+                    <div class="meta-row text-muted">
+                        <span>Actualizado por: <strong>{{ ficha.actualizado_por or '-' }}</strong></span>
+                        <span>Fecha: <strong>{{ ficha.actualizado_en or '-' }}</strong></span>
+                    </div>
+
+                    <button type="submit" class="btn btn-accent btn-full">Guardar Ficha Tecnica</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="card analytics-card">
+            <div class="card-header">Resumen de estandarizacion</div>
+            <div class="card-body">
+                <div class="kpi-grid kpi-grid-mini">
+                    <div class="kpi-card">
+                        <div class="kpi-label">Productos activos</div>
+                        <div class="kpi-value">{{ productos|length }}</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">Fichas creadas</div>
+                        <div class="kpi-value">{{ fichas|length }}</div>
+                    </div>
+                </div>
+
+                <h4 class="subsection-title">Flujo operativo sugerido</h4>
+                <ol class="process-list">
+                    <li>Recepcion de materia prima</li>
+                    <li>Pesaje y dosificacion</li>
+                    <li>Mezclado y amasado</li>
+                    <li>Fermentacion</li>
+                    <li>Formado y crecimiento</li>
+                    <li>Horneado</li>
+                    <li>Enfriado y despacho</li>
+                </ol>
+
+                <h4 class="subsection-title">Ultimas fichas actualizadas</h4>
+                <table class="table table-compact">
+                    <thead>
+                        <tr>
+                            <th>Producto</th>
+                            <th>Actualizado por</th>
+                            <th>Fecha</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if fichas %}
+                            {% for f in fichas[-8:]|reverse %}
+                            <tr>
+                                <td>{{ f.producto }}</td>
+                                <td>{{ f.actualizado_por or '-' }}</td>
+                                <td>{{ f.actualizado_en or '-' }}</td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="3" class="text-muted text-center">Aun no hay fichas guardadas.</td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
