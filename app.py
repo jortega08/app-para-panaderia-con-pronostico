@@ -1,20 +1,17 @@
 """
 app.py
 ------
-Interfaz grafica de Panaderia - Sistema de Pronostico y Punto de Venta.
+Panaderia - Sistema de Ventas y Pronostico.
+Interfaz moderna con tema claro, iconos, graficas y carrito POS.
 
 Roles:
-  - Panadero: ve pronosticos, registra produccion, configura productos
-  - Cajero: registra ventas, ve resumen del dia
-
-Disenado para personas mayores: fuentes grandes, botones amplios,
-colores claros, lenguaje sencillo.
+  - Panadero: pronosticos, produccion, configuracion
+  - Cajero: punto de venta con carrito, resumen del dia
 """
 
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
-from typing import Optional
 import sys
 import os
 
@@ -26,7 +23,6 @@ from data.database import (
     obtener_registros,
     obtener_productos,
     obtener_productos_con_precio,
-    obtener_precio,
     agregar_producto,
     actualizar_precio,
     verificar_pin,
@@ -45,39 +41,99 @@ from logic.pronostico import (
     analizar_tendencia,
 )
 
+# Matplotlib (opcional)
+try:
+    import matplotlib
+    matplotlib.use("TkAgg")
+    from matplotlib.figure import Figure
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+    HAS_MPL = True
+except ImportError:
+    HAS_MPL = False
 
-# ──────────────────────────────────────────────
-# Tema claro - Colores calidos de panaderia
-# ──────────────────────────────────────────────
+
+# ══════════════════════════════════════════════
+# PALETA DE COLORES
+# ══════════════════════════════════════════════
 C = {
-    "fondo":        "#FFF8F0",
-    "fondo_nav":    "#F5E6D3",
-    "tarjeta":      "#FFFFFF",
-    "primario":     "#D4722A",
-    "primario_hover": "#B85D1F",
-    "secundario":   "#8B5E3C",
-    "texto":        "#2C1810",
-    "texto_suave":  "#7A6455",
-    "verde":        "#2E7D32",
-    "verde_claro":  "#E8F5E9",
-    "amarillo":     "#F57F17",
-    "amarillo_claro": "#FFF8E1",
-    "rojo":         "#C62828",
-    "rojo_claro":   "#FFEBEE",
-    "borde":        "#E0D5C8",
-    "seleccion":    "#FFE0B2",
+    # Fondos
+    "bg":            "#FAF7F4",
+    "bg_alt":        "#F0EBE3",
+    "card":          "#FFFFFF",
+    "card_hover":    "#FFF9F2",
+    # Sidebar
+    "sidebar":       "#2C1810",
+    "sidebar_text":  "#D7CCC8",
+    "sidebar_active":"#D4722A",
+    "sidebar_hover": "#3E2723",
+    # Colores principales
+    "primary":       "#C17817",
+    "primary_dark":  "#8B5513",
+    "primary_light": "#F5DEB3",
+    "accent":        "#D4722A",
+    "accent_dark":   "#A0522D",
+    # Texto
+    "text":          "#1B0E07",
+    "text_sec":      "#5D4037",
+    "text_muted":    "#A1887F",
+    # Estados
+    "success":       "#388E3C",
+    "success_bg":    "#E8F5E9",
+    "warning":       "#EF6C00",
+    "warning_bg":    "#FFF3E0",
+    "danger":        "#D32F2F",
+    "danger_bg":     "#FFEBEE",
+    # Bordes
+    "border":        "#D7CCC8",
+    "divider":       "#EFEBE9",
+    # Extras
+    "selected":      "#FFE0B2",
+    "topbar":        "#4E342E",
 }
 
-# Fuentes grandes para facilidad de lectura
-F_TITULO   = ("Arial", 24, "bold")
-F_SUBTIT   = ("Arial", 18, "bold")
-F_GRANDE   = ("Arial", 16)
-F_GRANDE_B = ("Arial", 16, "bold")
-F_NORMAL   = ("Arial", 14)
-F_NORMAL_B = ("Arial", 14, "bold")
-F_BOTON    = ("Arial", 15, "bold")
-F_NUMERO   = ("Arial", 36, "bold")
-F_PEQUENA  = ("Arial", 11)
+# ══════════════════════════════════════════════
+# FUENTES
+# ══════════════════════════════════════════════
+F_HERO     = ("Segoe UI", 28, "bold")
+F_TITULO   = ("Segoe UI", 22, "bold")
+F_SUBTIT   = ("Segoe UI", 17, "bold")
+F_GRANDE   = ("Segoe UI", 15)
+F_GRANDE_B = ("Segoe UI", 15, "bold")
+F_NORMAL   = ("Segoe UI", 13)
+F_NORMAL_B = ("Segoe UI", 13, "bold")
+F_BOTON    = ("Segoe UI", 14, "bold")
+F_NUMERO   = ("Segoe UI", 36, "bold")
+F_ICONO    = ("Segoe UI Emoji", 32)
+F_ICONO_SM = ("Segoe UI Emoji", 20)
+F_SMALL    = ("Segoe UI", 11)
+F_SMALL_B  = ("Segoe UI", 11, "bold")
+
+# ══════════════════════════════════════════════
+# ICONOS POR PRODUCTO (emojis)
+# ══════════════════════════════════════════════
+ICONOS = {
+    "Pan Frances":  "\U0001F956",   # baguette
+    "Pan Dulce":    "\U0001F35E",   # bread
+    "Croissant":    "\U0001F950",   # croissant
+    "Integral":     "\U0001F95E",   # pancake/flatbread
+}
+ICONO_DEFAULT = "\U0001F9C1"        # cupcake
+
+COLORES_PRODUCTO = {
+    "Pan Frances":  "#E8B44D",
+    "Pan Dulce":    "#E07A5F",
+    "Croissant":    "#81B29A",
+    "Integral":     "#9B8EA0",
+}
+COLOR_PROD_DEFAULT = "#B0BEC5"
+
+
+def icono(producto: str) -> str:
+    return ICONOS.get(producto, ICONO_DEFAULT)
+
+
+def color_producto(producto: str) -> str:
+    return COLORES_PRODUCTO.get(producto, COLOR_PROD_DEFAULT)
 
 
 # ══════════════════════════════════════════════
@@ -85,761 +141,1004 @@ F_PEQUENA  = ("Arial", 11)
 # ══════════════════════════════════════════════
 
 class PanaderiaApp(tk.Tk):
-    """Ventana principal."""
 
     def __init__(self):
         super().__init__()
-        self.title("Panaderia - Sistema de Ventas y Pronostico")
-        self.geometry("1100x750")
-        self.minsize(900, 650)
-        self.configure(bg=C["fondo"])
+        self.title("Panaderia")
+        self.geometry("1200x800")
+        self.minsize(1000, 700)
+        self.configure(bg=C["bg"])
 
         inicializar_base_de_datos()
-
-        self.usuario_actual = None  # {nombre, pin, rol}
-        self._configurar_estilos()
+        self.usuario_actual = None
+        self._refresh_jobs = []
+        self._setup_styles()
         self._mostrar_login()
 
-    def _configurar_estilos(self):
+    def _cancelar_refreshes(self):
+        for job in self._refresh_jobs:
+            try:
+                self.after_cancel(job)
+            except Exception:
+                pass
+        self._refresh_jobs.clear()
+
+    def _setup_styles(self):
         s = ttk.Style(self)
         s.theme_use("clam")
-
-        s.configure("TFrame", background=C["fondo"])
-        s.configure("Nav.TFrame", background=C["fondo_nav"])
-        s.configure("Card.TFrame", background=C["tarjeta"])
-
-        s.configure("TLabel", background=C["fondo"], foreground=C["texto"],
+        s.configure("TFrame", background=C["bg"])
+        s.configure("Card.TFrame", background=C["card"])
+        s.configure("TLabel", background=C["bg"], foreground=C["text"],
                      font=F_NORMAL)
-
-        # Boton principal (naranja)
-        s.configure("Primario.TButton",
-                     background=C["primario"], foreground="white",
-                     font=F_BOTON, borderwidth=0, padding=(20, 12))
-        s.map("Primario.TButton",
-              background=[("active", C["primario_hover"])])
-
-        # Boton secundario (cafe)
-        s.configure("Secundario.TButton",
-                     background=C["secundario"], foreground="white",
-                     font=F_NORMAL_B, borderwidth=0, padding=(16, 10))
-        s.map("Secundario.TButton",
-              background=[("active", "#6D4930")])
-
-        # Boton de navegacion
-        s.configure("Nav.TButton",
-                     background=C["fondo_nav"], foreground=C["texto_suave"],
-                     font=F_GRANDE, borderwidth=0, padding=(16, 14))
-        s.map("Nav.TButton",
-              background=[("active", C["seleccion"])],
-              foreground=[("active", C["primario"])])
-
-        # Boton de navegacion activo
-        s.configure("NavActivo.TButton",
-                     background=C["seleccion"], foreground=C["primario"],
-                     font=F_GRANDE_B, borderwidth=0, padding=(16, 14))
-
-        # Boton verde (registrar venta)
-        s.configure("Verde.TButton",
-                     background=C["verde"], foreground="white",
-                     font=F_BOTON, borderwidth=0, padding=(20, 14))
-        s.map("Verde.TButton",
-              background=[("active", "#1B5E20")])
-
-        # Boton rojo
-        s.configure("Rojo.TButton",
-                     background=C["rojo"], foreground="white",
-                     font=F_NORMAL_B, borderwidth=0, padding=(14, 8))
-        s.map("Rojo.TButton",
-              background=[("active", "#8E1A1A")])
-
-        # Boton producto POS (grande)
-        s.configure("Producto.TButton",
-                     background=C["tarjeta"], foreground=C["texto"],
-                     font=F_GRANDE_B, borderwidth=2, padding=(10, 20),
-                     relief="solid")
-        s.map("Producto.TButton",
-              background=[("active", C["seleccion"])])
-
-        # Tabla
-        s.configure("Treeview", background=C["tarjeta"],
-                     foreground=C["texto"], fieldbackground=C["tarjeta"],
-                     font=F_NORMAL, rowheight=36)
-        s.configure("Treeview.Heading",
-                     background=C["fondo_nav"], foreground=C["secundario"],
-                     font=F_NORMAL_B)
+        s.configure("Treeview", background=C["card"], foreground=C["text"],
+                     fieldbackground=C["card"], font=F_NORMAL, rowheight=38)
+        s.configure("Treeview.Heading", background=C["bg_alt"],
+                     foreground=C["text_sec"], font=F_NORMAL_B)
         s.map("Treeview",
-              background=[("selected", C["seleccion"])],
-              foreground=[("selected", C["texto"])])
+              background=[("selected", C["selected"])],
+              foreground=[("selected", C["text"])])
 
-        # Combobox
-        s.configure("TCombobox", fieldbackground=C["tarjeta"],
-                     background=C["tarjeta"], foreground=C["texto"],
-                     font=F_NORMAL)
-
-        self.option_add("*TCombobox*Listbox.font", F_NORMAL)
-        self.option_add("*TCombobox*Listbox.background", C["tarjeta"])
-        self.option_add("*TCombobox*Listbox.foreground", C["texto"])
-
-    # ──────────────────────────────────────────
-    # Login
-    # ──────────────────────────────────────────
+    # ─────────── LOGIN ───────────
 
     def _mostrar_login(self):
-        """Pantalla de inicio de sesion con PIN."""
+        self._cancelar_refreshes()
         for w in self.winfo_children():
             w.destroy()
-
         self.usuario_actual = None
 
-        frame = tk.Frame(self, bg=C["fondo"])
-        frame.place(relx=0.5, rely=0.5, anchor="center")
+        # Fondo completo
+        bg = tk.Frame(self, bg=C["bg"])
+        bg.place(relwidth=1, relheight=1)
 
-        # Logo
-        tk.Label(frame, text="PANADERIA", font=("Arial", 40, "bold"),
-                 bg=C["fondo"], fg=C["primario"]).pack(pady=(0, 5))
-        tk.Label(frame, text="Sistema de Ventas y Pronostico",
-                 font=F_GRANDE, bg=C["fondo"], fg=C["texto_suave"]).pack()
+        # Panel central
+        panel = tk.Frame(bg, bg=C["card"], padx=50, pady=40,
+                          highlightbackground=C["border"],
+                          highlightthickness=1)
+        panel.place(relx=0.5, rely=0.5, anchor="center")
 
-        tk.Frame(frame, bg=C["borde"], height=2).pack(fill="x", pady=30, padx=40)
+        # Header con color
+        hdr = tk.Frame(panel, bg=C["accent"], height=6)
+        hdr.pack(fill="x", pady=(0, 25))
 
-        tk.Label(frame, text="Ingresa tu PIN para entrar:",
-                 font=F_GRANDE, bg=C["fondo"], fg=C["texto"]).pack(pady=(0, 15))
+        tk.Label(panel, text="\U0001F35E", font=("Segoe UI Emoji", 48),
+                 bg=C["card"]).pack()
+        tk.Label(panel, text="PANADERIA", font=("Segoe UI", 32, "bold"),
+                 bg=C["card"], fg=C["primary_dark"]).pack(pady=(5, 0))
+        tk.Label(panel, text="Sistema de Ventas y Pronostico",
+                 font=F_GRANDE, bg=C["card"], fg=C["text_muted"]).pack()
+
+        tk.Frame(panel, bg=C["divider"], height=1).pack(
+            fill="x", pady=25, padx=20)
+
+        tk.Label(panel, text="Ingresa tu PIN:", font=F_GRANDE_B,
+                 bg=C["card"], fg=C["text"]).pack()
 
         # Campo PIN
-        pin_frame = tk.Frame(frame, bg=C["fondo"])
-        pin_frame.pack(pady=10)
-
         self.pin_var = tk.StringVar()
         self.pin_entry = tk.Entry(
-            pin_frame, textvariable=self.pin_var,
-            font=("Arial", 32, "bold"), width=8,
-            justify="center", show="*",
-            bg=C["tarjeta"], fg=C["texto"],
-            insertbackground=C["primario"],
-            relief="solid", bd=2,
-            highlightthickness=2,
-            highlightcolor=C["primario"],
-            highlightbackground=C["borde"]
+            panel, textvariable=self.pin_var,
+            font=("Segoe UI", 36, "bold"), width=6, justify="center",
+            show="\u2022", bg=C["bg"], fg=C["text"],
+            insertbackground=C["accent"],
+            relief="flat", bd=0,
+            highlightthickness=2, highlightcolor=C["accent"],
+            highlightbackground=C["border"]
         )
-        self.pin_entry.pack(pady=5)
+        self.pin_entry.pack(pady=15, ipady=8)
         self.pin_entry.focus_set()
         self.pin_entry.bind("<Return>", lambda _: self._intentar_login())
 
-        # Teclado numerico en pantalla (para facilidad)
-        teclado = tk.Frame(frame, bg=C["fondo"])
-        teclado.pack(pady=15)
+        # Teclado numerico
+        teclado = tk.Frame(panel, bg=C["card"])
+        teclado.pack(pady=10)
 
-        numeros = [
+        keys = [
             ["1", "2", "3"],
             ["4", "5", "6"],
             ["7", "8", "9"],
-            ["Borrar", "0", "Entrar"],
+            ["\u232B", "0", "\u23CE"],
         ]
-        for fila_nums in numeros:
-            fila = tk.Frame(teclado, bg=C["fondo"])
-            fila.pack()
-            for num in fila_nums:
-                if num == "Entrar":
+        for fila in keys:
+            row = tk.Frame(teclado, bg=C["card"])
+            row.pack()
+            for k in fila:
+                if k == "\u23CE":  # Enter
                     btn = tk.Button(
-                        fila, text=num, font=F_BOTON, width=6, height=2,
-                        bg=C["verde"], fg="white", relief="flat",
-                        activebackground="#1B5E20",
-                        command=self._intentar_login
-                    )
-                elif num == "Borrar":
+                        row, text=k, font=("Segoe UI", 20), width=5, height=1,
+                        bg=C["success"], fg="white", relief="flat",
+                        activebackground="#2E7D32", cursor="hand2",
+                        command=self._intentar_login)
+                elif k == "\u232B":  # Backspace
                     btn = tk.Button(
-                        fila, text=num, font=F_BOTON, width=6, height=2,
-                        bg=C["rojo"], fg="white", relief="flat",
-                        activebackground="#8E1A1A",
-                        command=lambda: self.pin_var.set(self.pin_var.get()[:-1])
-                    )
+                        row, text=k, font=("Segoe UI", 20), width=5, height=1,
+                        bg=C["danger_bg"], fg=C["danger"], relief="flat",
+                        activebackground="#FFCDD2", cursor="hand2",
+                        command=lambda: self.pin_var.set(
+                            self.pin_var.get()[:-1]))
                 else:
                     btn = tk.Button(
-                        fila, text=num, font=("Arial", 20, "bold"),
-                        width=6, height=2,
-                        bg=C["tarjeta"], fg=C["texto"], relief="solid",
-                        bd=1, activebackground=C["seleccion"],
-                        command=lambda n=num: self.pin_var.set(
-                            self.pin_var.get() + n)
-                    )
+                        row, text=k, font=("Segoe UI", 20, "bold"),
+                        width=5, height=1,
+                        bg=C["bg"], fg=C["text"], relief="flat",
+                        activebackground=C["selected"], cursor="hand2",
+                        command=lambda n=k: self.pin_var.set(
+                            self.pin_var.get() + n))
                 btn.pack(side="left", padx=3, pady=3)
 
-        # Mensaje de error
-        self.login_msg = tk.Label(frame, text="", font=F_NORMAL,
-                                   bg=C["fondo"], fg=C["rojo"])
-        self.login_msg.pack(pady=10)
+        self.login_msg = tk.Label(panel, text="", font=F_NORMAL,
+                                   bg=C["card"], fg=C["danger"])
+        self.login_msg.pack(pady=8)
 
-        # Info de PINs por defecto
-        tk.Label(frame, text="PIN Panadero: 1234  |  PIN Cajero: 0000",
-                 font=F_PEQUENA, bg=C["fondo"],
-                 fg=C["texto_suave"]).pack(pady=(10, 0))
+        tk.Label(panel, text="Panadero: 1234  |  Cajero: 0000",
+                 font=F_SMALL, bg=C["card"],
+                 fg=C["text_muted"]).pack(pady=(5, 0))
 
     def _intentar_login(self):
         pin = self.pin_var.get().strip()
         if not pin:
             self.login_msg.configure(text="Escribe tu PIN")
             return
-
         usuario = verificar_pin(pin)
         if usuario:
             self.usuario_actual = usuario
-            self._iniciar_sesion()
+            self._cancelar_refreshes()
+            for w in self.winfo_children():
+                w.destroy()
+            if usuario["rol"] == "cajero":
+                self._construir_cajero()
+            else:
+                self._construir_panadero()
         else:
-            self.login_msg.configure(text="PIN incorrecto. Intenta de nuevo.")
+            self.login_msg.configure(text="PIN incorrecto")
             self.pin_var.set("")
 
-    def _iniciar_sesion(self):
-        for w in self.winfo_children():
-            w.destroy()
-
-        if self.usuario_actual["rol"] == "cajero":
-            self._construir_cajero()
-        else:
-            self._construir_panadero()
-
-    # ──────────────────────────────────────────
-    # INTERFAZ CAJERO
-    # ──────────────────────────────────────────
+    # ─────────── CAJERO ───────────
 
     def _construir_cajero(self):
-        # Barra superior
-        top = tk.Frame(self, bg=C["primario"], height=60)
+        # Top bar
+        top = tk.Frame(self, bg=C["accent"], height=56)
         top.pack(fill="x")
         top.pack_propagate(False)
 
-        tk.Label(top, text=f"Cajero: {self.usuario_actual['nombre']}",
-                 font=F_GRANDE_B, bg=C["primario"], fg="white"
+        tk.Label(top, text=f"\U0001F9D1\u200D\U0001F373  {self.usuario_actual['nombre']}",
+                 font=F_GRANDE_B, bg=C["accent"], fg="white"
                  ).pack(side="left", padx=20)
 
-        tk.Button(top, text="Cerrar Sesion", font=F_NORMAL_B,
-                  bg=C["primario_hover"], fg="white", relief="flat",
-                  activebackground=C["rojo"],
-                  command=self._mostrar_login
-                  ).pack(side="right", padx=20, pady=10)
+        tk.Button(top, text="Salir", font=F_NORMAL_B,
+                  bg=C["accent_dark"], fg="white", relief="flat",
+                  activebackground=C["danger"], cursor="hand2",
+                  padx=15, command=self._mostrar_login
+                  ).pack(side="right", padx=15, pady=10)
 
-        # Pestanas simples
-        self.cajero_nav = tk.Frame(self, bg=C["fondo_nav"])
-        self.cajero_nav.pack(fill="x")
+        # Tab bar
+        tab_bar = tk.Frame(self, bg=C["card"], height=50)
+        tab_bar.pack(fill="x")
+        tab_bar.pack_propagate(False)
 
-        self.cajero_content = tk.Frame(self, bg=C["fondo"])
-        self.cajero_content.pack(fill="both", expand=True)
+        # Bottom accent line
+        tk.Frame(tab_bar, bg=C["divider"], height=1).pack(
+            side="bottom", fill="x")
 
         self._cajero_tabs = {}
-        for texto, vista in [("Registrar Venta", "pos"),
-                              ("Ventas de Hoy", "resumen")]:
-            btn = ttk.Button(self.cajero_nav, text=texto, style="Nav.TButton",
-                             command=lambda v=vista: self._cajero_vista(v))
-            btn.pack(side="left", padx=2, pady=5)
-            self._cajero_tabs[vista] = btn
+        self._cajero_content = tk.Frame(self, bg=C["bg"])
+        self._cajero_content.pack(fill="both", expand=True)
+
+        for texto, vid in [("\U0001F6D2  Punto de Venta", "pos"),
+                            ("\U0001F4CA  Ventas de Hoy", "resumen")]:
+            btn = tk.Button(
+                tab_bar, text=texto, font=F_NORMAL_B,
+                bg=C["card"], fg=C["text_sec"], relief="flat",
+                activebackground=C["selected"], cursor="hand2", padx=20,
+                command=lambda v=vid: self._cajero_vista(v))
+            btn.pack(side="left", padx=2, pady=6)
+            self._cajero_tabs[vid] = btn
 
         self._cajero_vista("pos")
 
     def _cajero_vista(self, nombre):
-        for w in self.cajero_content.winfo_children():
+        self._cancelar_refreshes()
+        for w in self._cajero_content.winfo_children():
             w.destroy()
-        for key, btn in self._cajero_tabs.items():
-            btn.configure(style="NavActivo.TButton" if key == nombre
-                         else "Nav.TButton")
+        for k, btn in self._cajero_tabs.items():
+            if k == nombre:
+                btn.configure(bg=C["accent"], fg="white")
+            else:
+                btn.configure(bg=C["card"], fg=C["text_sec"])
 
         if nombre == "pos":
-            VistaPOS(self.cajero_content, self).pack(fill="both", expand=True)
-        elif nombre == "resumen":
-            VistaResumenDia(self.cajero_content, self).pack(
+            VistaPOS(self._cajero_content, self).pack(
+                fill="both", expand=True)
+        else:
+            VistaVentasDashboard(self._cajero_content, self).pack(
                 fill="both", expand=True)
 
-    # ──────────────────────────────────────────
-    # INTERFAZ PANADERO
-    # ──────────────────────────────────────────
+    # ─────────── PANADERO ───────────
 
     def _construir_panadero(self):
-        # Barra superior
-        top = tk.Frame(self, bg=C["secundario"], height=60)
-        top.pack(fill="x")
-        top.pack_propagate(False)
-
-        tk.Label(top, text=f"Panadero: {self.usuario_actual['nombre']}",
-                 font=F_GRANDE_B, bg=C["secundario"], fg="white"
-                 ).pack(side="left", padx=20)
-
-        tk.Button(top, text="Cerrar Sesion", font=F_NORMAL_B,
-                  bg="#6D4930", fg="white", relief="flat",
-                  activebackground=C["rojo"],
-                  command=self._mostrar_login
-                  ).pack(side="right", padx=20, pady=10)
-
-        # Navegacion lateral
-        body = tk.Frame(self, bg=C["fondo"])
+        body = tk.Frame(self, bg=C["bg"])
         body.pack(fill="both", expand=True)
 
-        nav = tk.Frame(body, bg=C["fondo_nav"], width=220)
-        nav.pack(side="left", fill="y")
-        nav.pack_propagate(False)
+        # Sidebar oscuro
+        sidebar = tk.Frame(body, bg=C["sidebar"], width=230)
+        sidebar.pack(side="left", fill="y")
+        sidebar.pack_propagate(False)
 
-        self.panadero_content = tk.Frame(body, bg=C["fondo"])
-        self.panadero_content.pack(side="left", fill="both", expand=True)
+        # Logo en sidebar
+        tk.Label(sidebar, text="\U0001F35E", font=("Segoe UI Emoji", 36),
+                 bg=C["sidebar"]).pack(pady=(25, 5))
+        tk.Label(sidebar, text="PANADERIA", font=("Segoe UI", 16, "bold"),
+                 bg=C["sidebar"], fg="white").pack()
+        tk.Label(sidebar, text=self.usuario_actual["nombre"],
+                 font=F_SMALL, bg=C["sidebar"],
+                 fg=C["sidebar_text"]).pack(pady=(2, 20))
 
-        self._panadero_tabs = {}
-        vistas = [
-            ("Cuantos Hornear", "pronostico"),
-            ("Registrar Produccion", "produccion"),
-            ("Ventas de Hoy", "ventas"),
-            ("Historial", "historial"),
-            ("Configuracion", "config"),
+        tk.Frame(sidebar, bg=C["sidebar_hover"], height=1).pack(
+            fill="x", padx=15)
+
+        self._pan_tabs = {}
+        self._pan_content = tk.Frame(body, bg=C["bg"])
+        self._pan_content.pack(side="left", fill="both", expand=True)
+
+        items = [
+            ("\U0001F4CB  Cuantos Hornear", "pronostico"),
+            ("\U0001F525  Registrar Produccion", "produccion"),
+            ("\U0001F4B0  Ventas de Hoy", "ventas"),
+            ("\U0001F4C5  Historial", "historial"),
+            ("\u2699\uFE0F  Configuracion", "config"),
         ]
-        for texto, vista in vistas:
-            btn = ttk.Button(nav, text=texto, style="Nav.TButton",
-                             command=lambda v=vista: self._panadero_vista(v))
-            btn.pack(fill="x", padx=8, pady=3)
-            self._panadero_tabs[vista] = btn
+        for texto, vid in items:
+            btn = tk.Button(
+                sidebar, text=texto, font=F_NORMAL, anchor="w",
+                bg=C["sidebar"], fg=C["sidebar_text"], relief="flat",
+                activebackground=C["sidebar_hover"],
+                activeforeground="white", cursor="hand2",
+                padx=20, pady=12,
+                command=lambda v=vid: self._panadero_vista(v))
+            btn.pack(fill="x", pady=1)
+            self._pan_tabs[vid] = btn
 
-        # Fecha actual abajo
-        tk.Label(nav, text=datetime.now().strftime("%d/%m/%Y"),
-                 font=F_GRANDE, bg=C["fondo_nav"],
-                 fg=C["texto_suave"]).pack(side="bottom", pady=20)
+        # Fecha y boton salir abajo
+        bottom = tk.Frame(sidebar, bg=C["sidebar"])
+        bottom.pack(side="bottom", fill="x", padx=15, pady=15)
+
+        tk.Label(bottom,
+                 text=datetime.now().strftime("%d/%m/%Y"),
+                 font=F_NORMAL, bg=C["sidebar"],
+                 fg=C["sidebar_text"]).pack(pady=(0, 10))
+
+        tk.Button(bottom, text="Cerrar Sesion", font=F_SMALL_B,
+                  bg=C["sidebar_hover"], fg=C["sidebar_text"],
+                  relief="flat", activebackground=C["danger"],
+                  cursor="hand2", command=self._mostrar_login
+                  ).pack(fill="x")
 
         self._panadero_vista("pronostico")
 
     def _panadero_vista(self, nombre):
-        for w in self.panadero_content.winfo_children():
+        self._cancelar_refreshes()
+        for w in self._pan_content.winfo_children():
             w.destroy()
-        for key, btn in self._panadero_tabs.items():
-            btn.configure(style="NavActivo.TButton" if key == nombre
-                         else "Nav.TButton")
+        for k, btn in self._pan_tabs.items():
+            if k == nombre:
+                btn.configure(bg=C["sidebar_active"], fg="white")
+            else:
+                btn.configure(bg=C["sidebar"], fg=C["sidebar_text"])
 
         vistas = {
             "pronostico": VistaPronostico,
             "produccion": VistaProduccion,
-            "ventas":     VistaVentasPanadero,
+            "ventas":     VistaVentasDashboard,
             "historial":  VistaHistorial,
             "config":     VistaConfiguracion,
         }
         if nombre in vistas:
-            vistas[nombre](self.panadero_content, self).pack(
+            vistas[nombre](self._pan_content, self).pack(
                 fill="both", expand=True)
 
 
 # ══════════════════════════════════════════════
-# VISTAS DEL CAJERO
+# PUNTO DE VENTA CON CARRITO
 # ══════════════════════════════════════════════
 
-class VistaPOS(ttk.Frame):
-    """Punto de venta simplificado. Botones grandes por producto."""
+class VistaPOS(tk.Frame):
+    """POS con carrito: selecciona productos, acumula pedido, cobra."""
 
     def __init__(self, parent, app: PanaderiaApp):
-        super().__init__(parent, style="TFrame")
+        super().__init__(parent, bg=C["bg"])
         self.app = app
+        self.carrito = []  # [{producto, precio, cantidad}]
         self._construir()
 
     def _construir(self):
         # Titulo
-        header = tk.Frame(self, bg=C["fondo"])
-        header.pack(fill="x", padx=25, pady=(20, 10))
+        hdr = tk.Frame(self, bg=C["bg"])
+        hdr.pack(fill="x", padx=25, pady=(18, 8))
+        tk.Label(hdr, text="Punto de Venta", font=F_TITULO,
+                 bg=C["bg"], fg=C["text"]).pack(side="left")
 
-        tk.Label(header, text="Registrar Venta",
-                 font=F_TITULO, bg=C["fondo"], fg=C["texto"]).pack(side="left")
+        # Contenido principal
+        main = tk.Frame(self, bg=C["bg"])
+        main.pack(fill="both", expand=True, padx=25, pady=(0, 15))
 
-        # Area principal: productos a la izquierda, resumen a la derecha
-        main = tk.Frame(self, bg=C["fondo"])
-        main.pack(fill="both", expand=True, padx=25, pady=10)
+        # ── Panel izquierdo: productos ──
+        left = tk.Frame(main, bg=C["bg"])
+        left.pack(side="left", fill="both", expand=True, padx=(0, 15))
 
-        # --- Panel de productos ---
-        prod_frame = tk.Frame(main, bg=C["fondo"])
-        prod_frame.pack(side="left", fill="both", expand=True, padx=(0, 15))
+        tk.Label(left, text="Toca un producto para agregarlo al pedido:",
+                 font=F_NORMAL, bg=C["bg"],
+                 fg=C["text_muted"]).pack(anchor="w", pady=(0, 10))
 
-        tk.Label(prod_frame, text="Selecciona el producto:",
-                 font=F_GRANDE, bg=C["fondo"],
-                 fg=C["texto_suave"]).pack(anchor="w", pady=(0, 10))
-
-        self.productos = obtener_productos_con_precio()
-        self.producto_seleccionado = None
-
-        # Grid de botones de productos
-        grid = tk.Frame(prod_frame, bg=C["fondo"])
+        grid = tk.Frame(left, bg=C["bg"])
         grid.pack(fill="both", expand=True)
 
-        self._botones_producto = []
-        for i, p in enumerate(self.productos):
-            btn_frame = tk.Frame(grid, bg=C["borde"], bd=2, relief="solid")
-            fila = i // 2
-            col = i % 2
-            btn_frame.grid(row=fila, column=col, padx=8, pady=8, sticky="nsew")
+        productos = obtener_productos_con_precio()
+        for i, p in enumerate(productos):
+            col_prod = color_producto(p["nombre"])
+            fila, col = i // 2, i % 2
             grid.grid_columnconfigure(col, weight=1)
             grid.grid_rowconfigure(fila, weight=1)
 
-            btn = tk.Button(
-                btn_frame,
-                text=f"{p['nombre']}\n${p['precio']:.2f}",
-                font=F_GRANDE_B, bg=C["tarjeta"], fg=C["texto"],
-                relief="flat", activebackground=C["seleccion"],
-                cursor="hand2",
-                command=lambda prod=p: self._seleccionar_producto(prod)
-            )
-            btn.pack(fill="both", expand=True, padx=2, pady=2)
-            self._botones_producto.append((btn, p))
+            card = tk.Frame(grid, bg=C["card"],
+                             highlightbackground=C["border"],
+                             highlightthickness=1, cursor="hand2")
+            card.grid(row=fila, column=col, padx=8, pady=8, sticky="nsew")
 
-        # --- Panel de venta ---
-        venta_frame = tk.Frame(main, bg=C["tarjeta"], bd=2, relief="solid",
-                                padx=25, pady=20, width=320)
-        venta_frame.pack(side="right", fill="y")
-        venta_frame.pack_propagate(False)
+            # Barra de color superior
+            tk.Frame(card, bg=col_prod, height=5).pack(fill="x")
 
-        tk.Label(venta_frame, text="Detalle de Venta",
-                 font=F_SUBTIT, bg=C["tarjeta"],
-                 fg=C["secundario"]).pack(pady=(0, 15))
+            # Contenido
+            inner = tk.Frame(card, bg=C["card"], padx=15, pady=12)
+            inner.pack(fill="both", expand=True)
 
-        # Producto seleccionado
-        tk.Label(venta_frame, text="Producto:", font=F_NORMAL,
-                 bg=C["tarjeta"], fg=C["texto_suave"]).pack(anchor="w")
-        self.lbl_producto = tk.Label(venta_frame, text="(ninguno)",
-                                      font=F_GRANDE_B, bg=C["tarjeta"],
-                                      fg=C["primario"])
-        self.lbl_producto.pack(anchor="w", pady=(0, 15))
+            tk.Label(inner, text=icono(p["nombre"]),
+                     font=F_ICONO, bg=C["card"]).pack(pady=(5, 2))
 
-        # Cantidad
-        tk.Label(venta_frame, text="Cantidad:", font=F_NORMAL,
-                 bg=C["tarjeta"], fg=C["texto_suave"]).pack(anchor="w")
+            tk.Label(inner, text=p["nombre"], font=F_GRANDE_B,
+                     bg=C["card"], fg=C["text"]).pack()
 
-        cant_frame = tk.Frame(venta_frame, bg=C["tarjeta"])
-        cant_frame.pack(fill="x", pady=(5, 15))
+            tk.Label(inner, text=f"${p['precio']:.2f}",
+                     font=("Segoe UI", 18, "bold"),
+                     bg=C["card"], fg=C["primary"]).pack(pady=(3, 5))
 
-        self.cantidad_var = tk.IntVar(value=1)
+            # Bind click a toda la tarjeta y sus hijos
+            for widget in [card, inner] + inner.winfo_children():
+                widget.bind("<Button-1>",
+                            lambda e, prod=p: self._agregar_al_carrito(prod))
 
-        tk.Button(cant_frame, text=" - ", font=("Arial", 22, "bold"),
-                  bg=C["rojo_claro"], fg=C["rojo"], relief="flat", width=3,
-                  command=self._decrementar).pack(side="left")
+        # ── Panel derecho: carrito ──
+        right = tk.Frame(main, bg=C["card"], width=360,
+                          highlightbackground=C["border"],
+                          highlightthickness=1)
+        right.pack(side="right", fill="y")
+        right.pack_propagate(False)
 
-        self.lbl_cantidad = tk.Label(cant_frame,
-                                      textvariable=self.cantidad_var,
-                                      font=F_NUMERO, bg=C["tarjeta"],
-                                      fg=C["texto"], width=4)
-        self.lbl_cantidad.pack(side="left", expand=True)
+        # Header carrito
+        cart_hdr = tk.Frame(right, bg=C["primary_dark"], padx=15, pady=10)
+        cart_hdr.pack(fill="x")
+        tk.Label(cart_hdr, text="\U0001F6D2  Pedido Actual",
+                 font=F_GRANDE_B, bg=C["primary_dark"],
+                 fg="white").pack(side="left")
+        self.lbl_items = tk.Label(cart_hdr, text="0 items",
+                                   font=F_SMALL, bg=C["primary_dark"],
+                                   fg=C["primary_light"])
+        self.lbl_items.pack(side="right")
 
-        tk.Button(cant_frame, text=" + ", font=("Arial", 22, "bold"),
-                  bg=C["verde_claro"], fg=C["verde"], relief="flat", width=3,
-                  command=self._incrementar).pack(side="left")
+        # Lista de items del carrito
+        self.carrito_frame = tk.Frame(right, bg=C["card"])
+        self.carrito_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # Separador
-        tk.Frame(venta_frame, bg=C["borde"], height=2).pack(fill="x", pady=10)
+        self.carrito_vacio_lbl = tk.Label(
+            self.carrito_frame,
+            text="El pedido esta vacio.\n\nToca un producto\npara agregarlo.",
+            font=F_NORMAL, bg=C["card"], fg=C["text_muted"], justify="center")
+        self.carrito_vacio_lbl.pack(expand=True)
 
-        # Total
-        tk.Label(venta_frame, text="Total:", font=F_GRANDE,
-                 bg=C["tarjeta"], fg=C["texto_suave"]).pack(anchor="w")
-        self.lbl_total = tk.Label(venta_frame, text="$0.00",
-                                   font=("Arial", 32, "bold"),
-                                   bg=C["tarjeta"], fg=C["verde"])
-        self.lbl_total.pack(anchor="w", pady=(5, 20))
+        # Footer: total y botones
+        footer = tk.Frame(right, bg=C["card"], padx=15, pady=10)
+        footer.pack(fill="x", side="bottom")
 
-        # Boton registrar
-        self.btn_registrar = ttk.Button(
-            venta_frame, text="Registrar Venta",
-            style="Verde.TButton",
-            command=self._registrar_venta
-        )
-        self.btn_registrar.pack(fill="x", pady=(10, 0))
+        tk.Frame(footer, bg=C["divider"], height=1).pack(fill="x", pady=(0, 10))
 
-        self._actualizar_total()
+        total_row = tk.Frame(footer, bg=C["card"])
+        total_row.pack(fill="x")
+        tk.Label(total_row, text="TOTAL:", font=F_SUBTIT,
+                 bg=C["card"], fg=C["text_sec"]).pack(side="left")
+        self.lbl_total = tk.Label(total_row, text="$0.00",
+                                   font=("Segoe UI", 26, "bold"),
+                                   bg=C["card"], fg=C["success"])
+        self.lbl_total.pack(side="right")
 
-    def _seleccionar_producto(self, producto):
-        self.producto_seleccionado = producto
-        self.lbl_producto.configure(text=producto["nombre"])
-        # Resaltar boton seleccionado
-        for btn, p in self._botones_producto:
-            if p["nombre"] == producto["nombre"]:
-                btn.configure(bg=C["seleccion"], relief="flat")
-            else:
-                btn.configure(bg=C["tarjeta"], relief="flat")
-        self._actualizar_total()
+        btn_row = tk.Frame(footer, bg=C["card"])
+        btn_row.pack(fill="x", pady=(12, 0))
 
-    def _incrementar(self):
-        self.cantidad_var.set(self.cantidad_var.get() + 1)
-        self._actualizar_total()
+        tk.Button(btn_row, text="Limpiar", font=F_NORMAL_B,
+                  bg=C["danger_bg"], fg=C["danger"], relief="flat",
+                  activebackground="#FFCDD2", cursor="hand2",
+                  padx=15, pady=8,
+                  command=self._limpiar_carrito).pack(side="left")
 
-    def _decrementar(self):
-        val = self.cantidad_var.get()
-        if val > 1:
-            self.cantidad_var.set(val - 1)
-            self._actualizar_total()
+        tk.Button(btn_row, text="\u2714  Cobrar", font=F_BOTON,
+                  bg=C["success"], fg="white", relief="flat",
+                  activebackground="#2E7D32", cursor="hand2",
+                  padx=25, pady=10,
+                  command=self._cobrar).pack(side="right")
 
-    def _actualizar_total(self):
-        if self.producto_seleccionado:
-            total = self.producto_seleccionado["precio"] * self.cantidad_var.get()
-            self.lbl_total.configure(text=f"${total:.2f}")
-        else:
+    def _agregar_al_carrito(self, producto):
+        # Buscar si ya esta en el carrito
+        for item in self.carrito:
+            if item["producto"] == producto["nombre"]:
+                item["cantidad"] += 1
+                self._render_carrito()
+                return
+        self.carrito.append({
+            "producto": producto["nombre"],
+            "precio": producto["precio"],
+            "cantidad": 1,
+        })
+        self._render_carrito()
+
+    def _render_carrito(self):
+        for w in self.carrito_frame.winfo_children():
+            w.destroy()
+
+        if not self.carrito:
+            self.carrito_vacio_lbl = tk.Label(
+                self.carrito_frame,
+                text="El pedido esta vacio.\n\nToca un producto\npara agregarlo.",
+                font=F_NORMAL, bg=C["card"], fg=C["text_muted"],
+                justify="center")
+            self.carrito_vacio_lbl.pack(expand=True)
             self.lbl_total.configure(text="$0.00")
-
-    def _registrar_venta(self):
-        if not self.producto_seleccionado:
-            messagebox.showwarning("Atencion", "Selecciona un producto primero.")
+            self.lbl_items.configure(text="0 items")
             return
 
-        producto = self.producto_seleccionado["nombre"]
-        cantidad = self.cantidad_var.get()
-        precio = self.producto_seleccionado["precio"]
-        usuario = self.app.usuario_actual["nombre"]
+        total = 0
+        total_items = 0
 
-        exito = registrar_venta(producto, cantidad, precio, usuario)
-        if exito:
-            total = precio * cantidad
+        for item in self.carrito:
+            subtotal = item["precio"] * item["cantidad"]
+            total += subtotal
+            total_items += item["cantidad"]
+
+            row = tk.Frame(self.carrito_frame, bg=C["card"], pady=6)
+            row.pack(fill="x")
+
+            # Icono + nombre
+            col_p = color_producto(item["producto"])
+            tk.Label(row, text=icono(item["producto"]),
+                     font=F_ICONO_SM, bg=C["card"]).pack(side="left")
+
+            info = tk.Frame(row, bg=C["card"])
+            info.pack(side="left", padx=8, fill="x", expand=True)
+
+            tk.Label(info, text=item["producto"], font=F_NORMAL_B,
+                     bg=C["card"], fg=C["text"]).pack(anchor="w")
+            tk.Label(info, text=f"${item['precio']:.2f} c/u",
+                     font=F_SMALL, bg=C["card"],
+                     fg=C["text_muted"]).pack(anchor="w")
+
+            # Controles cantidad
+            ctrl = tk.Frame(row, bg=C["card"])
+            ctrl.pack(side="right")
+
+            tk.Button(ctrl, text="-", font=("Segoe UI", 12, "bold"),
+                      bg=C["danger_bg"], fg=C["danger"], relief="flat",
+                      width=2, cursor="hand2",
+                      command=lambda it=item: self._cambiar_cant(it, -1)
+                      ).pack(side="left", padx=1)
+
+            tk.Label(ctrl, text=str(item["cantidad"]),
+                     font=F_NORMAL_B, bg=C["card"], fg=C["text"],
+                     width=3).pack(side="left")
+
+            tk.Button(ctrl, text="+", font=("Segoe UI", 12, "bold"),
+                      bg=C["success_bg"], fg=C["success"], relief="flat",
+                      width=2, cursor="hand2",
+                      command=lambda it=item: self._cambiar_cant(it, 1)
+                      ).pack(side="left", padx=1)
+
+            # Subtotal
+            tk.Label(ctrl, text=f"${subtotal:.2f}", font=F_NORMAL_B,
+                     bg=C["card"], fg=C["primary"],
+                     width=8, anchor="e").pack(side="left", padx=(8, 0))
+
+            # Separador
+            tk.Frame(self.carrito_frame, bg=C["divider"],
+                     height=1).pack(fill="x")
+
+        self.lbl_total.configure(text=f"${total:.2f}")
+        self.lbl_items.configure(
+            text=f"{total_items} {'item' if total_items == 1 else 'items'}")
+
+    def _cambiar_cant(self, item, delta):
+        item["cantidad"] += delta
+        if item["cantidad"] <= 0:
+            self.carrito.remove(item)
+        self._render_carrito()
+
+    def _limpiar_carrito(self):
+        self.carrito.clear()
+        self._render_carrito()
+
+    def _cobrar(self):
+        if not self.carrito:
+            messagebox.showinfo("Pedido vacio",
+                                "Agrega productos al pedido primero.")
+            return
+
+        usuario = self.app.usuario_actual["nombre"]
+        total = 0
+        detalle = []
+        errores = []
+
+        for item in self.carrito:
+            subtotal = item["precio"] * item["cantidad"]
+            total += subtotal
+            ok = registrar_venta(item["producto"], item["cantidad"],
+                                 item["precio"], usuario)
+            if ok:
+                detalle.append(
+                    f"  {icono(item['producto'])} {item['cantidad']}x "
+                    f"{item['producto']} = ${subtotal:.2f}")
+            else:
+                errores.append(item["producto"])
+
+        if errores:
+            messagebox.showwarning(
+                "Atencion",
+                f"No se pudieron registrar: {', '.join(errores)}\n"
+                "Los demas si se guardaron.")
+        else:
             messagebox.showinfo(
                 "Venta Registrada",
-                f"{cantidad}x {producto}\n"
-                f"Total: ${total:.2f}\n\n"
-                f"Registrado correctamente."
-            )
-            # Resetear
-            self.cantidad_var.set(1)
-            self.producto_seleccionado = None
-            self.lbl_producto.configure(text="(ninguno)")
-            for btn, _ in self._botones_producto:
-                btn.configure(bg=C["tarjeta"])
-            self._actualizar_total()
-        else:
-            messagebox.showerror("Error", "No se pudo registrar la venta.")
+                f"Pedido cobrado:\n\n"
+                + "\n".join(detalle) +
+                f"\n\nTotal: ${total:.2f}")
 
-
-class VistaResumenDia(ttk.Frame):
-    """Resumen de ventas del dia para el cajero."""
-
-    def __init__(self, parent, app: PanaderiaApp):
-        super().__init__(parent, style="TFrame")
-        self.app = app
-        self._construir()
-
-    def _construir(self):
-        header = tk.Frame(self, bg=C["fondo"])
-        header.pack(fill="x", padx=25, pady=(20, 10))
-
-        tk.Label(header, text="Ventas de Hoy",
-                 font=F_TITULO, bg=C["fondo"], fg=C["texto"]).pack(side="left")
-
-        ttk.Button(header, text="Actualizar", style="Primario.TButton",
-                   command=self._actualizar).pack(side="right")
-
-        # Tarjetas resumen
-        self.resumen_frame = tk.Frame(self, bg=C["fondo"])
-        self.resumen_frame.pack(fill="x", padx=25, pady=10)
-
-        # Tabla de detalle
-        self.tabla_frame = tk.Frame(self, bg=C["fondo"])
-        self.tabla_frame.pack(fill="both", expand=True, padx=25, pady=10)
-
-        self._actualizar()
-
-    def _actualizar(self):
-        for w in self.resumen_frame.winfo_children():
-            w.destroy()
-        for w in self.tabla_frame.winfo_children():
-            w.destroy()
-
-        totales = obtener_total_ventas_dia()
-        resumen = obtener_resumen_ventas_dia()
-
-        # Tarjetas de totales
-        cards = tk.Frame(self.resumen_frame, bg=C["fondo"])
-        cards.pack(fill="x")
-
-        _tarjeta(cards, "Total Vendido",
-                 f"${totales['dinero']:.2f}", C["verde"])
-        _tarjeta(cards, "Panes Vendidos",
-                 str(totales["panes"]), C["primario"])
-        _tarjeta(cards, "Transacciones",
-                 str(totales["transacciones"]), C["secundario"])
-
-        # Tabla por producto
-        if resumen:
-            tk.Label(self.tabla_frame, text="Detalle por Producto",
-                     font=F_SUBTIT, bg=C["fondo"],
-                     fg=C["secundario"]).pack(anchor="w", pady=(10, 5))
-
-            cols = ("producto", "cantidad", "total")
-            tabla = ttk.Treeview(self.tabla_frame, columns=cols,
-                                  show="headings", height=10)
-            tabla.heading("producto", text="Producto")
-            tabla.heading("cantidad", text="Cantidad")
-            tabla.heading("total", text="Total $")
-            tabla.column("producto", width=200)
-            tabla.column("cantidad", width=120, anchor="center")
-            tabla.column("total", width=150, anchor="center")
-
-            for r in resumen:
-                tabla.insert("", "end", values=(
-                    r["producto"],
-                    r["total_cantidad"],
-                    f"${r['total_dinero']:.2f}"
-                ))
-
-            tabla.pack(fill="both", expand=True)
-        else:
-            tk.Label(self.tabla_frame,
-                     text="No hay ventas registradas hoy.\n\n"
-                          "Ve a 'Registrar Venta' para comenzar.",
-                     font=F_GRANDE, bg=C["fondo"],
-                     fg=C["texto_suave"]).pack(expand=True)
+        self.carrito.clear()
+        self._render_carrito()
 
 
 # ══════════════════════════════════════════════
-# VISTAS DEL PANADERO
+# DASHBOARD DE VENTAS (cajero y panadero)
 # ══════════════════════════════════════════════
 
-class VistaPronostico(ttk.Frame):
-    """Dashboard simplificado: cuantos panes hornear."""
+class VistaVentasDashboard(tk.Frame):
+    """Dashboard de ventas del dia con metricas, grafica y tabla."""
 
     def __init__(self, parent, app: PanaderiaApp):
-        super().__init__(parent, style="TFrame")
+        super().__init__(parent, bg=C["bg"])
         self.app = app
+        self._chart_canvas = None
         self._construir()
+        self._iniciar_autorefresh()
 
     def _construir(self):
         # Scroll
-        canvas = tk.Canvas(self, bg=C["fondo"], highlightthickness=0)
-        scrollbar = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
-        self.scroll_frame = tk.Frame(canvas, bg=C["fondo"])
+        self.canvas_scroll = tk.Canvas(self, bg=C["bg"],
+                                        highlightthickness=0)
+        sb = ttk.Scrollbar(self, orient="vertical",
+                            command=self.canvas_scroll.yview)
+        self.scroll_frame = tk.Frame(self.canvas_scroll, bg=C["bg"])
 
         self.scroll_frame.bind(
             "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        canvas.create_window((0, 0), window=self.scroll_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
+            lambda e: self.canvas_scroll.configure(
+                scrollregion=self.canvas_scroll.bbox("all")))
+        self.canvas_scroll.create_window((0, 0), window=self.scroll_frame,
+                                          anchor="nw")
+        self.canvas_scroll.configure(yscrollcommand=sb.set)
+        self.canvas_scroll.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
 
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        _bind_scroll(self.canvas_scroll)
 
-        # Bind mousewheel
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
-        canvas.bind_all("<Button-4>", lambda e: canvas.yview_scroll(-1, "units"))
-        canvas.bind_all("<Button-5>", lambda e: canvas.yview_scroll(1, "units"))
+        self.contenido = self.scroll_frame
+        self._cargar_datos()
 
-        # Contenido
-        header = tk.Frame(self.scroll_frame, bg=C["fondo"])
-        header.pack(fill="x", padx=25, pady=(20, 5))
+    def _cargar_datos(self):
+        for w in self.contenido.winfo_children():
+            w.destroy()
 
-        tk.Label(header, text="Cuantos Hornear Hoy",
-                 font=F_TITULO, bg=C["fondo"], fg=C["texto"]).pack(side="left")
+        # Header
+        hdr = tk.Frame(self.contenido, bg=C["bg"])
+        hdr.pack(fill="x", padx=25, pady=(18, 5))
 
-        fecha_hoy = datetime.now().strftime("%d/%m/%Y")
-        tk.Label(header, text=fecha_hoy, font=F_GRANDE,
-                 bg=C["fondo"], fg=C["texto_suave"]).pack(side="right")
+        tk.Label(hdr, text="Ventas de Hoy", font=F_TITULO,
+                 bg=C["bg"], fg=C["text"]).pack(side="left")
 
-        # Pronostico por cada producto
-        productos = obtener_productos()
+        ahora = datetime.now().strftime("%H:%M")
+        self.lbl_reloj = tk.Label(
+            hdr, text=f"Actualizado: {ahora}", font=F_SMALL,
+            bg=C["bg"], fg=C["text_muted"])
+        self.lbl_reloj.pack(side="right")
 
-        if not productos:
-            tk.Label(self.scroll_frame,
-                     text="No hay productos. Ve a Configuracion para agregar.",
-                     font=F_GRANDE, bg=C["fondo"],
-                     fg=C["texto_suave"]).pack(pady=50)
+        tk.Button(hdr, text="\u21BB  Actualizar", font=F_NORMAL_B,
+                  bg=C["accent"], fg="white", relief="flat",
+                  activebackground=C["accent_dark"], cursor="hand2",
+                  padx=12, pady=4,
+                  command=self._cargar_datos).pack(side="right", padx=10)
+
+        try:
+            totales = obtener_total_ventas_dia()
+            resumen = obtener_resumen_ventas_dia()
+            ventas = obtener_ventas_dia()
+        except Exception as e:
+            tk.Label(self.contenido,
+                     text=f"Error al cargar datos: {e}",
+                     font=F_GRANDE, bg=C["bg"],
+                     fg=C["danger"]).pack(pady=30, padx=25)
             return
 
-        for producto in productos:
-            self._tarjeta_pronostico(self.scroll_frame, producto)
+        # Tarjetas metricas
+        cards_row = tk.Frame(self.contenido, bg=C["bg"])
+        cards_row.pack(fill="x", padx=25, pady=12)
 
-    def _tarjeta_pronostico(self, parent, producto: str):
-        resultado = calcular_pronostico(producto)
-        registros = obtener_registros(producto, dias=7)
-        eficiencia = calcular_eficiencia(registros)
-        tendencia = analizar_tendencia(registros)
+        _metrica_card(cards_row, "Total Vendido",
+                      f"${totales['dinero']:.2f}",
+                      C["success"], "\U0001F4B5")
+        _metrica_card(cards_row, "Panes Vendidos",
+                      str(totales["panes"]),
+                      C["primary"], "\U0001F35E")
+        _metrica_card(cards_row, "Transacciones",
+                      str(totales["transacciones"]),
+                      C["accent"], "\U0001F9FE")
 
-        # Color del borde segun estado
-        color_estado = {
-            "bien": C["verde"],
-            "alerta": C["amarillo"],
-            "problema": C["rojo"],
-        }.get(resultado.estado, C["texto_suave"])
+        # Grafica + tabla lado a lado
+        content_row = tk.Frame(self.contenido, bg=C["bg"])
+        content_row.pack(fill="both", expand=True, padx=25, pady=5)
 
-        color_fondo = {
-            "bien": C["verde_claro"],
-            "alerta": C["amarillo_claro"],
-            "problema": C["rojo_claro"],
-        }.get(resultado.estado, C["fondo"])
+        # ── Grafica de barras ──
+        if resumen and HAS_MPL:
+            chart_card = _card(content_row, "Ventas por Producto")
+            chart_card.pack(side="left", fill="both", expand=True,
+                            padx=(0, 10))
 
-        # Tarjeta
-        card = tk.Frame(parent, bg=color_estado, padx=3, pady=3)
-        card.pack(fill="x", padx=25, pady=8)
+            nombres = [r["producto"] for r in resumen]
+            cantidades = [r["total_cantidad"] for r in resumen]
+            colores = [color_producto(n) for n in nombres]
 
-        inner = tk.Frame(card, bg=C["tarjeta"], padx=20, pady=15)
-        inner.pack(fill="x")
+            fig = Figure(figsize=(5, 3.2), dpi=100)
+            fig.patch.set_facecolor(C["card"])
+            ax = fig.add_subplot(111)
+            ax.set_facecolor(C["card"])
 
-        # Fila 1: Nombre del producto + Cantidad sugerida
-        fila1 = tk.Frame(inner, bg=C["tarjeta"])
-        fila1.pack(fill="x")
+            bars = ax.barh(nombres, cantidades, color=colores,
+                           height=0.6, edgecolor="white", linewidth=1.5)
+            ax.set_xlabel("Cantidad", fontsize=10, color=C["text_sec"])
+            ax.tick_params(colors=C["text_sec"], labelsize=10)
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+            ax.spines["left"].set_color(C["divider"])
+            ax.spines["bottom"].set_color(C["divider"])
 
-        tk.Label(fila1, text=producto, font=F_SUBTIT,
-                 bg=C["tarjeta"], fg=C["texto"]).pack(side="left")
+            # Valores en las barras
+            for bar, cant in zip(bars, cantidades):
+                ax.text(bar.get_width() + 1, bar.get_y() + bar.get_height()/2,
+                        str(cant), va="center", fontsize=11,
+                        fontweight="bold", color=C["text_sec"])
 
-        # Numero grande de produccion sugerida
-        num_frame = tk.Frame(fila1, bg=color_fondo, padx=15, pady=5)
-        num_frame.pack(side="right")
+            fig.tight_layout(pad=2)
+            self._chart_canvas = FigureCanvasTkAgg(fig, chart_card)
+            self._chart_canvas.draw()
+            self._chart_canvas.get_tk_widget().pack(fill="both", expand=True)
 
-        tk.Label(num_frame, text=f"{resultado.produccion_sugerida}",
-                 font=("Arial", 30, "bold"), bg=color_fondo,
-                 fg=color_estado).pack(side="left")
-        tk.Label(num_frame, text=" panes", font=F_GRANDE,
-                 bg=color_fondo, fg=color_estado).pack(side="left")
+        # ── Resumen por producto (tarjetas) ──
+        detail_card = _card(content_row, "Detalle por Producto")
+        detail_card.pack(side="left", fill="both", expand=True)
 
-        # Fila 2: Detalles
-        fila2 = tk.Frame(inner, bg=C["tarjeta"])
-        fila2.pack(fill="x", pady=(10, 0))
+        if resumen:
+            for r in resumen:
+                row = tk.Frame(detail_card, bg=C["card"], pady=8)
+                row.pack(fill="x")
 
-        detalles = [
-            f"Promedio: {resultado.promedio_ventas} vendidos/dia",
-            f"Tendencia: {tendencia}",
-        ]
-        if eficiencia:
-            detalles.append(
-                f"Aprovechamiento: {eficiencia.get('tasa_aprovechamiento', 0)}%"
-            )
-        detalles.append(f"Datos: {resultado.dias_historial} dias")
+                col_p = color_producto(r["producto"])
+                # Color dot
+                dot = tk.Canvas(row, width=14, height=14,
+                                bg=C["card"], highlightthickness=0)
+                dot.create_oval(2, 2, 12, 12, fill=col_p, outline=col_p)
+                dot.pack(side="left", padx=(0, 8))
 
-        for d in detalles:
-            tk.Label(fila2, text=d, font=F_NORMAL,
-                     bg=C["tarjeta"], fg=C["texto_suave"]
-                     ).pack(side="left", padx=(0, 20))
+                tk.Label(row, text=f"{icono(r['producto'])}  {r['producto']}",
+                         font=F_NORMAL_B, bg=C["card"],
+                         fg=C["text"]).pack(side="left")
 
-        # Fila 3: Mensaje
-        msg_frame = tk.Frame(inner, bg=color_fondo, padx=10, pady=5)
-        msg_frame.pack(fill="x", pady=(10, 0))
+                tk.Label(row, text=f"${r['total_dinero']:.2f}",
+                         font=F_GRANDE_B, bg=C["card"],
+                         fg=C["success"]).pack(side="right")
 
-        tk.Label(msg_frame, text=resultado.mensaje,
-                 font=F_NORMAL, bg=color_fondo,
-                 fg=color_estado).pack(anchor="w")
+                tk.Label(row, text=f"{r['total_cantidad']} panes  |  ",
+                         font=F_NORMAL, bg=C["card"],
+                         fg=C["text_muted"]).pack(side="right")
+
+                tk.Frame(detail_card, bg=C["divider"],
+                         height=1).pack(fill="x")
+        else:
+            tk.Label(detail_card,
+                     text="No hay ventas registradas hoy.\n\n"
+                          "Las ventas apareceran aqui cuando\n"
+                          "el cajero registre pedidos.",
+                     font=F_NORMAL, bg=C["card"],
+                     fg=C["text_muted"], justify="center").pack(
+                         expand=True, pady=30)
+
+        # ── Ultimas transacciones ──
+        if ventas:
+            trans_card = _card(self.contenido, "Ultimas Transacciones")
+            trans_card.pack(fill="x", padx=25, pady=(10, 20))
+
+            cols = ("hora", "producto", "cantidad", "total")
+            tabla = ttk.Treeview(trans_card, columns=cols,
+                                  show="headings", height=min(8, len(ventas)))
+
+            for col, titulo, ancho in [
+                ("hora", "Hora", 80),
+                ("producto", "Producto", 200),
+                ("cantidad", "Cantidad", 100),
+                ("total", "Total", 120),
+            ]:
+                tabla.heading(col, text=titulo)
+                tabla.column(col, width=ancho,
+                             anchor="center" if col != "producto" else "w")
+
+            for v in ventas[:20]:
+                tabla.insert("", "end", values=(
+                    v["hora"][:5],
+                    f"{icono(v['producto'])}  {v['producto']}",
+                    v["cantidad"],
+                    f"${v['total']:.2f}"
+                ))
+
+            tabla.pack(fill="x", pady=(5, 0))
+
+    def _iniciar_autorefresh(self):
+        """Refresca los datos cada 30 segundos."""
+        def refresh():
+            try:
+                self._cargar_datos()
+            except Exception:
+                pass
+            job = self.app.after(30000, refresh)
+            self.app._refresh_jobs.append(job)
+
+        job = self.app.after(30000, refresh)
+        self.app._refresh_jobs.append(job)
 
 
-class VistaProduccion(ttk.Frame):
-    """Registro de produccion diaria (cuantos se hornearon)."""
+# ══════════════════════════════════════════════
+# PRONOSTICO CON GRAFICAS
+# ══════════════════════════════════════════════
+
+class VistaPronostico(tk.Frame):
+    """Cuantos hornear hoy - con grafica de barras."""
 
     def __init__(self, parent, app: PanaderiaApp):
-        super().__init__(parent, style="TFrame")
+        super().__init__(parent, bg=C["bg"])
         self.app = app
         self._construir()
 
     def _construir(self):
-        tk.Label(self, text="Registrar Produccion del Dia",
-                 font=F_TITULO, bg=C["fondo"], fg=C["texto"],
-                 ).pack(fill="x", padx=25, pady=(20, 10))
+        canvas_s = tk.Canvas(self, bg=C["bg"], highlightthickness=0)
+        sb = ttk.Scrollbar(self, orient="vertical", command=canvas_s.yview)
+        scroll = tk.Frame(canvas_s, bg=C["bg"])
 
-        tk.Label(self, text="Registra cuantos panes se hornearon hoy.",
-                 font=F_NORMAL, bg=C["fondo"],
-                 fg=C["texto_suave"]).pack(padx=25, anchor="w")
+        scroll.bind("<Configure>",
+                     lambda e: canvas_s.configure(
+                         scrollregion=canvas_s.bbox("all")))
+        canvas_s.create_window((0, 0), window=scroll, anchor="nw")
+        canvas_s.configure(yscrollcommand=sb.set)
+        canvas_s.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        _bind_scroll(canvas_s)
 
-        # Formulario
-        form_outer = tk.Frame(self, bg=C["fondo"])
-        form_outer.pack(expand=True)
+        # Header
+        hdr = tk.Frame(scroll, bg=C["bg"])
+        hdr.pack(fill="x", padx=25, pady=(18, 5))
 
-        form = tk.Frame(form_outer, bg=C["tarjeta"], padx=35, pady=30,
-                         bd=2, relief="solid")
+        tk.Label(hdr, text="\U0001F4CB  Cuantos Hornear Hoy",
+                 font=F_TITULO, bg=C["bg"], fg=C["text"]).pack(side="left")
+
+        fecha_hoy = datetime.now().strftime("%A %d/%m/%Y").capitalize()
+        tk.Label(hdr, text=fecha_hoy, font=F_NORMAL,
+                 bg=C["bg"], fg=C["text_muted"]).pack(side="right")
+
+        productos = obtener_productos()
+        if not productos:
+            tk.Label(scroll,
+                     text="No hay productos configurados.\n"
+                          "Ve a Configuracion para agregar productos.",
+                     font=F_GRANDE, bg=C["bg"],
+                     fg=C["text_muted"]).pack(pady=50)
+            return
+
+        # Calcular pronosticos
+        pronosticos = []
+        for p in productos:
+            try:
+                r = calcular_pronostico(p)
+                pronosticos.append(r)
+            except Exception as e:
+                pronosticos.append(None)
+
+        # ── Grafica resumen ──
+        if HAS_MPL and pronosticos:
+            validos = [(p, r) for p, r in zip(productos, pronosticos) if r]
+            if validos:
+                chart_frame = _card(scroll, "Produccion Sugerida")
+                chart_frame.pack(fill="x", padx=25, pady=(10, 5))
+
+                nombres = [p for p, _ in validos]
+                sugeridos = [r.produccion_sugerida for _, r in validos]
+                promedios = [r.promedio_ventas for _, r in validos]
+                colores = [color_producto(p) for p in nombres]
+
+                fig = Figure(figsize=(8, 3), dpi=100)
+                fig.patch.set_facecolor(C["card"])
+                ax = fig.add_subplot(111)
+                ax.set_facecolor(C["card"])
+
+                x = range(len(nombres))
+                w = 0.35
+                bars1 = ax.bar([i - w/2 for i in x], promedios, w,
+                               label="Promedio vendido",
+                               color=[c + "80" for c in colores],
+                               edgecolor="white")
+                bars2 = ax.bar([i + w/2 for i in x], sugeridos, w,
+                               label="Sugerido hornear",
+                               color=colores, edgecolor="white")
+
+                ax.set_xticks(list(x))
+                ax.set_xticklabels([f"{icono(n)} {n}" for n in nombres],
+                                    fontsize=10)
+                ax.set_ylabel("Panes", fontsize=10, color=C["text_sec"])
+                ax.legend(fontsize=9, loc="upper right")
+                ax.tick_params(colors=C["text_sec"])
+                ax.spines["top"].set_visible(False)
+                ax.spines["right"].set_visible(False)
+                ax.spines["left"].set_color(C["divider"])
+                ax.spines["bottom"].set_color(C["divider"])
+
+                # Valores encima de barras
+                for bar in bars2:
+                    ax.text(bar.get_x() + bar.get_width()/2,
+                            bar.get_height() + 1,
+                            str(int(bar.get_height())),
+                            ha="center", fontsize=10, fontweight="bold",
+                            color=C["text_sec"])
+
+                fig.tight_layout(pad=2)
+                chart_canvas = FigureCanvasTkAgg(fig, chart_frame)
+                chart_canvas.draw()
+                chart_canvas.get_tk_widget().pack(fill="x")
+
+        # ── Tarjetas por producto ──
+        for p, resultado in zip(productos, pronosticos):
+            if resultado is None:
+                continue
+
+            registros = obtener_registros(p, dias=7)
+            eficiencia = calcular_eficiencia(registros)
+            tendencia = analizar_tendencia(registros)
+
+            color_map = {
+                "bien": C["success"],
+                "alerta": C["warning"],
+                "problema": C["danger"],
+            }
+            bg_map = {
+                "bien": C["success_bg"],
+                "alerta": C["warning_bg"],
+                "problema": C["danger_bg"],
+            }
+            estado_c = color_map.get(resultado.estado, C["text_muted"])
+            estado_bg = bg_map.get(resultado.estado, C["bg"])
+            col_p = color_producto(p)
+
+            # Card
+            outer = tk.Frame(scroll, bg=C["card"], padx=0, pady=0,
+                              highlightbackground=C["border"],
+                              highlightthickness=1)
+            outer.pack(fill="x", padx=25, pady=6)
+
+            # Color bar lateral
+            inner = tk.Frame(outer, bg=C["card"])
+            inner.pack(fill="x", side="right", expand=True)
+
+            bar = tk.Frame(outer, bg=col_p, width=6)
+            bar.pack(side="left", fill="y")
+
+            content = tk.Frame(inner, bg=C["card"], padx=20, pady=14)
+            content.pack(fill="x")
+
+            # Fila 1: Icono + Nombre + Numero grande
+            row1 = tk.Frame(content, bg=C["card"])
+            row1.pack(fill="x")
+
+            tk.Label(row1, text=f"{icono(p)}  {p}",
+                     font=F_SUBTIT, bg=C["card"],
+                     fg=C["text"]).pack(side="left")
+
+            num_box = tk.Frame(row1, bg=estado_bg, padx=16, pady=6)
+            num_box.pack(side="right")
+            tk.Label(num_box,
+                     text=f"{resultado.produccion_sugerida} panes",
+                     font=("Segoe UI", 22, "bold"),
+                     bg=estado_bg, fg=estado_c).pack()
+
+            # Fila 2: Detalles
+            row2 = tk.Frame(content, bg=C["card"])
+            row2.pack(fill="x", pady=(8, 0))
+
+            detalles = [
+                ("Promedio", f"{resultado.promedio_ventas}/dia"),
+                ("Tendencia", tendencia),
+                ("Datos", f"{resultado.dias_historial} dias"),
+                ("Confianza", resultado.confianza),
+            ]
+            if eficiencia:
+                detalles.insert(2, (
+                    "Aprovechamiento",
+                    f"{eficiencia.get('tasa_aprovechamiento', 0)}%"))
+
+            for label, valor in detalles:
+                chip = tk.Frame(row2, bg=C["bg_alt"], padx=8, pady=3)
+                chip.pack(side="left", padx=(0, 6))
+                tk.Label(chip, text=f"{label}: {valor}",
+                         font=F_SMALL, bg=C["bg_alt"],
+                         fg=C["text_sec"]).pack()
+
+            # Fila 3: Mensaje
+            row3 = tk.Frame(content, bg=estado_bg, padx=10, pady=5)
+            row3.pack(fill="x", pady=(8, 0))
+            tk.Label(row3, text=resultado.mensaje,
+                     font=F_NORMAL, bg=estado_bg,
+                     fg=estado_c).pack(anchor="w")
+
+
+# ══════════════════════════════════════════════
+# REGISTRAR PRODUCCION
+# ══════════════════════════════════════════════
+
+class VistaProduccion(tk.Frame):
+
+    def __init__(self, parent, app: PanaderiaApp):
+        super().__init__(parent, bg=C["bg"])
+        self.app = app
+        self._construir()
+
+    def _construir(self):
+        hdr = tk.Frame(self, bg=C["bg"])
+        hdr.pack(fill="x", padx=25, pady=(18, 5))
+        tk.Label(hdr, text="\U0001F525  Registrar Produccion",
+                 font=F_TITULO, bg=C["bg"], fg=C["text"]).pack(side="left")
+
+        tk.Label(self, text="Cuantos panes se hornearon hoy?",
+                 font=F_NORMAL, bg=C["bg"],
+                 fg=C["text_muted"]).pack(padx=25, anchor="w", pady=(0, 10))
+
+        # Formulario card
+        form_wrap = tk.Frame(self, bg=C["bg"])
+        form_wrap.pack(expand=True)
+
+        form = tk.Frame(form_wrap, bg=C["card"], padx=35, pady=30,
+                         highlightbackground=C["border"],
+                         highlightthickness=1)
         form.pack(padx=20)
 
         # Fecha
-        _campo_label(form, "Fecha:", 0)
+        r = 0
+        tk.Label(form, text="Fecha:", font=F_NORMAL_B,
+                 bg=C["card"], fg=C["text_sec"]).grid(
+                     row=r, column=0, sticky="w", pady=10, padx=(0, 20))
         self.fecha_var = tk.StringVar(
             value=datetime.now().strftime("%Y-%m-%d"))
-        _campo_entry(form, self.fecha_var, 0)
+        _styled_entry(form, self.fecha_var, r)
 
         # Producto
-        _campo_label(form, "Producto:", 1)
+        r = 1
+        tk.Label(form, text="Producto:", font=F_NORMAL_B,
+                 bg=C["card"], fg=C["text_sec"]).grid(
+                     row=r, column=0, sticky="w", pady=10)
         self.producto_var = tk.StringVar()
         productos = obtener_productos()
         combo = ttk.Combobox(form, textvariable=self.producto_var,
@@ -847,50 +1146,63 @@ class VistaProduccion(ttk.Frame):
                               font=F_GRANDE, width=25)
         if productos:
             combo.current(0)
-        combo.grid(row=1, column=1, sticky="ew", pady=10)
-        combo.bind("<<ComboboxSelected>>", lambda _: self._actualizar_vendido())
+        combo.grid(row=r, column=1, sticky="ew", pady=10)
+        combo.bind("<<ComboboxSelected>>",
+                    lambda _: self._auto_vendido())
 
-        # Cantidad producida
-        _campo_label(form, "Cantidad horneada:", 2)
+        # Cantidad horneada
+        r = 2
+        tk.Label(form, text="Horneados:", font=F_NORMAL_B,
+                 bg=C["card"], fg=C["text_sec"]).grid(
+                     row=r, column=0, sticky="w", pady=10)
         self.producido_var = tk.StringVar()
-        _campo_entry(form, self.producido_var, 2)
+        _styled_entry(form, self.producido_var, r)
 
-        # Vendido (auto-llenado desde ventas del cajero)
-        _campo_label(form, "Cantidad vendida:", 3)
+        # Vendidos
+        r = 3
+        tk.Label(form, text="Vendidos:", font=F_NORMAL_B,
+                 bg=C["card"], fg=C["text_sec"]).grid(
+                     row=r, column=0, sticky="w", pady=10)
         self.vendido_var = tk.StringVar()
-        e_vendido = _campo_entry(form, self.vendido_var, 3)
+        _styled_entry(form, self.vendido_var, r)
 
-        # Info de vendido automatico
-        self.lbl_auto_vendido = tk.Label(
-            form, text="", font=F_PEQUENA,
-            bg=C["tarjeta"], fg=C["verde"])
-        self.lbl_auto_vendido.grid(row=3, column=2, padx=10)
+        self.lbl_auto = tk.Label(form, text="", font=F_SMALL,
+                                  bg=C["card"], fg=C["success"])
+        self.lbl_auto.grid(row=r, column=2, padx=8)
 
-        # Sobrante calculado
-        _campo_label(form, "Sobrante:", 4)
-        self.lbl_sobrante = tk.Label(form, text="--", font=F_GRANDE_B,
-                                      bg=C["tarjeta"], fg=C["primario"])
-        self.lbl_sobrante.grid(row=4, column=1, sticky="w", pady=10)
+        # Sobrante
+        r = 4
+        tk.Label(form, text="Sobrante:", font=F_NORMAL_B,
+                 bg=C["card"], fg=C["text_sec"]).grid(
+                     row=r, column=0, sticky="w", pady=10)
+        self.lbl_sobrante = tk.Label(form, text="--",
+                                      font=F_GRANDE_B, bg=C["card"],
+                                      fg=C["primary"])
+        self.lbl_sobrante.grid(row=r, column=1, sticky="w", pady=10)
 
-        # Observaciones
-        _campo_label(form, "Notas (opcional):", 5)
+        # Notas
+        r = 5
+        tk.Label(form, text="Notas:", font=F_NORMAL_B,
+                 bg=C["card"], fg=C["text_sec"]).grid(
+                     row=r, column=0, sticky="w", pady=10)
         self.obs_var = tk.StringVar()
-        _campo_entry(form, self.obs_var, 5)
+        _styled_entry(form, self.obs_var, r)
 
-        # Actualizar sobrante en tiempo real
-        for var in (self.producido_var, self.vendido_var):
-            var.trace_add("write", self._actualizar_sobrante)
+        # Calcular sobrante en tiempo real
+        self.producido_var.trace_add("write", self._calc_sobrante)
+        self.vendido_var.trace_add("write", self._calc_sobrante)
 
         # Boton guardar
-        ttk.Button(form, text="Guardar Registro",
-                   style="Primario.TButton",
-                   command=self._guardar
-                   ).grid(row=6, column=0, columnspan=2, pady=25)
+        tk.Button(form, text="\u2714  Guardar Registro", font=F_BOTON,
+                  bg=C["accent"], fg="white", relief="flat",
+                  activebackground=C["accent_dark"], cursor="hand2",
+                  padx=30, pady=10,
+                  command=self._guardar).grid(
+                      row=6, column=0, columnspan=2, pady=25)
 
-        self._actualizar_vendido()
+        self._auto_vendido()
 
-    def _actualizar_vendido(self):
-        """Auto-llenar vendido desde ventas del cajero."""
+    def _auto_vendido(self):
         fecha = self.fecha_var.get().strip()
         producto = self.producto_var.get()
         if fecha and producto:
@@ -898,23 +1210,22 @@ class VistaProduccion(ttk.Frame):
                 vendido = obtener_vendido_dia_producto(fecha, producto)
                 if vendido > 0:
                     self.vendido_var.set(str(vendido))
-                    self.lbl_auto_vendido.configure(
-                        text=f"(desde ventas del cajero)")
+                    self.lbl_auto.configure(
+                        text="(dato del cajero)")
                 else:
-                    self.lbl_auto_vendido.configure(text="")
+                    self.lbl_auto.configure(text="")
             except Exception:
-                self.lbl_auto_vendido.configure(text="")
+                self.lbl_auto.configure(text="")
 
-    def _actualizar_sobrante(self, *_):
+    def _calc_sobrante(self, *_):
         try:
-            prod = int(self.producido_var.get())
-            vend = int(self.vendido_var.get())
-            sobrante = prod - vend
-            color = C["verde"] if sobrante >= 0 else C["rojo"]
-            self.lbl_sobrante.configure(
-                text=f"{sobrante} panes", fg=color)
+            p = int(self.producido_var.get())
+            v = int(self.vendido_var.get())
+            s = p - v
+            color = C["success"] if s >= 0 else C["danger"]
+            self.lbl_sobrante.configure(text=f"{s} panes", fg=color)
         except ValueError:
-            self.lbl_sobrante.configure(text="--", fg=C["primario"])
+            self.lbl_sobrante.configure(text="--", fg=C["primary"])
 
     def _guardar(self):
         try:
@@ -923,210 +1234,115 @@ class VistaProduccion(ttk.Frame):
             producido = int(self.producido_var.get())
             vendido = int(self.vendido_var.get())
             obs = self.obs_var.get().strip()
-
-            if not producto:
-                messagebox.showwarning("Atencion", "Selecciona un producto.")
-                return
-            if producido < 0 or vendido < 0:
-                messagebox.showwarning("Atencion",
-                                        "Los valores no pueden ser negativos.")
-                return
-            if vendido > producido:
-                messagebox.showwarning(
-                    "Atencion",
-                    "Se vendio mas de lo que se horneo.\n"
-                    "Revisa los datos.")
-                return
-            datetime.strptime(fecha, "%Y-%m-%d")
-        except ValueError as e:
-            messagebox.showerror("Error", f"Datos invalidos: {e}")
+        except ValueError:
+            messagebox.showerror("Error",
+                                 "Escribe numeros validos en horneados y vendidos.")
             return
 
-        exito = guardar_registro(fecha, producto, producido, vendido, obs)
-        if exito:
+        if not producto:
+            messagebox.showwarning("Atencion", "Selecciona un producto.")
+            return
+        if producido < 0 or vendido < 0:
+            messagebox.showwarning("Atencion",
+                                    "Los valores no pueden ser negativos.")
+            return
+        if vendido > producido:
+            if not messagebox.askyesno(
+                    "Atencion",
+                    "Vendidos es mayor que horneados.\n"
+                    "Quieres guardar de todas formas?"):
+                return
+
+        try:
+            datetime.strptime(fecha, "%Y-%m-%d")
+        except ValueError:
+            messagebox.showerror("Error",
+                                 "Formato de fecha invalido. Usa AAAA-MM-DD.")
+            return
+
+        ok = guardar_registro(fecha, producto, producido, vendido, obs)
+        if ok:
             messagebox.showinfo(
                 "Guardado",
-                f"Registro guardado:\n{producto} - {fecha}\n"
-                f"Horneados: {producido} | Vendidos: {vendido} | "
+                f"{icono(producto)} {producto} - {fecha}\n\n"
+                f"Horneados: {producido}\n"
+                f"Vendidos: {vendido}\n"
                 f"Sobrante: {producido - vendido}")
             self.producido_var.set("")
             self.vendido_var.set("")
             self.obs_var.set("")
         else:
-            messagebox.showerror("Error", "No se pudo guardar.")
+            messagebox.showerror("Error", "No se pudo guardar el registro.")
 
 
-class VistaVentasPanadero(ttk.Frame):
-    """Vista de ventas del dia para el panadero."""
+# ══════════════════════════════════════════════
+# HISTORIAL
+# ══════════════════════════════════════════════
+
+class VistaHistorial(tk.Frame):
 
     def __init__(self, parent, app: PanaderiaApp):
-        super().__init__(parent, style="TFrame")
+        super().__init__(parent, bg=C["bg"])
         self.app = app
         self._construir()
 
     def _construir(self):
-        header = tk.Frame(self, bg=C["fondo"])
-        header.pack(fill="x", padx=25, pady=(20, 10))
-
-        tk.Label(header, text="Ventas de Hoy",
-                 font=F_TITULO, bg=C["fondo"], fg=C["texto"]).pack(side="left")
-
-        ttk.Button(header, text="Actualizar", style="Primario.TButton",
-                   command=self._actualizar).pack(side="right")
-
-        # Resumen
-        self.resumen_frame = tk.Frame(self, bg=C["fondo"])
-        self.resumen_frame.pack(fill="x", padx=25)
-
-        # Lista detallada
-        self.lista_frame = tk.Frame(self, bg=C["fondo"])
-        self.lista_frame.pack(fill="both", expand=True, padx=25, pady=10)
-
-        self._actualizar()
-
-    def _actualizar(self):
-        for w in self.resumen_frame.winfo_children():
-            w.destroy()
-        for w in self.lista_frame.winfo_children():
-            w.destroy()
-
-        totales = obtener_total_ventas_dia()
-        resumen = obtener_resumen_ventas_dia()
-        ventas = obtener_ventas_dia()
-
-        # Tarjetas resumen
-        cards = tk.Frame(self.resumen_frame, bg=C["fondo"])
-        cards.pack(fill="x", pady=(0, 10))
-
-        _tarjeta(cards, "Total del Dia",
-                 f"${totales['dinero']:.2f}", C["verde"])
-        _tarjeta(cards, "Panes Vendidos",
-                 str(totales["panes"]), C["primario"])
-        _tarjeta(cards, "Transacciones",
-                 str(totales["transacciones"]), C["secundario"])
-
-        if not ventas:
-            tk.Label(self.lista_frame,
-                     text="No hay ventas registradas hoy.",
-                     font=F_GRANDE, bg=C["fondo"],
-                     fg=C["texto_suave"]).pack(pady=30)
-            return
-
-        # Resumen por producto
-        tk.Label(self.lista_frame, text="Por Producto:",
-                 font=F_SUBTIT, bg=C["fondo"],
-                 fg=C["secundario"]).pack(anchor="w", pady=(5, 5))
-
-        for r in resumen:
-            f = tk.Frame(self.lista_frame, bg=C["tarjeta"],
-                          padx=15, pady=10, bd=1, relief="solid")
-            f.pack(fill="x", pady=3)
-            tk.Label(f, text=r["producto"], font=F_GRANDE_B,
-                     bg=C["tarjeta"], fg=C["texto"]).pack(side="left")
-            tk.Label(f, text=f"${r['total_dinero']:.2f}",
-                     font=F_GRANDE_B, bg=C["tarjeta"],
-                     fg=C["verde"]).pack(side="right")
-            tk.Label(f, text=f"{r['total_cantidad']} panes  |  ",
-                     font=F_NORMAL, bg=C["tarjeta"],
-                     fg=C["texto_suave"]).pack(side="right")
-
-        # Detalle de transacciones
-        tk.Label(self.lista_frame, text="Ultimas Transacciones:",
-                 font=F_SUBTIT, bg=C["fondo"],
-                 fg=C["secundario"]).pack(anchor="w", pady=(15, 5))
-
-        cols = ("hora", "producto", "cantidad", "total")
-        tabla = ttk.Treeview(self.lista_frame, columns=cols,
-                              show="headings", height=8)
-        tabla.heading("hora", text="Hora")
-        tabla.heading("producto", text="Producto")
-        tabla.heading("cantidad", text="Cantidad")
-        tabla.heading("total", text="Total")
-        tabla.column("hora", width=100, anchor="center")
-        tabla.column("producto", width=200)
-        tabla.column("cantidad", width=100, anchor="center")
-        tabla.column("total", width=120, anchor="center")
-
-        for v in ventas:
-            tabla.insert("", "end", values=(
-                v["hora"][:5],
-                v["producto"],
-                v["cantidad"],
-                f"${v['total']:.2f}"
-            ))
-
-        tabla.pack(fill="both", expand=True)
-
-
-class VistaHistorial(ttk.Frame):
-    """Historial de registros de produccion."""
-
-    def __init__(self, parent, app: PanaderiaApp):
-        super().__init__(parent, style="TFrame")
-        self.app = app
-        self._construir()
-
-    def _construir(self):
-        tk.Label(self, text="Historial de Produccion",
-                 font=F_TITULO, bg=C["fondo"], fg=C["texto"]
-                 ).pack(fill="x", padx=25, pady=(20, 10))
+        hdr = tk.Frame(self, bg=C["bg"])
+        hdr.pack(fill="x", padx=25, pady=(18, 5))
+        tk.Label(hdr, text="\U0001F4C5  Historial", font=F_TITULO,
+                 bg=C["bg"], fg=C["text"]).pack(side="left")
 
         # Filtros
-        filtros = tk.Frame(self, bg=C["fondo"], padx=25)
-        filtros.pack(fill="x", pady=(0, 10))
+        filtros = tk.Frame(self, bg=C["bg"])
+        filtros.pack(fill="x", padx=25, pady=(5, 10))
 
         tk.Label(filtros, text="Producto:", font=F_NORMAL,
-                 bg=C["fondo"], fg=C["texto_suave"]).pack(side="left")
-
+                 bg=C["bg"], fg=C["text_sec"]).pack(side="left")
         self.filtro_producto = tk.StringVar(value="Todos")
         combo = ttk.Combobox(
             filtros, textvariable=self.filtro_producto,
             values=["Todos"] + obtener_productos(),
-            state="readonly", font=F_NORMAL, width=20)
-        combo.pack(side="left", padx=10)
+            state="readonly", font=F_NORMAL, width=18)
+        combo.pack(side="left", padx=8)
         combo.bind("<<ComboboxSelected>>", lambda _: self._cargar())
 
-        tk.Label(filtros, text="Ultimos:", font=F_NORMAL,
-                 bg=C["fondo"], fg=C["texto_suave"]
-                 ).pack(side="left", padx=(20, 5))
+        tk.Label(filtros, text="Periodo:", font=F_NORMAL,
+                 bg=C["bg"], fg=C["text_sec"]).pack(side="left", padx=(15, 5))
 
         self.dias_var = tk.IntVar(value=30)
-        for dias in (7, 14, 30, 60):
-            btn = tk.Radiobutton(
-                filtros, text=f"{dias} dias", variable=self.dias_var,
-                value=dias, command=self._cargar,
-                bg=C["fondo"], fg=C["texto"], font=F_NORMAL,
-                selectcolor=C["seleccion"],
-                activebackground=C["fondo"])
-            btn.pack(side="left", padx=6)
+        for d in (7, 14, 30, 60):
+            b = tk.Radiobutton(
+                filtros, text=f"{d}d", variable=self.dias_var,
+                value=d, command=self._cargar,
+                bg=C["bg"], fg=C["text"], font=F_NORMAL,
+                selectcolor=C["selected"],
+                activebackground=C["bg"])
+            b.pack(side="left", padx=4)
 
         # Tabla
-        tabla_frame = tk.Frame(self, bg=C["fondo"], padx=25)
-        tabla_frame.pack(fill="both", expand=True, pady=10)
+        tframe = tk.Frame(self, bg=C["bg"])
+        tframe.pack(fill="both", expand=True, padx=25, pady=(0, 15))
 
-        columnas = ("fecha", "dia", "producto", "producido",
-                    "vendido", "sobrante")
-        self.tabla = ttk.Treeview(
-            tabla_frame, columns=columnas, show="headings", height=16)
-
-        encabezados = {
-            "fecha": ("Fecha", 110),
-            "dia": ("Dia", 100),
-            "producto": ("Producto", 150),
-            "producido": ("Horneados", 100),
-            "vendido": ("Vendidos", 100),
-            "sobrante": ("Sobrante", 100),
-        }
-        for col, (titulo, ancho) in encabezados.items():
+        cols = ("fecha", "dia", "producto", "producido",
+                "vendido", "sobrante")
+        self.tabla = ttk.Treeview(tframe, columns=cols,
+                                   show="headings", height=18)
+        for col, titulo, ancho in [
+            ("fecha", "Fecha", 105),
+            ("dia", "Dia", 95),
+            ("producto", "Producto", 160),
+            ("producido", "Horneados", 100),
+            ("vendido", "Vendidos", 100),
+            ("sobrante", "Sobrante", 100),
+        ]:
             self.tabla.heading(col, text=titulo)
             self.tabla.column(col, width=ancho, anchor="center")
 
-        scrollbar = ttk.Scrollbar(tabla_frame, orient="vertical",
-                                   command=self.tabla.yview)
-        self.tabla.configure(yscrollcommand=scrollbar.set)
-
+        sb = ttk.Scrollbar(tframe, orient="vertical",
+                            command=self.tabla.yview)
+        self.tabla.configure(yscrollcommand=sb.set)
         self.tabla.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        sb.pack(side="right", fill="y")
 
         self._cargar()
 
@@ -1134,10 +1350,15 @@ class VistaHistorial(ttk.Frame):
         for row in self.tabla.get_children():
             self.tabla.delete(row)
 
-        producto = self.filtro_producto.get()
+        prod = self.filtro_producto.get()
         dias = self.dias_var.get()
-        registros = obtener_registros(
-            producto if producto != "Todos" else None, dias=dias)
+
+        try:
+            registros = obtener_registros(
+                prod if prod != "Todos" else None, dias=dias)
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo cargar: {e}")
+            return
 
         for r in registros:
             sobrante = r["sobrante"]
@@ -1145,312 +1366,351 @@ class VistaHistorial(ttk.Frame):
             if sobrante < 0:
                 tag = "negativo"
             elif r["producido"] > 0 and sobrante / r["producido"] > 0.15:
-                tag = "alto_sobrante"
+                tag = "alto"
 
             self.tabla.insert("", "end", values=(
-                r["fecha"], r["dia_semana"], r["producto"],
+                r["fecha"], r["dia_semana"],
+                f"{icono(r['producto'])}  {r['producto']}",
                 r["producido"], r["vendido"], sobrante
             ), tags=(tag,))
 
-        self.tabla.tag_configure("alto_sobrante",
-                                  background=C["amarillo_claro"],
-                                  foreground=C["amarillo"])
+        self.tabla.tag_configure("alto",
+                                  background=C["warning_bg"],
+                                  foreground=C["warning"])
         self.tabla.tag_configure("negativo",
-                                  background=C["rojo_claro"],
-                                  foreground=C["rojo"])
+                                  background=C["danger_bg"],
+                                  foreground=C["danger"])
 
 
-class VistaConfiguracion(ttk.Frame):
-    """Configuracion de productos, precios y usuarios."""
+# ══════════════════════════════════════════════
+# CONFIGURACION
+# ══════════════════════════════════════════════
+
+class VistaConfiguracion(tk.Frame):
 
     def __init__(self, parent, app: PanaderiaApp):
-        super().__init__(parent, style="TFrame")
+        super().__init__(parent, bg=C["bg"])
         self.app = app
         self._construir()
 
     def _construir(self):
-        # Scroll
-        canvas = tk.Canvas(self, bg=C["fondo"], highlightthickness=0)
-        scrollbar = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
-        scroll_frame = tk.Frame(canvas, bg=C["fondo"])
+        canvas_s = tk.Canvas(self, bg=C["bg"], highlightthickness=0)
+        sb = ttk.Scrollbar(self, orient="vertical", command=canvas_s.yview)
+        scroll = tk.Frame(canvas_s, bg=C["bg"])
 
-        scroll_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
+        scroll.bind("<Configure>",
+                     lambda e: canvas_s.configure(
+                         scrollregion=canvas_s.bbox("all")))
+        canvas_s.create_window((0, 0), window=scroll, anchor="nw")
+        canvas_s.configure(yscrollcommand=sb.set)
+        canvas_s.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        _bind_scroll(canvas_s)
 
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        hdr = tk.Frame(scroll, bg=C["bg"])
+        hdr.pack(fill="x", padx=25, pady=(18, 5))
+        tk.Label(hdr, text="\u2699\uFE0F  Configuracion",
+                 font=F_TITULO, bg=C["bg"], fg=C["text"]).pack(side="left")
 
-        canvas.bind_all("<MouseWheel>",
-                         lambda e: canvas.yview_scroll(
-                             int(-1 * (e.delta / 120)), "units"))
-        canvas.bind_all("<Button-4>",
-                         lambda e: canvas.yview_scroll(-1, "units"))
-        canvas.bind_all("<Button-5>",
-                         lambda e: canvas.yview_scroll(1, "units"))
-
-        tk.Label(scroll_frame, text="Configuracion",
-                 font=F_TITULO, bg=C["fondo"], fg=C["texto"]
-                 ).pack(fill="x", padx=25, pady=(20, 10))
-
-        # ── Seccion: Productos y Precios
-        self._seccion_productos(scroll_frame)
-
-        # ── Seccion: Usuarios
-        self._seccion_usuarios(scroll_frame)
-
-        # ── Info del sistema
-        self._seccion_info(scroll_frame)
+        # ── Productos y Precios ──
+        self._seccion_productos(scroll)
+        # ── Usuarios ──
+        self._seccion_usuarios(scroll)
+        # ── Info ──
+        self._seccion_info(scroll)
 
     def _seccion_productos(self, parent):
-        sec = _seccion(parent, "Productos y Precios")
+        card = _card(parent, "\U0001F35E  Productos y Precios")
+        card.pack(fill="x", padx=25, pady=8)
 
-        # Lista de productos con precios
-        self.productos_frame = tk.Frame(sec, bg=C["tarjeta"])
-        self.productos_frame.pack(fill="x", pady=5)
-
+        self.prod_list = tk.Frame(card, bg=C["card"])
+        self.prod_list.pack(fill="x")
         self._cargar_productos()
 
         # Agregar nuevo
-        add_frame = tk.Frame(sec, bg=C["tarjeta"], pady=10)
-        add_frame.pack(fill="x")
+        tk.Frame(card, bg=C["divider"], height=1).pack(
+            fill="x", pady=10)
+        add = tk.Frame(card, bg=C["card"])
+        add.pack(fill="x")
 
-        tk.Label(add_frame, text="Nuevo producto:", font=F_NORMAL,
-                 bg=C["tarjeta"], fg=C["texto_suave"]).pack(side="left")
+        tk.Label(add, text="Nuevo:", font=F_NORMAL,
+                 bg=C["card"], fg=C["text_sec"]).pack(side="left")
+        self.new_name = tk.StringVar()
+        tk.Entry(add, textvariable=self.new_name, font=F_NORMAL,
+                 bg=C["bg"], fg=C["text"], relief="flat", bd=0,
+                 highlightthickness=1, highlightbackground=C["border"],
+                 width=16).pack(side="left", padx=6, ipady=4)
 
-        self.nuevo_nombre = tk.StringVar()
-        tk.Entry(add_frame, textvariable=self.nuevo_nombre,
-                 font=F_NORMAL, bg=C["fondo"], fg=C["texto"],
-                 relief="solid", bd=1, width=18).pack(side="left", padx=8)
+        tk.Label(add, text="$", font=F_NORMAL,
+                 bg=C["card"], fg=C["text_sec"]).pack(side="left")
+        self.new_price = tk.StringVar(value="10.0")
+        tk.Entry(add, textvariable=self.new_price, font=F_NORMAL,
+                 bg=C["bg"], fg=C["text"], relief="flat", bd=0,
+                 highlightthickness=1, highlightbackground=C["border"],
+                 width=7).pack(side="left", padx=4, ipady=4)
 
-        tk.Label(add_frame, text="Precio $:", font=F_NORMAL,
-                 bg=C["tarjeta"], fg=C["texto_suave"]).pack(side="left")
-
-        self.nuevo_precio = tk.StringVar(value="10.0")
-        tk.Entry(add_frame, textvariable=self.nuevo_precio,
-                 font=F_NORMAL, bg=C["fondo"], fg=C["texto"],
-                 relief="solid", bd=1, width=8).pack(side="left", padx=8)
-
-        ttk.Button(add_frame, text="Agregar",
-                   style="Primario.TButton",
-                   command=self._agregar_producto).pack(side="left", padx=5)
+        tk.Button(add, text="+ Agregar", font=F_NORMAL_B,
+                  bg=C["accent"], fg="white", relief="flat",
+                  activebackground=C["accent_dark"], cursor="hand2",
+                  padx=12, pady=4,
+                  command=self._agregar_producto).pack(side="left", padx=8)
 
     def _cargar_productos(self):
-        for w in self.productos_frame.winfo_children():
+        for w in self.prod_list.winfo_children():
             w.destroy()
 
         productos = obtener_productos_con_precio()
         for p in productos:
-            fila = tk.Frame(self.productos_frame, bg=C["tarjeta"])
-            fila.pack(fill="x", pady=3)
+            row = tk.Frame(self.prod_list, bg=C["card"], pady=6)
+            row.pack(fill="x")
 
-            tk.Label(fila, text=p["nombre"], font=F_GRANDE_B,
-                     bg=C["tarjeta"], fg=C["texto"],
-                     width=20, anchor="w").pack(side="left", padx=5)
+            col_p = color_producto(p["nombre"])
+            dot = tk.Canvas(row, width=14, height=14,
+                            bg=C["card"], highlightthickness=0)
+            dot.create_oval(2, 2, 12, 12, fill=col_p, outline=col_p)
+            dot.pack(side="left", padx=(0, 8))
 
-            tk.Label(fila, text=f"${p['precio']:.2f}", font=F_GRANDE,
-                     bg=C["tarjeta"], fg=C["verde"],
-                     width=10).pack(side="left")
+            tk.Label(row,
+                     text=f"{icono(p['nombre'])}  {p['nombre']}",
+                     font=F_GRANDE_B, bg=C["card"], fg=C["text"],
+                     width=18, anchor="w").pack(side="left")
 
-            # Boton editar precio
-            precio_entry = tk.StringVar(value=str(p["precio"]))
-            e = tk.Entry(fila, textvariable=precio_entry,
-                         font=F_NORMAL, width=8, bg=C["fondo"],
-                         relief="solid", bd=1)
-            e.pack(side="left", padx=5)
+            tk.Label(row, text=f"${p['precio']:.2f}",
+                     font=F_GRANDE_B, bg=C["card"],
+                     fg=C["success"], width=8).pack(side="left")
 
-            ttk.Button(
-                fila, text="Cambiar Precio",
-                style="Secundario.TButton",
-                command=lambda nombre=p["nombre"], var=precio_entry:
-                    self._cambiar_precio(nombre, var)
-            ).pack(side="left", padx=5)
+            pv = tk.StringVar(value=str(p["precio"]))
+            tk.Entry(row, textvariable=pv, font=F_NORMAL,
+                     bg=C["bg"], fg=C["text"], relief="flat",
+                     bd=0, highlightthickness=1,
+                     highlightbackground=C["border"],
+                     width=7).pack(side="left", padx=4, ipady=3)
 
-    def _cambiar_precio(self, nombre, precio_var):
+            tk.Button(row, text="Cambiar", font=F_SMALL_B,
+                      bg=C["primary"], fg="white", relief="flat",
+                      activebackground=C["primary_dark"],
+                      cursor="hand2", padx=8,
+                      command=lambda n=p["nombre"], v=pv:
+                          self._cambiar_precio(n, v)
+                      ).pack(side="left", padx=4)
+
+            tk.Frame(self.prod_list, bg=C["divider"],
+                     height=1).pack(fill="x")
+
+    def _cambiar_precio(self, nombre, var):
         try:
-            nuevo = float(precio_var.get())
+            nuevo = float(var.get())
             if nuevo < 0:
-                messagebox.showwarning("Atencion", "El precio no puede ser negativo.")
+                messagebox.showwarning("Atencion",
+                                        "El precio no puede ser negativo.")
                 return
             if actualizar_precio(nombre, nuevo):
                 self._cargar_productos()
-                messagebox.showinfo("Listo", f"Precio de '{nombre}' actualizado a ${nuevo:.2f}")
-            else:
-                messagebox.showerror("Error", "No se pudo actualizar.")
+                messagebox.showinfo("Listo",
+                                     f"Precio de '{nombre}' = ${nuevo:.2f}")
         except ValueError:
-            messagebox.showerror("Error", "Escribe un numero valido para el precio.")
+            messagebox.showerror("Error", "Escribe un numero valido.")
 
     def _agregar_producto(self):
-        nombre = self.nuevo_nombre.get().strip()
+        nombre = self.new_name.get().strip()
         if not nombre:
-            messagebox.showwarning("Atencion", "Escribe el nombre del producto.")
+            messagebox.showwarning("Atencion", "Escribe el nombre.")
             return
         try:
-            precio = float(self.nuevo_precio.get())
+            precio = float(self.new_price.get())
         except ValueError:
             messagebox.showerror("Error", "Precio invalido.")
             return
-
         if agregar_producto(nombre, precio):
             self._cargar_productos()
-            self.nuevo_nombre.set("")
-            messagebox.showinfo("Listo", f"Producto '{nombre}' agregado.")
+            self.new_name.set("")
+            messagebox.showinfo("Listo", f"'{nombre}' agregado.")
         else:
             messagebox.showwarning("Atencion", "Ese producto ya existe.")
 
     def _seccion_usuarios(self, parent):
-        sec = _seccion(parent, "Usuarios")
+        card = _card(parent, "\U0001F465  Usuarios")
+        card.pack(fill="x", padx=25, pady=8)
 
-        self.usuarios_frame = tk.Frame(sec, bg=C["tarjeta"])
-        self.usuarios_frame.pack(fill="x", pady=5)
-
+        self.user_list = tk.Frame(card, bg=C["card"])
+        self.user_list.pack(fill="x")
         self._cargar_usuarios()
 
-        # Agregar usuario
-        add_frame = tk.Frame(sec, bg=C["tarjeta"], pady=10)
-        add_frame.pack(fill="x")
+        tk.Frame(card, bg=C["divider"], height=1).pack(fill="x", pady=10)
 
-        tk.Label(add_frame, text="Nombre:", font=F_NORMAL,
-                 bg=C["tarjeta"], fg=C["texto_suave"]).pack(side="left")
+        add = tk.Frame(card, bg=C["card"])
+        add.pack(fill="x")
 
-        self.nuevo_user_nombre = tk.StringVar()
-        tk.Entry(add_frame, textvariable=self.nuevo_user_nombre,
-                 font=F_NORMAL, bg=C["fondo"], relief="solid", bd=1,
-                 width=14).pack(side="left", padx=5)
+        tk.Label(add, text="Nombre:", font=F_NORMAL,
+                 bg=C["card"], fg=C["text_sec"]).pack(side="left")
+        self.new_user = tk.StringVar()
+        tk.Entry(add, textvariable=self.new_user, font=F_NORMAL,
+                 bg=C["bg"], relief="flat", bd=0, width=12,
+                 highlightthickness=1,
+                 highlightbackground=C["border"]).pack(
+                     side="left", padx=4, ipady=4)
 
-        tk.Label(add_frame, text="PIN:", font=F_NORMAL,
-                 bg=C["tarjeta"], fg=C["texto_suave"]).pack(side="left")
+        tk.Label(add, text="PIN:", font=F_NORMAL,
+                 bg=C["card"], fg=C["text_sec"]).pack(side="left")
+        self.new_pin = tk.StringVar()
+        tk.Entry(add, textvariable=self.new_pin, font=F_NORMAL,
+                 bg=C["bg"], relief="flat", bd=0, width=6,
+                 highlightthickness=1,
+                 highlightbackground=C["border"]).pack(
+                     side="left", padx=4, ipady=4)
 
-        self.nuevo_user_pin = tk.StringVar()
-        tk.Entry(add_frame, textvariable=self.nuevo_user_pin,
-                 font=F_NORMAL, bg=C["fondo"], relief="solid", bd=1,
-                 width=8).pack(side="left", padx=5)
-
-        tk.Label(add_frame, text="Rol:", font=F_NORMAL,
-                 bg=C["tarjeta"], fg=C["texto_suave"]).pack(side="left")
-
-        self.nuevo_user_rol = tk.StringVar(value="cajero")
-        ttk.Combobox(add_frame, textvariable=self.nuevo_user_rol,
+        tk.Label(add, text="Rol:", font=F_NORMAL,
+                 bg=C["card"], fg=C["text_sec"]).pack(side="left")
+        self.new_rol = tk.StringVar(value="cajero")
+        ttk.Combobox(add, textvariable=self.new_rol,
                       values=["cajero", "panadero"], state="readonly",
-                      font=F_NORMAL, width=10).pack(side="left", padx=5)
+                      font=F_NORMAL, width=10).pack(side="left", padx=4)
 
-        ttk.Button(add_frame, text="Agregar",
-                   style="Primario.TButton",
-                   command=self._agregar_usuario).pack(side="left", padx=5)
+        tk.Button(add, text="+ Agregar", font=F_NORMAL_B,
+                  bg=C["accent"], fg="white", relief="flat",
+                  activebackground=C["accent_dark"], cursor="hand2",
+                  padx=12, pady=4,
+                  command=self._agregar_usuario).pack(side="left", padx=8)
 
     def _cargar_usuarios(self):
-        for w in self.usuarios_frame.winfo_children():
+        for w in self.user_list.winfo_children():
             w.destroy()
 
         usuarios = obtener_usuarios()
         for u in usuarios:
-            fila = tk.Frame(self.usuarios_frame, bg=C["tarjeta"])
-            fila.pack(fill="x", pady=3)
+            row = tk.Frame(self.user_list, bg=C["card"], pady=5)
+            row.pack(fill="x")
 
-            rol_color = C["secundario"] if u["rol"] == "panadero" else C["primario"]
-            tk.Label(fila, text=f"[{u['rol'].upper()}]", font=F_NORMAL_B,
-                     bg=C["tarjeta"], fg=rol_color, width=12).pack(side="left")
+            if u["rol"] == "panadero":
+                badge_bg, badge_fg = C["primary"], "white"
+            else:
+                badge_bg, badge_fg = C["accent"], "white"
 
-            tk.Label(fila, text=u["nombre"], font=F_GRANDE,
-                     bg=C["tarjeta"], fg=C["texto"]).pack(side="left", padx=10)
+            badge = tk.Label(row, text=f" {u['rol'].upper()} ",
+                              font=F_SMALL_B, bg=badge_bg, fg=badge_fg)
+            badge.pack(side="left", padx=(0, 10))
 
-            ttk.Button(fila, text="Eliminar",
-                       style="Rojo.TButton",
-                       command=lambda uid=u["id"]:
-                           self._eliminar_usuario(uid)
-                       ).pack(side="right", padx=5)
+            tk.Label(row, text=u["nombre"], font=F_GRANDE,
+                     bg=C["card"], fg=C["text"]).pack(side="left")
+
+            tk.Button(row, text="Eliminar", font=F_SMALL,
+                      bg=C["danger_bg"], fg=C["danger"], relief="flat",
+                      cursor="hand2",
+                      command=lambda uid=u["id"]:
+                          self._eliminar_usuario(uid)
+                      ).pack(side="right", padx=4)
+
+            tk.Frame(self.user_list, bg=C["divider"],
+                     height=1).pack(fill="x")
 
     def _agregar_usuario(self):
-        nombre = self.nuevo_user_nombre.get().strip()
-        pin = self.nuevo_user_pin.get().strip()
-        rol = self.nuevo_user_rol.get()
+        nombre = self.new_user.get().strip()
+        pin = self.new_pin.get().strip()
+        rol = self.new_rol.get()
 
         if not nombre or not pin:
             messagebox.showwarning("Atencion", "Llena nombre y PIN.")
             return
-
         if agregar_usuario(nombre, pin, rol):
             self._cargar_usuarios()
-            self.nuevo_user_nombre.set("")
-            self.nuevo_user_pin.set("")
-            messagebox.showinfo("Listo", f"Usuario '{nombre}' agregado como {rol}.")
+            self.new_user.set("")
+            self.new_pin.set("")
+            messagebox.showinfo("Listo", f"'{nombre}' agregado como {rol}.")
         else:
-            messagebox.showerror("Error", "No se pudo agregar el usuario.")
+            messagebox.showerror("Error", "No se pudo agregar.")
 
     def _eliminar_usuario(self, uid):
-        if messagebox.askyesno("Confirmar",
-                                "Seguro que quieres eliminar este usuario?"):
+        if messagebox.askyesno("Confirmar", "Eliminar este usuario?"):
             if eliminar_usuario(uid):
                 self._cargar_usuarios()
 
     def _seccion_info(self, parent):
-        sec = _seccion(parent, "Acerca del Sistema")
+        card = _card(parent, "Acerca del Sistema")
+        card.pack(fill="x", padx=25, pady=8)
 
         info = [
-            ("Version",  "2.0.0"),
-            ("Motor",    "Python + SQLite"),
-            ("Modelos",  "Estimacion -> Promedio Semanal -> Por Dia"),
+            ("Version", "2.1.0"),
+            ("Motor", "Python + SQLite"),
+            ("Pronostico",
+             "Estimacion \u2192 Promedio Semanal \u2192 Por Dia de Semana"),
         ]
         for k, v in info:
-            fila = tk.Frame(sec, bg=C["tarjeta"])
-            fila.pack(fill="x", pady=3)
-            tk.Label(fila, text=f"{k}:", font=F_NORMAL,
-                     bg=C["tarjeta"], fg=C["texto_suave"],
-                     width=15, anchor="w").pack(side="left")
-            tk.Label(fila, text=v, font=F_NORMAL_B,
-                     bg=C["tarjeta"], fg=C["primario"]).pack(side="left")
+            row = tk.Frame(card, bg=C["card"], pady=3)
+            row.pack(fill="x")
+            tk.Label(row, text=f"{k}:", font=F_NORMAL,
+                     bg=C["card"], fg=C["text_muted"],
+                     width=12, anchor="w").pack(side="left")
+            tk.Label(row, text=v, font=F_NORMAL_B,
+                     bg=C["card"], fg=C["primary"]).pack(side="left")
 
 
 # ══════════════════════════════════════════════
 # WIDGETS REUTILIZABLES
 # ══════════════════════════════════════════════
 
-def _tarjeta(parent, titulo: str, valor: str, color: str):
-    """Tarjeta de metrica grande."""
-    card = tk.Frame(parent, bg=C["tarjeta"], padx=25, pady=15,
-                     bd=1, relief="solid")
-    card.pack(side="left", padx=8, fill="y")
+def _metrica_card(parent, titulo, valor, color, emoji=""):
+    """Tarjeta de metrica con icono grande."""
+    card = tk.Frame(parent, bg=C["card"], padx=22, pady=14,
+                     highlightbackground=C["border"],
+                     highlightthickness=1)
+    card.pack(side="left", padx=6, fill="both", expand=True)
 
-    tk.Label(card, text=titulo, font=F_NORMAL,
-             bg=C["tarjeta"], fg=C["texto_suave"]).pack()
-    tk.Label(card, text=valor, font=("Arial", 28, "bold"),
-             bg=C["tarjeta"], fg=color).pack(pady=(5, 0))
+    top = tk.Frame(card, bg=C["card"])
+    top.pack(fill="x")
 
+    if emoji:
+        tk.Label(top, text=emoji, font=F_ICONO_SM,
+                 bg=C["card"]).pack(side="left")
 
-def _seccion(parent, titulo: str) -> tk.Frame:
-    """Seccion con titulo y contenedor."""
-    tk.Label(parent, text=titulo, font=F_SUBTIT,
-             bg=C["fondo"], fg=C["secundario"],
-             padx=25, pady=(10), anchor="w").pack(fill="x")
+    tk.Label(top, text=titulo, font=F_NORMAL,
+             bg=C["card"], fg=C["text_muted"]).pack(side="left", padx=6)
 
-    contenedor = tk.Frame(parent, bg=C["tarjeta"], padx=20, pady=15,
-                           bd=1, relief="solid")
-    contenedor.pack(fill="x", padx=25, pady=(0, 15))
-    return contenedor
+    tk.Label(card, text=valor, font=("Segoe UI", 26, "bold"),
+             bg=C["card"], fg=color).pack(anchor="w", pady=(5, 0))
 
 
-def _campo_label(parent, texto: str, fila: int):
-    """Label de campo de formulario."""
-    tk.Label(parent, text=texto, font=F_NORMAL,
-             bg=C["tarjeta"], fg=C["texto_suave"],
-             anchor="w").grid(row=fila, column=0, sticky="w",
-                               pady=10, padx=(0, 15))
+def _card(parent, titulo: str) -> tk.Frame:
+    """Tarjeta con titulo y borde."""
+    outer = tk.Frame(parent, bg=C["card"],
+                      highlightbackground=C["border"],
+                      highlightthickness=1)
+
+    hdr = tk.Frame(outer, bg=C["card"], padx=18, pady=10)
+    hdr.pack(fill="x")
+    tk.Label(hdr, text=titulo, font=F_SUBTIT,
+             bg=C["card"], fg=C["text_sec"]).pack(anchor="w")
+    tk.Frame(outer, bg=C["divider"], height=1).pack(fill="x")
+
+    content = tk.Frame(outer, bg=C["card"], padx=18, pady=12)
+    content.pack(fill="both", expand=True)
+
+    # Devolver el content frame para que se agreguen widgets
+    outer._content = content
+    return outer
 
 
-def _campo_entry(parent, var: tk.StringVar, fila: int) -> tk.Entry:
-    """Entry de formulario con estilo."""
+def _styled_entry(parent, var, row):
+    """Entry con estilo moderno."""
     e = tk.Entry(parent, textvariable=var, font=F_GRANDE,
-                 bg=C["fondo"], fg=C["texto"],
-                 insertbackground=C["primario"],
-                 relief="solid", bd=1, width=28,
+                 bg=C["bg"], fg=C["text"],
+                 insertbackground=C["accent"],
+                 relief="flat", bd=0, width=28,
                  highlightthickness=2,
-                 highlightbackground=C["borde"],
-                 highlightcolor=C["primario"])
-    e.grid(row=fila, column=1, sticky="ew", pady=10)
+                 highlightbackground=C["border"],
+                 highlightcolor=C["accent"])
+    e.grid(row=row, column=1, sticky="ew", pady=10, ipady=6)
     return e
+
+
+def _bind_scroll(canvas):
+    """Bind mousewheel scroll a un canvas."""
+    def _on_wheel(event):
+        canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+    canvas.bind_all("<MouseWheel>", _on_wheel)
+    canvas.bind_all("<Button-4>",
+                     lambda e: canvas.yview_scroll(-1, "units"))
+    canvas.bind_all("<Button-5>",
+                     lambda e: canvas.yview_scroll(1, "units"))
 
 
 # ──────────────────────────────────────────────
