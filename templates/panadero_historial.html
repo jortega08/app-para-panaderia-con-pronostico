@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title_extra %} - Historial{% endblock %}
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h2 class="page-title">&#x1F4C5; Historial de Produccion</h2>
+    </div>
+
+    {# ── FILTROS ── #}
+    <div class="filters-bar">
+        <form method="GET" action="{{ url_for('panadero_historial') }}" class="filters-form">
+            <div class="filter-group">
+                <label>Producto:</label>
+                <select name="producto" class="form-input form-input-sm" onchange="this.form.submit()">
+                    <option value="Todos" {% if filtro_producto == 'Todos' %}selected{% endif %}>Todos</option>
+                    {% for p in productos %}
+                    <option value="{{ p }}" {% if filtro_producto == p %}selected{% endif %}>
+                        {{ icono(p) }} {{ p }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>Periodo:</label>
+                {% for d in [7, 14, 30, 60] %}
+                <button type="submit" name="dias" value="{{ d }}"
+                        class="btn btn-sm {% if filtro_dias == d %}btn-accent{% else %}btn-outline{% endif %}">
+                    {{ d }}d
+                </button>
+                {% endfor %}
+            </div>
+        </form>
+    </div>
+
+    {# ── TABLA ── #}
+    <div class="card">
+        <div class="card-body">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Dia</th>
+                        <th>Producto</th>
+                        <th class="text-center">Horneados</th>
+                        <th class="text-center">Vendidos</th>
+                        <th class="text-center">Sobrante</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if registros %}
+                    {% for r in registros %}
+                    {% set sobrante_pct = (r.sobrante / r.producido * 100) if r.producido > 0 else 0 %}
+                    <tr class="{% if r.sobrante < 0 %}row-danger{% elif sobrante_pct > 15 %}row-warning{% endif %}">
+                        <td>{{ r.fecha }}</td>
+                        <td>{{ r.dia_semana }}</td>
+                        <td>{{ r.icono }} {{ r.producto }}</td>
+                        <td class="text-center">{{ r.producido }}</td>
+                        <td class="text-center">{{ r.vendido }}</td>
+                        <td class="text-center {% if r.sobrante < 0 %}text-danger{% elif sobrante_pct > 15 %}text-warning{% else %}text-success{% endif %}">
+                            {{ r.sobrante }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="text-muted text-center" style="padding: 40px;">
+                            No hay registros para este periodo.
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="login-page">
+    <div class="login-card">
+        <div class="login-accent"></div>
+        <div class="login-logo">&#x1F35E;</div>
+        <h1 class="login-title">PANADERIA</h1>
+        <p class="login-subtitle">Sistema de Ventas y Pronostico</p>
+
+        <div class="login-divider"></div>
+
+        <p class="login-instruction">Ingresa tu PIN:</p>
+
+        <form method="POST" action="{{ url_for('login') }}" id="loginForm">
+            <input type="hidden" name="pin" id="pinInput">
+            <div class="pin-display" id="pinDisplay">
+                <span class="pin-dot"></span>
+                <span class="pin-dot"></span>
+                <span class="pin-dot"></span>
+                <span class="pin-dot"></span>
+            </div>
+
+            <div class="numpad">
+                {% for row in [['1','2','3'],['4','5','6'],['7','8','9'],['del','0','ok']] %}
+                <div class="numpad-row">
+                    {% for key in row %}
+                    {% if key == 'del' %}
+                    <button type="button" class="numpad-btn numpad-del" onclick="pinDel()">&#x232B;</button>
+                    {% elif key == 'ok' %}
+                    <button type="button" class="numpad-btn numpad-ok" onclick="pinSubmit()">&#x23CE;</button>
+                    {% else %}
+                    <button type="button" class="numpad-btn" onclick="pinAdd('{{ key }}')">{{ key }}</button>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+                {% endfor %}
+            </div>
+        </form>
+
+        <p class="login-hint">Panadero: 1234 &nbsp;|&nbsp; Cajero: 0000</p>
+    </div>
+</div>
+
+<script>
+let pin = '';
+const dots = document.querySelectorAll('.pin-dot');
+const pinInput = document.getElementById('pinInput');
+
+function updateDots() {
+    dots.forEach(function(dot, i) {
+        dot.classList.toggle('filled', i < pin.length);
+    });
+}
+
+function pinAdd(n) {
+    if (pin.length < 4) {
+        pin += n;
+        updateDots();
+        if (pin.length === 4) {
+            setTimeout(pinSubmit, 200);
+        }
+    }
+}
+
+function pinDel() {
+    pin = pin.slice(0, -1);
+    updateDots();
+}
+
+function pinSubmit() {
+    if (pin.length > 0) {
+        pinInput.value = pin;
+        document.getElementById('loginForm').submit();
+    }
+}
+
+document.addEventListener('keydown', function(e) {
+    if (e.key >= '0' && e.key <= '9') pinAdd(e.key);
+    else if (e.key === 'Backspace') pinDel();
+    else if (e.key === 'Enter') pinSubmit();
+});
+</script>
+{% endblock %}

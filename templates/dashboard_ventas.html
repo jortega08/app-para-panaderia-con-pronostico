@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title_extra %} - Ventas de Hoy{% endblock %}
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h2 class="page-title">&#x1F4CA; Ventas de Hoy</h2>
+        <div class="page-header-right">
+            <span class="text-muted" id="lastUpdate">Cargando...</span>
+            <button class="btn btn-accent" onclick="loadData()">&#x21BB; Actualizar</button>
+        </div>
+    </div>
+
+    {# ── TARJETAS METRICAS ── #}
+    <div class="metrics-row" id="metricsRow">
+        <div class="metric-card">
+            <div class="metric-icon">&#x1F4B5;</div>
+            <div class="metric-label">Total Vendido</div>
+            <div class="metric-value text-success" id="metricDinero">$0.00</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-icon">&#x1F35E;</div>
+            <div class="metric-label">Panes Vendidos</div>
+            <div class="metric-value text-primary" id="metricPanes">0</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-icon">&#x1F9FE;</div>
+            <div class="metric-label">Transacciones</div>
+            <div class="metric-value text-accent" id="metricTrans">0</div>
+        </div>
+    </div>
+
+    {# ── GRAFICA + DETALLE ── #}
+    <div class="dashboard-row">
+        <div class="card dashboard-chart">
+            <div class="card-header">Ventas por Producto</div>
+            <div class="card-body">
+                <canvas id="ventasChart" height="250"></canvas>
+                <p class="text-muted text-center" id="chartEmpty" style="display:none; padding: 40px;">
+                    No hay ventas hoy todavia.
+                </p>
+            </div>
+        </div>
+        <div class="card dashboard-detail">
+            <div class="card-header">Detalle por Producto</div>
+            <div class="card-body" id="detalleProductos">
+                <p class="text-muted text-center" style="padding: 40px;">Cargando...</p>
+            </div>
+        </div>
+    </div>
+
+    {# ── ULTIMAS TRANSACCIONES ── #}
+    <div class="card">
+        <div class="card-header">Ultimas Transacciones</div>
+        <div class="card-body">
+            <table class="table" id="transTable">
+                <thead>
+                    <tr>
+                        <th>Hora</th>
+                        <th>Producto</th>
+                        <th>Cantidad</th>
+                        <th>Total</th>
+                    </tr>
+                </thead>
+                <tbody id="transBody">
+                    <tr><td colspan="4" class="text-muted text-center">Cargando...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+const PROD_COLORS = {{ productos_colores|default('{}')|tojson if productos_colores is defined else '{}' }};
+let ventasChart = null;
+
+function loadData() {
+    fetch('/api/ventas/hoy')
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) { console.error(data.error); return; }
+        updateMetrics(data.totales);
+        updateChart(data.resumen);
+        updateDetalle(data.resumen);
+        updateTable(data.ventas);
+        document.getElementById('lastUpdate').textContent =
+            'Actualizado: ' + new Date().toLocaleTimeString('es', {hour:'2-digit', minute:'2-digit'});
+    })
+    .catch(err => console.error('Error:', err));
+}
+
+function updateMetrics(t) {
+    document.getElementById('metricDinero').textContent = '$' + t.dinero.toFixed(2);
+    document.getElementById('metricPanes').textContent = t.panes;
+    document.getElementById('metricTrans').textContent = t.transacciones;
+}
+
+function updateChart(resumen) {
+    const canvas = document.getElementById('ventasChart');
+    const emptyMsg = document.getElementById('chartEmpty');
+
+    if (!resumen || resumen.length === 0) {
+        canvas.style.display = 'none';
+        emptyMsg.style.display = 'block';
+        return;
+    }
+    canvas.style.display = 'block';
+    emptyMsg.style.display = 'none';
+
+    const labels = resumen.map(r => r.producto);
+    const cantidades = resumen.map(r => r.total_cantidad);
+    const colores = ['#E8B44D','#E07A5F','#81B29A','#9B8EA0','#B0BEC5','#FFB74D'];
+
+    if (ventasChart) ventasChart.destroy();
+
+    ventasChart = new Chart(canvas, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Panes vendidos',
+                data: cantidades,
+                backgroundColor: colores.slice(0, labels.length),
+                borderRadius: 8,
+                borderSkipped: false,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {display: false},
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    grid: {color: '#EFEBE9'},
+                    ticks: {color: '#5D4037'},
+                },
+                x: {
+                    grid: {display: false},
+                    ticks: {color: '#5D4037', font: {size: 13}},
+                }
+            }
+        }
+    });
+}
+
+function updateDetalle(resumen) {
+    const container = document.getElementById('detalleProductos');
+    if (!resumen || resumen.length === 0) {
+        container.innerHTML = '<p class="text-muted text-center" style="padding:40px;">No hay ventas hoy.</p>';
+        return;
+    }
+    const colores = {'Pan Frances':'#E8B44D','Pan Dulce':'#E07A5F','Croissant':'#81B29A','Integral':'#9B8EA0'};
+
+    container.innerHTML = resumen.map(r => `
+        <div class="detail-row">
+            <span class="detail-dot" style="background:${colores[r.producto] || '#B0BEC5'}"></span>
+            <span class="detail-name">${r.producto}</span>
+            <span class="detail-qty">${r.total_cantidad} panes</span>
+            <span class="detail-total">$${r.total_dinero.toFixed(2)}</span>
+        </div>
+    `).join('');
+}
+
+function updateTable(ventas) {
+    const tbody = document.getElementById('transBody');
+    if (!ventas || ventas.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center">Sin transacciones hoy</td></tr>';
+        return;
+    }
+    tbody.innerHTML = ventas.slice(0, 20).map(v => `
+        <tr>
+            <td>${v.hora.substring(0, 5)}</td>
+            <td>${v.producto}</td>
+            <td class="text-center">${v.cantidad}</td>
+            <td class="text-right">$${v.total.toFixed(2)}</td>
+        </tr>
+    `).join('');
+}
+
+// Cargar al inicio y cada 30 segundos
+loadData();
+setInterval(loadData, 30000);
+</script>
+{% endblock %}

@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title_extra %} - Registrar Produccion{% endblock %}
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h2 class="page-title">&#x1F525; Registrar Produccion</h2>
+    </div>
+    <p class="text-muted">Registra cuantos panes se hornearon hoy.</p>
+
+    <div class="form-card">
+        <form method="POST" action="{{ url_for('panadero_produccion') }}">
+            <div class="form-group">
+                <label>Fecha</label>
+                <input type="date" name="fecha" id="fecha" value="{{ hoy }}" class="form-input" required>
+            </div>
+
+            <div class="form-group">
+                <label>Producto</label>
+                <select name="producto" id="producto" class="form-input" required onchange="autoVendido()">
+                    {% for p in productos %}
+                    <option value="{{ p }}">{{ icono(p) }} {{ p }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Cantidad horneada</label>
+                <input type="number" name="producido" id="producido" class="form-input"
+                       min="0" placeholder="Ej: 100" required oninput="calcSobrante()">
+            </div>
+
+            <div class="form-group">
+                <label>
+                    Cantidad vendida
+                    <span class="form-hint" id="autoHint"></span>
+                </label>
+                <input type="number" name="vendido" id="vendido" class="form-input"
+                       min="0" placeholder="Ej: 85" required oninput="calcSobrante()">
+            </div>
+
+            <div class="form-group">
+                <label>Sobrante</label>
+                <div class="sobrante-display" id="sobranteDisplay">--</div>
+            </div>
+
+            <div class="form-group">
+                <label>Notas (opcional)</label>
+                <input type="text" name="observaciones" class="form-input"
+                       placeholder="Ej: Fin de semana, evento especial...">
+            </div>
+
+            <button type="submit" class="btn btn-accent btn-lg btn-full">
+                &#x2714; Guardar Registro
+            </button>
+        </form>
+    </div>
+</div>
+
+<script>
+function autoVendido() {
+    const fecha = document.getElementById('fecha').value;
+    const producto = document.getElementById('producto').value;
+    if (!fecha || !producto) return;
+
+    fetch('/api/ventas/vendido?fecha=' + fecha + '&producto=' + encodeURIComponent(producto))
+    .then(r => r.json())
+    .then(data => {
+        if (data.vendido > 0) {
+            document.getElementById('vendido').value = data.vendido;
+            document.getElementById('autoHint').textContent = '(dato del cajero)';
+            calcSobrante();
+        } else {
+            document.getElementById('autoHint').textContent = '';
+        }
+    })
+    .catch(() => {});
+}
+
+function calcSobrante() {
+    const p = parseInt(document.getElementById('producido').value) || 0;
+    const v = parseInt(document.getElementById('vendido').value) || 0;
+    const el = document.getElementById('sobranteDisplay');
+    if (p > 0) {
+        const s = p - v;
+        el.textContent = s + ' panes';
+        el.className = 'sobrante-display ' + (s >= 0 ? 'sobrante-ok' : 'sobrante-bad');
+    } else {
+        el.textContent = '--';
+        el.className = 'sobrante-display';
+    }
+}
+
+autoVendido();
+</script>
+{% endblock %}

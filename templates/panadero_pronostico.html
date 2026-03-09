@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title_extra %} - Pronostico{% endblock %}
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h2 class="page-title">&#x1F4CB; Cuantos Hornear Hoy</h2>
+        <span class="text-muted">{{ ahora.strftime('%A %d/%m/%Y')|capitalize }}</span>
+    </div>
+
+    {% if not pronosticos %}
+    <div class="card">
+        <div class="card-body text-center" style="padding: 60px;">
+            <p class="text-muted">No hay productos configurados.</p>
+            <a href="{{ url_for('panadero_config') }}" class="btn btn-accent">Ir a Configuracion</a>
+        </div>
+    </div>
+    {% else %}
+
+    {# ── GRAFICA RESUMEN ── #}
+    <div class="card">
+        <div class="card-header">Produccion Sugerida vs Promedio de Ventas</div>
+        <div class="card-body">
+            <canvas id="pronosticoChart" height="200"></canvas>
+        </div>
+    </div>
+
+    {# ── TARJETAS POR PRODUCTO ── #}
+    {% for p in pronosticos %}
+    <div class="forecast-card estado-{{ p.estado }}">
+        <div class="forecast-color-bar" style="background: {{ p.color }}"></div>
+        <div class="forecast-body">
+            <div class="forecast-top">
+                <div class="forecast-product">
+                    <span class="forecast-icon">{{ p.icono }}</span>
+                    <span class="forecast-name">{{ p.producto }}</span>
+                </div>
+                <div class="forecast-number estado-bg-{{ p.estado }}">
+                    <span class="forecast-qty">{{ p.sugerido }}</span>
+                    <span class="forecast-unit">panes</span>
+                </div>
+            </div>
+            <div class="forecast-chips">
+                <span class="chip">Promedio: {{ p.promedio }}/dia</span>
+                <span class="chip">Tendencia: {{ p.tendencia }}</span>
+                <span class="chip">Aprovechamiento: {{ p.aprovechamiento }}%</span>
+                <span class="chip">Datos: {{ p.dias }} dias</span>
+                <span class="chip">Confianza: {{ p.confianza }}</span>
+            </div>
+            <div class="forecast-message estado-msg-{{ p.estado }}">
+                {{ p.mensaje }}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+    {% endif %}
+</div>
+
+{% if pronosticos %}
+<script>
+const pronosticos = {{ pronosticos|tojson }};
+const ctx = document.getElementById('pronosticoChart');
+
+new Chart(ctx, {
+    type: 'bar',
+    data: {
+        labels: pronosticos.map(p => p.icono + ' ' + p.producto),
+        datasets: [
+            {
+                label: 'Promedio vendido',
+                data: pronosticos.map(p => p.promedio),
+                backgroundColor: pronosticos.map(p => p.color + '60'),
+                borderRadius: 6,
+                borderSkipped: false,
+            },
+            {
+                label: 'Sugerido hornear',
+                data: pronosticos.map(p => p.sugerido),
+                backgroundColor: pronosticos.map(p => p.color),
+                borderRadius: 6,
+                borderSkipped: false,
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {position: 'top', labels: {font: {size: 13}}},
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                grid: {color: '#EFEBE9'},
+                ticks: {color: '#5D4037'},
+                title: {display: true, text: 'Panes', color: '#5D4037'},
+            },
+            x: {
+                grid: {display: false},
+                ticks: {color: '#5D4037', font: {size: 12}},
+            }
+        }
+    }
+});
+</script>
+{% endif %}
+{% endblock %}

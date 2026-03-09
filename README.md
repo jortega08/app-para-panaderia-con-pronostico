@@ -1,101 +1,60 @@
 # Panaderia - Sistema de Ventas y Pronostico
 
-Sistema sencillo para panaderias que combina punto de venta con pronostico
-de produccion. Disenado para ser facil de usar por personas de cualquier edad.
-
----
-
-## Estructura del proyecto
-
-```
-panaderia_app/
-|
-├── app.py                  <- Interfaz grafica (punto de entrada)
-├── seed_demo.py            <- Genera datos de prueba (ejecutar 1 vez)
-|
-├── data/
-|   ├── __init__.py
-|   └── database.py         <- Base de datos SQLite
-|
-├── logic/
-|   ├── __init__.py
-|   └── pronostico.py       <- Motor de pronostico
-|
-└── README.md
-```
-
----
+Aplicacion web ligera para panaderias. Combina punto de venta con
+pronostico de produccion. Disenada para ser facil de usar.
 
 ## Instalacion
 
-### Requisitos
-- Python 3.10 o superior
-- Tkinter (ya viene con Python)
-- matplotlib (opcional, para graficas)
-
-### 1. Instalar dependencias opcionales
-
 ```bash
-pip install matplotlib
+pip install flask
+python seed_demo.py   # Datos de prueba (opcional)
+python app.py         # Iniciar servidor
 ```
 
-### 2. (Opcional) Generar datos de demostracion
-
-```bash
-python seed_demo.py
-```
-
-Crea 45 dias de historial con ventas simuladas.
-
-### 3. Ejecutar
-
-```bash
-python app.py
-```
-
----
+Abrir en el navegador: `http://localhost:5000`
 
 ## Roles
 
-| Rol       | PIN default | Que puede hacer                                      |
-|-----------|-------------|------------------------------------------------------|
-| Panadero  | 1234        | Ver pronosticos, registrar produccion, configurar     |
-| Cajero    | 0000        | Registrar ventas, ver resumen del dia                 |
+| Rol       | PIN  | Acceso                                           |
+|-----------|------|--------------------------------------------------|
+| Panadero  | 1234 | Pronosticos, produccion, ventas, historial, config |
+| Cajero    | 0000 | Punto de venta con carrito, ventas del dia        |
+| Cliente   | ---  | Registrar compra via QR (sin login)               |
 
-Los PINs y usuarios se pueden cambiar desde Configuracion (rol panadero).
+## Funciones
 
----
+### Cajero - Punto de Venta
+- Carrito multi-producto con cantidad editable
+- Precios automaticos desde configuracion
+- Registro de venta con un click
 
-## Funciones principales
+### Panadero - Pronostico
+- Grafica de produccion sugerida vs promedio
+- Tarjetas por producto con estado (bien/alerta/problema)
+- Pronostico adaptativo de 3 niveles
 
-### Cajero
-- **Registrar Venta**: Selecciona producto, cantidad, y registra. Muestra total.
-- **Ventas de Hoy**: Resumen de todas las ventas del dia.
+### Panadero - Configuracion
+- Productos con precios editables
+- Usuarios con PIN y roles
+- Codigo QR para clientes
 
-### Panadero
-- **Cuantos Hornear**: Pronostico por producto con colores de estado.
-- **Registrar Produccion**: Cuantos panes se hornearon (vendido se auto-llena desde ventas del cajero).
-- **Ventas de Hoy**: Ver lo que registro el cajero.
-- **Historial**: Tabla de produccion por dias.
-- **Configuracion**: Productos, precios y usuarios.
+### Cliente - QR
+- Pagina mobile-first accesible via QR
+- Seleccionar productos y cantidades
+- Registrar compra sin necesidad de cajero
 
----
+## Arquitectura
 
-## Pronostico
+```
+app.py                  Flask (rutas + API)
+data/database.py        SQLite
+logic/pronostico.py     Motor de pronostico
+templates/              HTML (Jinja2)
+static/style.css        Estilos
+```
 
-El sistema calcula automaticamente cuantos panes hornear:
-
-| Datos disponibles | Metodo                  | Confianza |
-|-------------------|-------------------------|-----------|
-| < 7 dias          | Estimacion inicial      | Poca      |
-| 7 - 29 dias       | Promedio de la semana   | Media     |
-| 30+ dias          | Promedio por dia        | Buena     |
-
----
-
-## Futuras mejoras
-
-- [ ] QR en caja para que el cliente registre su pedido
-- [ ] Exportar reportes a Excel/PDF
-- [ ] Notificaciones al inicio del dia
-- [ ] Version web
+## Tecnologias
+- Python + Flask (backend)
+- SQLite (base de datos)
+- Chart.js (graficas)
+- HTML/CSS/JS (frontend, sin frameworks)
