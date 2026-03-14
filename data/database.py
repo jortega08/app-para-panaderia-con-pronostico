@@ -1050,6 +1050,83 @@ def guardar_receta(producto: str, ingredientes: list[dict]) -> bool:
         return False
 
 
+def obtener_consumo_diario(fecha: str = None) -> list[dict]:
+    """Calcula el consumo teorico de insumos del dia basado en pedidos pagados."""
+    if fecha is None:
+        fecha = datetime.now().strftime("%Y-%m-%d")
+
+    consumo = {}
+    with get_connection() as conn:
+        # Obtener items de pedidos pagados del dia
+        items = conn.execute("""
+            SELECT pi.producto, pi.cantidad, pi.id as item_id
+            FROM pedido_items pi
+            JOIN pedidos p ON pi.pedido_id = p.id
+            WHERE p.fecha = ? AND p.estado = 'pagado'
+        """, (fecha,)).fetchall()
+
+        for item in items:
+            # Consumo por receta del producto base
+            receta = conn.execute("""
+                SELECT r.insumo_id, i.nombre, i.unidad, r.cantidad
+                FROM recetas r JOIN insumos i ON r.insumo_id = i.id
+                WHERE r.producto = ?
+            """, (item["producto"],)).fetchall()
+
+            for r in receta:
+                key = r["insumo_id"]
+                if key not in consumo:
+                    consumo[key] = {"nombre": r["nombre"], "unidad": r["unidad"], "cantidad": 0}
+                consumo[key]["cantidad"] += r["cantidad"] * item["cantidad"]
+
+            # Consumo por adicionales
+            mods = conn.execute("""
+                SELECT m.tipo, m.descripcion, m.cantidad
+                FROM pedido_item_modificaciones m
+                WHERE m.pedido_item_id = ? AND m.tipo = 'adicional'
+            """, (item["item_id"],)).fetchall()
+
+            for mod in mods:
+                adicional = conn.execute(
+                    "SELECT id FROM adicionales WHERE nombre = ?",
+                    (mod["descripcion"],)
+                ).fetchone()
+                if adicional:
+                    ai = conn.execute("""
+                        SELECT ai.insumo_id, i.nombre, i.unidad, ai.cantidad
+                        FROM adicional_insumos ai
+                        JOIN insumos i ON ai.insumo_id = i.id
+                        WHERE ai.adicional_id = ?
+                    """, (adicional["id"],)).fetchall()
+                    for a in ai:
+                        key = a["insumo_id"]
+                        if key not in consumo:
+                            consumo[key] = {"nombre": a["nombre"], "unidad": a["unidad"], "cantidad": 0}
+                        consumo[key]["cantidad"] += a["cantidad"] * mod["cantidad"]
+
+    return sorted(consumo.values(), key=lambda x: x["nombre"])
+
+
+def obtener_estadisticas_pedidos(fecha: str = None) -> dict:
+    """Estadisticas de pedidos del dia."""
+    if fecha is None:
+        fecha = datetime.now().strftime("%Y-%m-%d")
+
+    with get_connection() as conn:
+        row = conn.execute("""
+            SELECT
+                COUNT(*) as total_pedidos,
+                SUM(CASE WHEN estado = 'pendiente' THEN 1 ELSE 0 END) as pendientes,
+                SUM(CASE WHEN estado = 'en_preparacion' THEN 1 ELSE 0 END) as en_preparacion,
+                SUM(CASE WHEN estado = 'listo' THEN 1 ELSE 0 END) as listos,
+                SUM(CASE WHEN estado = 'pagado' THEN 1 ELSE 0 END) as pagados,
+                SUM(CASE WHEN estado = 'cancelado' THEN 1 ELSE 0 END) as cancelados,
+                COALESCE(SUM(CASE WHEN estado = 'pagado' THEN total ELSE 0 END), 0) as total_cobrado
+            FROM pedidos WHERE fecha = ?
+        """, (fecha,)).fetchone()
+    return dict(row)
+
+
 def obtener_resumen_mesas() -> list[dict]:
     """Resumen de mesas con sus pedidos activos."""
     mesas = obtener_mesas()

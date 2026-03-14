@@ -26,6 +26,9 @@
         <a href="{{ url_for('panadero_ventas') }}" class="{% if active_page == 'ventas' %}active{% endif %}">
             &#x1F4B0; Ventas de Hoy
         </a>
+        <a href="{{ url_for('panadero_operaciones') }}" class="{% if active_page == 'operaciones' %}active{% endif %}">
+            &#x1F4CB; Operaciones
+        </a>
         <a href="{{ url_for('panadero_historial') }}" class="{% if active_page == 'historial' %}active{% endif %}">
             &#x1F4C5; Historial
         </a>

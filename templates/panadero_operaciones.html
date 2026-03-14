@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% block title_extra %} - Operaciones{% endblock %}
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h1 class="page-title">&#x1F4CB; Panel de Operaciones</h1>
+        <div class="page-header-right">
+            <span class="text-muted">{{ ahora.strftime('%d/%m/%Y') }}</span>
+            <button class="btn btn-outline btn-sm" onclick="location.reload()">&#x1F504; Actualizar</button>
+        </div>
+    </div>
+
+    {# ── METRICAS PRINCIPALES ── #}
+    <div class="metrics-row" style="grid-template-columns: repeat(4, 1fr);">
+        <div class="metric-card">
+            <div class="metric-icon">&#x1F4CB;</div>
+            <div class="metric-label">Pedidos Hoy</div>
+            <div class="metric-value">{{ stats.total_pedidos }}</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-icon">&#x23F3;</div>
+            <div class="metric-label">Pendientes</div>
+            <div class="metric-value text-warning">{{ stats.pendientes + stats.en_preparacion + stats.listos }}</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-icon">&#x1F4B0;</div>
+            <div class="metric-label">Total Cobrado</div>
+            <div class="metric-value text-success">${{ '%.2f'|format(stats.total_cobrado) }}</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-icon">&#x2705;</div>
+            <div class="metric-label">Pagados</div>
+            <div class="metric-value text-primary">{{ stats.pagados }}</div>
+        </div>
+    </div>
+
+    <div class="dashboard-row">
+        {# ── MESAS ── #}
+        <div class="card">
+            <div class="card-header">&#x1FA91; Estado de Mesas</div>
+            <div class="card-body">
+                <div class="mesas-grid" style="gap: 10px;">
+                    {% for mesa in mesas %}
+                    <div class="mesa-card mesa-{{ mesa.estado_mesa }}" style="padding: 14px 10px;">
+                        <div class="mesa-numero" style="font-size: 24px;">{{ mesa.numero }}</div>
+                        <span class="mesa-badge mesa-badge-{% if mesa.estado_mesa == 'libre' %}libre{% elif mesa.estado_mesa == 'pendiente' %}pendiente{% elif mesa.estado_mesa == 'en_preparacion' %}preparacion{% else %}listo{% endif %}" style="font-size: 10px; padding: 2px 8px;">
+                            {% if mesa.estado_mesa == 'libre' %}Libre
+                            {% elif mesa.estado_mesa == 'pendiente' %}Pendiente
+                            {% elif mesa.estado_mesa == 'en_preparacion' %}Preparando
+                            {% else %}{{ mesa.estado_mesa|capitalize }}{% endif %}
+                        </span>
+                        {% if mesa.total_mesa > 0 %}
+                        <div class="mesa-total" style="font-size: 14px;">${{ '%.2f'|format(mesa.total_mesa) }}</div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        {# ── VENTAS POR PRODUCTO ── #}
+        <div class="card">
+            <div class="card-header">&#x1F4B5; Ventas Pagadas del Dia</div>
+            <div class="card-body">
+                {% if ventas_resumen %}
+                {% for r in ventas_resumen %}
+                <div class="detail-row">
+                    <span style="font-size: 20px;">{{ icono(r.producto) }}</span>
+                    <span class="detail-name">{{ r.producto }}</span>
+                    <span class="detail-qty">{{ r.total_cantidad }} unidades</span>
+                    <span class="detail-total">${{ '%.2f'|format(r.total_dinero) }}</span>
+                </div>
+                {% endfor %}
+                <div style="padding-top: 12px; border-top: 2px solid var(--divider); display: flex; justify-content: space-between;">
+                    <strong>Total del dia</strong>
+                    <strong class="text-success" style="font-size: 18px;">${{ '%.2f'|format(ventas_total.dinero) }}</strong>
+                </div>
+                {% else %}
+                <p class="text-muted text-center" style="padding: 20px;">Sin ventas pagadas hoy</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="dashboard-row">
+        {# ── CONSUMO DE INSUMOS ── #}
+        <div class="card">
+            <div class="card-header">&#x1F4E6; Consumo de Insumos Hoy</div>
+            <div class="card-body">
+                {% if consumo %}
+                <table class="table">
+                    <thead>
+                        <tr><th>Insumo</th><th>Consumido</th><th>Unidad</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for c in consumo %}
+                        <tr>
+                            <td><strong>{{ c.nombre }}</strong></td>
+                            <td>{{ '%.2f'|format(c.cantidad) }}</td>
+                            <td class="text-muted">{{ c.unidad }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="text-muted text-center" style="padding: 20px;">Sin consumo registrado hoy</p>
+                {% endif %}
+            </div>
+        </div>
+
+        {# ── ALERTAS DE STOCK ── #}
+        <div class="card">
+            <div class="card-header">&#x26A0;&#xFE0F; Existencias Restantes</div>
+            <div class="card-body">
+                {% if alertas_stock %}
+                <div style="margin-bottom: 16px; padding: 10px; background: var(--danger-bg); border-radius: var(--radius-sm);">
+                    <strong class="text-danger">{{ alertas_stock|length }} insumo{{ 's' if alertas_stock|length > 1 else '' }} bajo minimo</strong>
+                </div>
+                {% endif %}
+                <table class="table">
+                    <thead>
+                        <tr><th>Insumo</th><th>Stock</th><th>Minimo</th><th>Estado</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for ins in insumos %}
+                        <tr class="{% if ins.stock <= ins.stock_minimo %}row-danger{% elif ins.stock <= ins.stock_minimo * 1.5 %}row-warning{% endif %}">
+                            <td><strong>{{ ins.nombre }}</strong></td>
+                            <td>{{ '%.1f'|format(ins.stock) }} {{ ins.unidad }}</td>
+                            <td class="text-muted">{{ '%.1f'|format(ins.stock_minimo) }}</td>
+                            <td>
+                                {% if ins.stock <= ins.stock_minimo %}
+                                <span class="badge" style="background:var(--danger);color:#FFF;">BAJO</span>
+                                {% elif ins.stock <= ins.stock_minimo * 1.5 %}
+                                <span class="badge" style="background:var(--warning);color:#FFF;">ALERTA</span>
+                                {% else %}
+                                <span class="badge" style="background:var(--success);color:#FFF;">OK</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    {# ── PEDIDOS DEL DIA ── #}
+    <div class="card">
+        <div class="card-header">
+            &#x1F4CB; Pedidos del Dia
+            <span class="text-muted" style="font-weight: 400; font-size: 13px; margin-left: 12px;">
+                {{ stats.pendientes }} pendientes &middot;
+                {{ stats.en_preparacion }} en preparacion &middot;
+                {{ stats.listos }} listos &middot;
+                {{ stats.pagados }} pagados
+                {% if stats.cancelados %} &middot; {{ stats.cancelados }} cancelados{% endif %}
+            </span>
+        </div>
+        <div class="card-body">
+            {% if pedidos %}
+            <div class="pedidos-list">
+                {% for p in pedidos %}
+                <div class="pedido-card pedido-estado-{{ p.estado }}" style="margin-bottom: 8px;">
+                    <div class="pedido-header" style="padding: 10px 16px;">
+                        <div class="pedido-info">
+                            <span class="pedido-id">#{{ p.id }}</span>
+                            <span class="pedido-mesa">&#x1FA91; Mesa {{ p.mesa_numero or '?' }}</span>
+                            <span class="pedido-hora">{{ p.hora[:5] }}</span>
+                            <span class="pedido-mesero">&#x1F464; {{ p.mesero }}</span>
+                            <span class="pedido-badge pedido-badge-{{ p.estado }}">
+                                {% if p.estado == 'pendiente' %}Pendiente
+                                {% elif p.estado == 'en_preparacion' %}En Prep.
+                                {% elif p.estado == 'listo' %}Listo
+                                {% elif p.estado == 'pagado' %}Pagado
+                                {% elif p.estado == 'cancelado' %}Cancelado
+                                {% endif %}
+                            </span>
+                        </div>
+                        <span class="pedido-total" style="font-size: 16px;">${{ '%.2f'|format(p.total) }}</span>
+                    </div>
+                    <div class="pedido-items" style="padding: 6px 16px;">
+                        {% for item in p.items %}
+                        <span style="font-size: 13px; margin-right: 12px;">
+                            {{ icono(item.producto) }} {{ item.cantidad }}x {{ item.producto }}
+                            {% for m in item.modificaciones %}
+                                {% if m.tipo == 'adicional' %}
+                                <span class="mod-tag mod-tag-adicional">+{{ m.descripcion }}</span>
+                                {% else %}
+                                <span class="mod-tag mod-tag-exclusion">&#x274C;{{ m.descripcion }}</span>
+                                {% endif %}
+                            {% endfor %}
+                        </span>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="text-muted text-center" style="padding: 20px;">No hay pedidos hoy</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+// Auto-refresh cada 60 segundos
+setTimeout(function() { location.reload(); }, 60000);
+</script>
+{% endblock %}

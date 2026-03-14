@@ -55,6 +55,8 @@ from data.database import (
     obtener_insumos_bajo_stock,
     obtener_receta,
     guardar_receta,
+    obtener_consumo_diario,
+    obtener_estadisticas_pedidos,
 )
 from logic.pronostico import (
     calcular_pronostico,
@@ -306,6 +308,32 @@ def panadero_historial():
                            filtro_producto=producto,
                            filtro_dias=dias,
                            layout="panadero", active_page="historial")
+
+
+@app.route("/panadero/operaciones")
+@login_required
+def panadero_operaciones():
+    stats = obtener_estadisticas_pedidos()
+    consumo = obtener_consumo_diario()
+    insumos = obtener_insumos()
+    alertas_stock = obtener_insumos_bajo_stock()
+    mesas = obtener_resumen_mesas()
+    ventas_resumen = obtener_resumen_ventas_dia()
+    ventas_total = obtener_total_ventas_dia()
+    pedidos = obtener_pedidos()
+    for p in pedidos:
+        detalle = obtener_pedido(p["id"])
+        p["items"] = detalle["items"] if detalle else []
+    return render_template("panadero_operaciones.html",
+                           stats=stats,
+                           consumo=consumo,
+                           insumos=insumos,
+                           alertas_stock=alertas_stock,
+                           mesas=mesas,
+                           ventas_resumen=ventas_resumen,
+                           ventas_total=ventas_total,
+                           pedidos=pedidos,
+                           layout="panadero", active_page="operaciones")
 
 
 @app.route("/panadero/inventario")
