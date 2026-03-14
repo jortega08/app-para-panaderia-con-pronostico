@@ -1117,11 +1117,11 @@ def obtener_estadisticas_pedidos(fecha: str = None) -> dict:
         row = conn.execute("""
             SELECT
                 COUNT(*) as total_pedidos,
-                SUM(CASE WHEN estado = 'pendiente' THEN 1 ELSE 0 END) as pendientes,
-                SUM(CASE WHEN estado = 'en_preparacion' THEN 1 ELSE 0 END) as en_preparacion,
-                SUM(CASE WHEN estado = 'listo' THEN 1 ELSE 0 END) as listos,
-                SUM(CASE WHEN estado = 'pagado' THEN 1 ELSE 0 END) as pagados,
-                SUM(CASE WHEN estado = 'cancelado' THEN 1 ELSE 0 END) as cancelados,
+                COALESCE(SUM(CASE WHEN estado = 'pendiente' THEN 1 ELSE 0 END), 0) as pendientes,
+                COALESCE(SUM(CASE WHEN estado = 'en_preparacion' THEN 1 ELSE 0 END), 0) as en_preparacion,
+                COALESCE(SUM(CASE WHEN estado = 'listo' THEN 1 ELSE 0 END), 0) as listos,
+                COALESCE(SUM(CASE WHEN estado = 'pagado' THEN 1 ELSE 0 END), 0) as pagados,
+                COALESCE(SUM(CASE WHEN estado = 'cancelado' THEN 1 ELSE 0 END), 0) as cancelados,
                 COALESCE(SUM(CASE WHEN estado = 'pagado' THEN total ELSE 0 END), 0) as total_cobrado
             FROM pedidos WHERE fecha = ?
         """, (fecha,)).fetchone()
