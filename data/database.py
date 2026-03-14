@@ -11,6 +11,8 @@ Tablas:
   - mesas: catalogo de mesas del local
   - pedidos: pedidos con estado, mesa y mesero
   - pedido_items: productos dentro de un pedido
+  - adicionales: catalogo de extras con precio
+  - pedido_item_modificaciones: adicionales/exclusiones por item
 """
 
 import sqlite3
@@ -135,6 +137,29 @@ def inicializar_base_de_datos() -> None:
             )
         """)
 
+        # Catalogo de adicionales (extras con precio)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS adicionales (
+                id     INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre TEXT UNIQUE NOT NULL,
+                precio REAL NOT NULL DEFAULT 0.0,
+                activo INTEGER NOT NULL DEFAULT 1
+            )
+        """)
+
+        # Modificaciones por item del pedido (adicionales y exclusiones)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pedido_item_modificaciones (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                pedido_item_id  INTEGER NOT NULL,
+                tipo            TEXT NOT NULL CHECK(tipo IN ('adicional', 'exclusion')),
+                descripcion     TEXT NOT NULL,
+                cantidad        INTEGER NOT NULL DEFAULT 1,
+                precio_extra    REAL NOT NULL DEFAULT 0.0,
+                FOREIGN KEY (pedido_item_id) REFERENCES pedido_items(id) ON DELETE CASCADE
+            )
+        """)
+
         # Migrar tabla productos existente: agregar columnas si faltan
         _migrar_productos(conn)
         # Migrar tabla usuarios: agregar rol mesero al CHECK
@@ -176,6 +201,21 @@ def inicializar_base_de_datos() -> None:
             conn.execute(
                 "INSERT OR IGNORE INTO mesas (numero, nombre) VALUES (?, ?)",
                 (num, f"Mesa {num}")
+            )
+
+        # Adicionales por defecto
+        adicionales_iniciales = [
+            ("Huevo extra", 5.0),
+            ("Queso extra", 8.0),
+            ("Jamon extra", 10.0),
+            ("Pan adicional", 8.0),
+            ("Cafe adicional", 15.0),
+            ("Mantequilla extra", 3.0),
+        ]
+        for nombre, precio in adicionales_iniciales:
+            conn.execute(
+                "INSERT OR IGNORE INTO adicionales (nombre, precio) VALUES (?, ?)",
+                (nombre, precio)
             )
 
         conn.commit()
@@ -534,12 +574,26 @@ def eliminar_mesa(mesa_id: int) -> bool:
 
 def crear_pedido(mesa_id: int, mesero: str, items: list[dict],
                  notas: str = "") -> int | None:
-    """Crea un pedido con sus items. Retorna el id del pedido o None."""
+    """Crea un pedido con sus items y modificaciones. Retorna el id del pedido o None.
+
+    Cada item puede tener:
+      - producto, cantidad, precio_unitario, notas
+      - modificaciones: lista de {tipo, descripcion, cantidad, precio_extra}
+    """
     ahora = datetime.now()
     fecha = ahora.strftime("%Y-%m-%d")
     hora = ahora.strftime("%H:%M:%S")
 
-    total = sum(item["cantidad"] * item["precio_unitario"] for item in items)
+    # Calcular total incluyendo modificaciones
+    total = 0.0
+    for item in items:
+        item_base = item["cantidad"] * item["precio_unitario"]
+        extras = sum(
+            m.get("cantidad", 1) * m.get("precio_extra", 0)
+            for m in item.get("modificaciones", [])
+            if m.get("tipo") == "adicional"
+        )
+        total += item_base + extras
 
     try:
         with get_connection() as conn:
@@ -550,13 +604,28 @@ def crear_pedido(mesa_id: int, mesero: str, items: list[dict],
             pedido_id = cursor.lastrowid
 
             for item in items:
-                subtotal = item["cantidad"] * item["precio_unitario"]
-                conn.execute("""
+                extras = sum(
+                    m.get("cantidad", 1) * m.get("precio_extra", 0)
+                    for m in item.get("modificaciones", [])
+                    if m.get("tipo") == "adicional"
+                )
+                subtotal = item["cantidad"] * item["precio_unitario"] + extras
+                cur_item = conn.execute("""
                     INSERT INTO pedido_items
                         (pedido_id, producto, cantidad, precio_unitario, subtotal, notas)
                     VALUES (?, ?, ?, ?, ?, ?)
                 """, (pedido_id, item["producto"], item["cantidad"],
                       item["precio_unitario"], subtotal, item.get("notas", "")))
+                item_id = cur_item.lastrowid
+
+                # Insertar modificaciones
+                for mod in item.get("modificaciones", []):
+                    conn.execute("""
+                        INSERT INTO pedido_item_modificaciones
+                            (pedido_item_id, tipo, descripcion, cantidad, precio_extra)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (item_id, mod["tipo"], mod["descripcion"],
+                          mod.get("cantidad", 1), mod.get("precio_extra", 0)))
 
             conn.commit()
         return pedido_id
@@ -595,7 +664,7 @@ def obtener_pedidos(estado: str = None, mesa_id: int = None,
 
 
 def obtener_pedido(pedido_id: int) -> dict | None:
-    """Obtiene un pedido con sus items."""
+    """Obtiene un pedido con sus items y modificaciones."""
     with get_connection() as conn:
         pedido = conn.execute("""
             SELECT p.id, p.mesa_id, m.numero as mesa_numero, m.nombre as mesa_nombre,
@@ -615,8 +684,20 @@ def obtener_pedido(pedido_id: int) -> dict | None:
             ORDER BY id
         """, (pedido_id,)).fetchall()
 
+        items_list = []
+        for item in items:
+            item_dict = dict(item)
+            mods = conn.execute("""
+                SELECT id, tipo, descripcion, cantidad, precio_extra
+                FROM pedido_item_modificaciones
+                WHERE pedido_item_id = ?
+                ORDER BY tipo, id
+            """, (item_dict["id"],)).fetchall()
+            item_dict["modificaciones"] = [dict(m) for m in mods]
+            items_list.append(item_dict)
+
     result = dict(pedido)
-    result["items"] = [dict(i) for i in items]
+    result["items"] = items_list
     return result
 
 
@@ -687,6 +768,54 @@ def obtener_pedidos_activos_mesa(mesa_id: int) -> list[dict]:
             ORDER BY hora DESC
         """, (mesa_id, datetime.now().strftime("%Y-%m-%d"))).fetchall()
     return [dict(r) for r in rows]
+
+
+# ──────────────────────────────────────────────
+# Adicionales
+# ──────────────────────────────────────────────
+
+def obtener_adicionales() -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, nombre, precio FROM adicionales WHERE activo = 1 ORDER BY nombre"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def agregar_adicional(nombre: str, precio: float) -> bool:
+    try:
+        with get_connection() as conn:
+            conn.execute(
+                "INSERT INTO adicionales (nombre, precio) VALUES (?, ?)",
+                (nombre, precio)
+            )
+            conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+def actualizar_adicional(adicional_id: int, precio: float) -> bool:
+    try:
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE adicionales SET precio = ? WHERE id = ?",
+                (precio, adicional_id)
+            )
+            conn.commit()
+        return True
+    except Exception:
+        return False
+
+
+def eliminar_adicional(adicional_id: int) -> bool:
+    try:
+        with get_connection() as conn:
+            conn.execute("UPDATE adicionales SET activo = 0 WHERE id = ?", (adicional_id,))
+            conn.commit()
+        return True
+    except Exception:
+        return False
 
 
 def obtener_resumen_mesas() -> list[dict]:

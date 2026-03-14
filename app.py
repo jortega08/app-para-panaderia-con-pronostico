@@ -44,6 +44,10 @@ from data.database import (
     cambiar_estado_pedido,
     pagar_pedido,
     obtener_resumen_mesas,
+    obtener_adicionales,
+    agregar_adicional,
+    actualizar_adicional,
+    eliminar_adicional,
 )
 from logic.pronostico import (
     calcular_pronostico,
@@ -182,6 +186,7 @@ def mesero_pedido(mesa_id):
     for p in productos:
         p["icono"] = icono(p["nombre"])
         p["color"] = color_prod(p["nombre"])
+    adicionales = obtener_adicionales()
     mesas = obtener_mesas()
     mesa = next((m for m in mesas if m["id"] == mesa_id), None)
     if not mesa:
@@ -189,6 +194,7 @@ def mesero_pedido(mesa_id):
         return redirect(url_for("mesero_mesas"))
     return render_template("mesero_pedido.html",
                            mesa=mesa, productos=productos,
+                           adicionales=adicionales,
                            layout="mesero", active_page="mesas")
 
 
@@ -446,12 +452,23 @@ def api_crear_pedido():
 
     items = []
     for item in data["items"]:
-        items.append({
+        entry = {
             "producto": item["producto"],
             "cantidad": int(item["cantidad"]),
             "precio_unitario": float(item["precio"]),
             "notas": item.get("notas", ""),
-        })
+        }
+        # Procesar modificaciones (adicionales/exclusiones)
+        if "modificaciones" in item:
+            entry["modificaciones"] = []
+            for mod in item["modificaciones"]:
+                entry["modificaciones"].append({
+                    "tipo": mod.get("tipo", "adicional"),
+                    "descripcion": mod.get("descripcion", ""),
+                    "cantidad": int(mod.get("cantidad", 1)),
+                    "precio_extra": float(mod.get("precio_extra", 0)),
+                })
+        items.append(entry)
 
     pedido_id = crear_pedido(mesa_id, mesero, items, notas)
     if pedido_id:
@@ -491,6 +508,40 @@ def api_obtener_pedidos():
     mesa_id = request.args.get("mesa_id", type=int)
     pedidos = obtener_pedidos(estado=estado, mesa_id=mesa_id)
     return jsonify(pedidos)
+
+
+@app.route("/api/adicionales")
+@login_required
+def api_obtener_adicionales():
+    return jsonify(obtener_adicionales())
+
+
+@app.route("/api/adicional", methods=["POST"])
+@login_required
+def api_agregar_adicional():
+    data = request.json
+    nombre = data.get("nombre", "").strip()
+    precio = float(data.get("precio", 0))
+    if not nombre:
+        return jsonify({"ok": False, "error": "Nombre vacio"}), 400
+    ok = agregar_adicional(nombre, precio)
+    return jsonify({"ok": ok})
+
+
+@app.route("/api/adicional/<int:aid>/precio", methods=["PUT"])
+@login_required
+def api_actualizar_adicional(aid):
+    data = request.json
+    precio = float(data.get("precio", 0))
+    ok = actualizar_adicional(aid, precio)
+    return jsonify({"ok": ok})
+
+
+@app.route("/api/adicional/<int:aid>", methods=["DELETE"])
+@login_required
+def api_eliminar_adicional(aid):
+    ok = eliminar_adicional(aid)
+    return jsonify({"ok": ok})
 
 
 @app.route("/api/mesa", methods=["POST"])

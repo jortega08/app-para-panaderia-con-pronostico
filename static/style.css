@@ -988,6 +988,101 @@ input, select { font-family: inherit; }
 }
 
 /* ══════════════════════════════════════════════
+   MODAL
+   ══════════════════════════════════════════════ */
+.modal-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+.modal-card {
+    background: var(--card);
+    border-radius: var(--radius);
+    box-shadow: 0 16px 48px rgba(0,0,0,0.2);
+    width: 100%;
+    max-width: 480px;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--divider);
+}
+.modal-header h3 { font-size: 18px; margin: 0; }
+.modal-close {
+    background: none;
+    font-size: 24px;
+    color: var(--text-muted);
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+}
+.modal-close:hover { background: var(--danger-bg); color: var(--danger); }
+.modal-body { padding: 20px; }
+.modal-footer {
+    padding: 14px 20px;
+    border-top: 1px solid var(--divider);
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+.mod-section { margin-bottom: 20px; }
+.mod-section h4 {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 10px;
+    color: var(--text-sec);
+}
+.mod-options { display: flex; flex-direction: column; gap: 6px; }
+.mod-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--bg);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.mod-option:hover { background: var(--bg-alt); }
+.mod-option input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--success); }
+.mod-option-name { flex: 1; font-size: 14px; font-weight: 500; }
+.mod-option-price { font-size: 14px; font-weight: 700; color: var(--success); }
+
+/* ── Modification tags ── */
+.mod-tag {
+    display: inline-block;
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    margin: 1px 2px;
+}
+.mod-tag-adicional { background: var(--success-bg); color: var(--success); }
+.mod-tag-exclusion { background: var(--danger-bg); color: var(--danger); }
+.cart-item-block {
+    border-bottom: 1px solid var(--divider);
+    padding-bottom: 4px;
+}
+.cart-item-mods { padding: 2px 0 2px 40px; }
+.pedido-item-mods { padding: 2px 0 4px 28px; }
+.btn-mod-edit {
+    background: none;
+    border: none;
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: 2px 0 4px 40px;
+    cursor: pointer;
+}
+.btn-mod-edit:hover { color: var(--accent); }
+
+/* ══════════════════════════════════════════════
    UTILITIES
    ══════════════════════════════════════════════ */
 .text-muted { color: var(--text-muted) !important; }

@@ -54,6 +54,17 @@
                     <span>{{ icono(item.producto) }} {{ item.cantidad }}x {{ item.producto }}</span>
                     <span class="text-muted">${{ '%.2f'|format(item.subtotal) }}</span>
                 </div>
+                {% if item.modificaciones %}
+                <div class="pedido-item-mods">
+                    {% for m in item.modificaciones %}
+                    {% if m.tipo == 'adicional' %}
+                    <span class="mod-tag mod-tag-adicional">+ {{ m.descripcion }} (${{ '%.2f'|format(m.precio_extra) }})</span>
+                    {% else %}
+                    <span class="mod-tag mod-tag-exclusion">&#x274C; {{ m.descripcion }}</span>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+                {% endif %}
                 {% endfor %}
             </div>
             {% if p.notas %}
