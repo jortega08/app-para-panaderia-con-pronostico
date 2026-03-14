@@ -1,15 +1,4 @@
-"""
-app.py - Panaderia: Sistema de Ventas y Pronostico (Web)
-========================================================
-Aplicacion Flask ligera con:
-  - Login por PIN con roles (panadero / cajero)
-  - POS con carrito multi-producto
-  - Dashboard de ventas con graficas
-  - Pronostico de produccion
-  - Pagina publica para clientes via QR
-"""
-
-import socket
+﻿import socket
 from datetime import datetime, timedelta
 from functools import wraps
 
@@ -60,7 +49,6 @@ from logic.pronostico import (
 app = Flask(__name__)
 app.secret_key = "panaderia-secret-key-2024"
 
-# Colores por producto (sin iconos tipo emoji)
 COLORES_PROD = {
     "Pan Frances": "#E8B44D",
     "Pan Dulce": "#E07A5F",
@@ -687,10 +675,7 @@ def api_eliminar_usuario(uid):
     ok = eliminar_usuario(uid)
     return jsonify({"ok": ok})
 
-
-# ======================================================
 # UTILIDADES
-# ======================================================
 
 
 def _get_local_ip():
@@ -712,11 +697,7 @@ def utility_processor():
         "icono": icono,
         "color_prod": color_prod,
     }
-
-
-# ======================================================
 # PUNTO DE ENTRADA
-# ======================================================
 
 if __name__ == "__main__":
     inicializar_base_de_datos()

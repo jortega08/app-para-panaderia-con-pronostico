@@ -1,14 +1,3 @@
-"""
-pronostico.py
--------------
-Motor de pronostico adaptativo para produccion de pan.
-
-Niveles de modelo (seleccion automatica segun datos disponibles):
-  - Nivel 1: Estimacion inicial (0-6 dias de historial)
-  - Nivel 2: Promedio de la ultima semana (7-29 dias)
-  - Nivel 3: Patrones por dia + recencia (30+ dias)
-"""
-
 from __future__ import annotations
 
 import math
@@ -81,7 +70,6 @@ def calcular_pronostico(
     if dias_disponibles < DIAS_NIVEL_ALTO:
         return _modelo_promedio_semanal(producto, dias_disponibles, buffer)
     return _modelo_por_dia(producto, dias_disponibles, fecha_objetivo, buffer)
-
 
 # Modelos internos
 
