@@ -13,6 +13,9 @@ Tablas:
   - pedido_items: productos dentro de un pedido
   - adicionales: catalogo de extras con precio
   - pedido_item_modificaciones: adicionales/exclusiones por item
+  - insumos: catalogo de ingredientes con stock
+  - recetas: composicion producto → insumos
+  - adicional_insumos: insumos consumidos por cada adicional
 """
 
 import sqlite3
@@ -160,6 +163,43 @@ def inicializar_base_de_datos() -> None:
             )
         """)
 
+        # Catalogo de insumos (ingredientes)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS insumos (
+                id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre  TEXT UNIQUE NOT NULL,
+                unidad  TEXT NOT NULL DEFAULT 'unidad',
+                stock   REAL NOT NULL DEFAULT 0.0,
+                stock_minimo REAL NOT NULL DEFAULT 0.0,
+                activo  INTEGER NOT NULL DEFAULT 1
+            )
+        """)
+
+        # Recetas: composicion producto → insumos
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS recetas (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                producto    TEXT NOT NULL,
+                insumo_id   INTEGER NOT NULL,
+                cantidad    REAL NOT NULL DEFAULT 1.0,
+                UNIQUE(producto, insumo_id),
+                FOREIGN KEY (insumo_id) REFERENCES insumos(id)
+            )
+        """)
+
+        # Insumos consumidos por cada adicional
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS adicional_insumos (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                adicional_id  INTEGER NOT NULL,
+                insumo_id     INTEGER NOT NULL,
+                cantidad      REAL NOT NULL DEFAULT 1.0,
+                UNIQUE(adicional_id, insumo_id),
+                FOREIGN KEY (adicional_id) REFERENCES adicionales(id),
+                FOREIGN KEY (insumo_id) REFERENCES insumos(id)
+            )
+        """)
+
         # Migrar tabla productos existente: agregar columnas si faltan
         _migrar_productos(conn)
         # Migrar tabla usuarios: agregar rol mesero al CHECK
@@ -217,6 +257,67 @@ def inicializar_base_de_datos() -> None:
                 "INSERT OR IGNORE INTO adicionales (nombre, precio) VALUES (?, ?)",
                 (nombre, precio)
             )
+
+        # Insumos iniciales
+        insumos_iniciales = [
+            ("Harina", "kg", 50.0, 10.0),
+            ("Azucar", "kg", 20.0, 5.0),
+            ("Mantequilla", "kg", 15.0, 3.0),
+            ("Huevos", "unidad", 100.0, 20.0),
+            ("Leche", "litro", 20.0, 5.0),
+            ("Levadura", "kg", 5.0, 1.0),
+            ("Sal", "kg", 10.0, 2.0),
+            ("Cafe molido", "kg", 5.0, 1.0),
+            ("Queso", "kg", 10.0, 2.0),
+            ("Jamon", "kg", 8.0, 2.0),
+        ]
+        for nombre, unidad, stock, minimo in insumos_iniciales:
+            conn.execute(
+                "INSERT OR IGNORE INTO insumos (nombre, unidad, stock, stock_minimo) VALUES (?, ?, ?, ?)",
+                (nombre, unidad, stock, minimo)
+            )
+
+        # Recetas por defecto (composicion basica)
+        recetas_default = {
+            "Pan Frances": [("Harina", 0.15), ("Levadura", 0.005), ("Sal", 0.003), ("Mantequilla", 0.01)],
+            "Pan Dulce": [("Harina", 0.12), ("Azucar", 0.04), ("Huevos", 0.5), ("Mantequilla", 0.03), ("Levadura", 0.005)],
+            "Croissant": [("Harina", 0.10), ("Mantequilla", 0.06), ("Huevos", 0.3), ("Levadura", 0.004), ("Azucar", 0.02)],
+            "Integral": [("Harina", 0.18), ("Levadura", 0.005), ("Sal", 0.003)],
+        }
+        for producto, ingredientes in recetas_default.items():
+            for insumo_nombre, cant in ingredientes:
+                insumo = conn.execute(
+                    "SELECT id FROM insumos WHERE nombre = ?", (insumo_nombre,)
+                ).fetchone()
+                if insumo:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO recetas (producto, insumo_id, cantidad) VALUES (?, ?, ?)",
+                        (producto, insumo["id"], cant)
+                    )
+
+        # Insumos por adicional
+        adicional_insumos_default = {
+            "Huevo extra": [("Huevos", 1.0)],
+            "Queso extra": [("Queso", 0.05)],
+            "Jamon extra": [("Jamon", 0.05)],
+            "Pan adicional": [("Harina", 0.15), ("Levadura", 0.005)],
+            "Cafe adicional": [("Cafe molido", 0.02), ("Leche", 0.1)],
+            "Mantequilla extra": [("Mantequilla", 0.03)],
+        }
+        for adicional_nombre, ingredientes in adicional_insumos_default.items():
+            adic = conn.execute(
+                "SELECT id FROM adicionales WHERE nombre = ?", (adicional_nombre,)
+            ).fetchone()
+            if adic:
+                for insumo_nombre, cant in ingredientes:
+                    insumo = conn.execute(
+                        "SELECT id FROM insumos WHERE nombre = ?", (insumo_nombre,)
+                    ).fetchone()
+                    if insumo:
+                        conn.execute(
+                            "INSERT OR IGNORE INTO adicional_insumos (adicional_id, insumo_id, cantidad) VALUES (?, ?, ?)",
+                            (adic["id"], insumo["id"], cant)
+                        )
 
         conn.commit()
 
@@ -725,7 +826,7 @@ def cambiar_estado_pedido(pedido_id: int, nuevo_estado: str) -> bool:
 
 
 def pagar_pedido(pedido_id: int, registrado_por: str = "") -> bool:
-    """Marca pedido como pagado y registra las ventas correspondientes."""
+    """Marca pedido como pagado, registra ventas y descuenta inventario."""
     try:
         pedido = obtener_pedido(pedido_id)
         if not pedido or pedido["estado"] == "pagado":
@@ -736,14 +837,48 @@ def pagar_pedido(pedido_id: int, registrado_por: str = "") -> bool:
             hora_pagado = ahora.strftime("%H:%M:%S")
             fecha = pedido["fecha"]
 
-            # Registrar cada item como venta
             for item in pedido["items"]:
+                # Registrar venta
                 conn.execute("""
                     INSERT INTO ventas (fecha, hora, producto, cantidad,
                                         precio_unitario, total, registrado_por)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, (fecha, hora_pagado, item["producto"], item["cantidad"],
                       item["precio_unitario"], item["subtotal"], registrado_por))
+
+                # Descontar inventario por receta del producto base
+                receta = conn.execute("""
+                    SELECT r.insumo_id, r.cantidad, i.nombre
+                    FROM recetas r JOIN insumos i ON r.insumo_id = i.id
+                    WHERE r.producto = ?
+                """, (item["producto"],)).fetchall()
+
+                for r in receta:
+                    consumo = r["cantidad"] * item["cantidad"]
+                    conn.execute(
+                        "UPDATE insumos SET stock = MAX(0, stock - ?) WHERE id = ?",
+                        (consumo, r["insumo_id"])
+                    )
+
+                # Descontar inventario por adicionales
+                for mod in item.get("modificaciones", []):
+                    if mod["tipo"] == "adicional":
+                        adicional = conn.execute(
+                            "SELECT id FROM adicionales WHERE nombre = ?",
+                            (mod["descripcion"],)
+                        ).fetchone()
+                        if adicional:
+                            ai = conn.execute("""
+                                SELECT ai.insumo_id, ai.cantidad
+                                FROM adicional_insumos ai
+                                WHERE ai.adicional_id = ?
+                            """, (adicional["id"],)).fetchall()
+                            for a in ai:
+                                consumo = a["cantidad"] * mod.get("cantidad", 1)
+                                conn.execute(
+                                    "UPDATE insumos SET stock = MAX(0, stock - ?) WHERE id = ?",
+                                    (consumo, a["insumo_id"])
+                                )
 
             # Marcar como pagado
             conn.execute(
@@ -815,6 +950,103 @@ def eliminar_adicional(adicional_id: int) -> bool:
             conn.commit()
         return True
     except Exception:
+        return False
+
+
+# ──────────────────────────────────────────────
+# Insumos (inventario)
+# ──────────────────────────────────────────────
+
+def obtener_insumos() -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT id, nombre, unidad, stock, stock_minimo, activo
+            FROM insumos WHERE activo = 1
+            ORDER BY nombre
+        """).fetchall()
+    return [dict(r) for r in rows]
+
+
+def agregar_insumo(nombre: str, unidad: str, stock: float = 0,
+                   stock_minimo: float = 0) -> bool:
+    try:
+        with get_connection() as conn:
+            conn.execute(
+                "INSERT INTO insumos (nombre, unidad, stock, stock_minimo) VALUES (?, ?, ?, ?)",
+                (nombre, unidad, stock, stock_minimo)
+            )
+            conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+def actualizar_stock(insumo_id: int, nuevo_stock: float) -> bool:
+    try:
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE insumos SET stock = ? WHERE id = ?",
+                (nuevo_stock, insumo_id)
+            )
+            conn.commit()
+        return True
+    except Exception:
+        return False
+
+
+def eliminar_insumo(insumo_id: int) -> bool:
+    try:
+        with get_connection() as conn:
+            conn.execute("UPDATE insumos SET activo = 0 WHERE id = ?", (insumo_id,))
+            conn.commit()
+        return True
+    except Exception:
+        return False
+
+
+def obtener_insumos_bajo_stock() -> list[dict]:
+    """Insumos cuyo stock esta por debajo del minimo."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT id, nombre, unidad, stock, stock_minimo
+            FROM insumos
+            WHERE activo = 1 AND stock <= stock_minimo
+            ORDER BY (stock / CASE WHEN stock_minimo > 0 THEN stock_minimo ELSE 1 END) ASC
+        """).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ──────────────────────────────────────────────
+# Recetas
+# ──────────────────────────────────────────────
+
+def obtener_receta(producto: str) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT r.id, r.insumo_id, i.nombre as insumo_nombre,
+                   i.unidad, r.cantidad
+            FROM recetas r
+            JOIN insumos i ON r.insumo_id = i.id
+            WHERE r.producto = ?
+            ORDER BY i.nombre
+        """, (producto,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def guardar_receta(producto: str, ingredientes: list[dict]) -> bool:
+    """Reemplaza la receta de un producto. ingredientes: [{insumo_id, cantidad}]"""
+    try:
+        with get_connection() as conn:
+            conn.execute("DELETE FROM recetas WHERE producto = ?", (producto,))
+            for ing in ingredientes:
+                conn.execute(
+                    "INSERT INTO recetas (producto, insumo_id, cantidad) VALUES (?, ?, ?)",
+                    (producto, ing["insumo_id"], ing["cantidad"])
+                )
+            conn.commit()
+        return True
+    except Exception as e:
+        print(f"[ERROR] guardar_receta: {e}")
         return False
 
 

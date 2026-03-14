@@ -48,6 +48,13 @@ from data.database import (
     agregar_adicional,
     actualizar_adicional,
     eliminar_adicional,
+    obtener_insumos,
+    agregar_insumo,
+    actualizar_stock,
+    eliminar_insumo,
+    obtener_insumos_bajo_stock,
+    obtener_receta,
+    guardar_receta,
 )
 from logic.pronostico import (
     calcular_pronostico,
@@ -301,6 +308,23 @@ def panadero_historial():
                            layout="panadero", active_page="historial")
 
 
+@app.route("/panadero/inventario")
+@login_required
+def panadero_inventario():
+    insumos = obtener_insumos()
+    productos = obtener_productos()
+    recetas = {}
+    for p in productos:
+        recetas[p] = obtener_receta(p)
+    alertas_stock = obtener_insumos_bajo_stock()
+    return render_template("panadero_inventario.html",
+                           insumos=insumos,
+                           productos=productos,
+                           recetas=recetas,
+                           alertas_stock=alertas_stock,
+                           layout="panadero", active_page="inventario")
+
+
 @app.route("/panadero/config")
 @login_required
 def panadero_config():
@@ -541,6 +565,57 @@ def api_actualizar_adicional(aid):
 @login_required
 def api_eliminar_adicional(aid):
     ok = eliminar_adicional(aid)
+    return jsonify({"ok": ok})
+
+
+@app.route("/api/insumos")
+@login_required
+def api_obtener_insumos():
+    return jsonify(obtener_insumos())
+
+
+@app.route("/api/insumo", methods=["POST"])
+@login_required
+def api_agregar_insumo():
+    data = request.json
+    nombre = data.get("nombre", "").strip()
+    unidad = data.get("unidad", "unidad").strip()
+    stock = float(data.get("stock", 0))
+    stock_minimo = float(data.get("stock_minimo", 0))
+    if not nombre:
+        return jsonify({"ok": False, "error": "Nombre vacio"}), 400
+    ok = agregar_insumo(nombre, unidad, stock, stock_minimo)
+    return jsonify({"ok": ok})
+
+
+@app.route("/api/insumo/<int:iid>/stock", methods=["PUT"])
+@login_required
+def api_actualizar_stock(iid):
+    data = request.json
+    stock = float(data.get("stock", 0))
+    ok = actualizar_stock(iid, stock)
+    return jsonify({"ok": ok})
+
+
+@app.route("/api/insumo/<int:iid>", methods=["DELETE"])
+@login_required
+def api_eliminar_insumo(iid):
+    ok = eliminar_insumo(iid)
+    return jsonify({"ok": ok})
+
+
+@app.route("/api/receta/<producto>")
+@login_required
+def api_obtener_receta(producto):
+    return jsonify(obtener_receta(producto))
+
+
+@app.route("/api/receta/<producto>", methods=["PUT"])
+@login_required
+def api_guardar_receta(producto):
+    data = request.json
+    ingredientes = data.get("ingredientes", [])
+    ok = guardar_receta(producto, ingredientes)
     return jsonify({"ok": ok})
 
 

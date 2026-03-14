@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title_extra %} - Inventario{% endblock %}
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h1 class="page-title">&#x1F4E6; Inventario de Insumos</h1>
+    </div>
+
+    {% if alertas_stock %}
+    <div class="card" style="border-left: 4px solid var(--danger); margin-bottom: 20px;">
+        <div class="card-header" style="color: var(--danger);">&#x26A0;&#xFE0F; Insumos con Stock Bajo</div>
+        <div class="card-body">
+            {% for a in alertas_stock %}
+            <div class="detail-row">
+                <span class="detail-name text-danger">{{ a.nombre }}</span>
+                <span class="detail-qty">{{ '%.1f'|format(a.stock) }} {{ a.unidad }}</span>
+                <span class="text-muted">Min: {{ '%.1f'|format(a.stock_minimo) }} {{ a.unidad }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# ── Stock actual ── #}
+    <div class="card">
+        <div class="card-header">&#x1F4CA; Stock Actual</div>
+        <div class="card-body">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Insumo</th>
+                        <th>Unidad</th>
+                        <th>Stock</th>
+                        <th>Minimo</th>
+                        <th>Estado</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ins in insumos %}
+                    <tr class="{% if ins.stock <= ins.stock_minimo %}row-danger{% elif ins.stock <= ins.stock_minimo * 1.5 %}row-warning{% endif %}">
+                        <td><strong>{{ ins.nombre }}</strong></td>
+                        <td>{{ ins.unidad }}</td>
+                        <td>
+                            <input type="number" class="form-input form-input-sm" style="width: 90px;"
+                                   id="stock-{{ ins.id }}" value="{{ '%.1f'|format(ins.stock) }}" step="0.1" min="0">
+                        </td>
+                        <td class="text-muted">{{ '%.1f'|format(ins.stock_minimo) }}</td>
+                        <td>
+                            {% if ins.stock <= ins.stock_minimo %}
+                            <span class="badge" style="background: var(--danger); color: #FFF;">BAJO</span>
+                            {% elif ins.stock <= ins.stock_minimo * 1.5 %}
+                            <span class="badge" style="background: var(--warning); color: #FFF;">ALERTA</span>
+                            {% else %}
+                            <span class="badge" style="background: var(--success); color: #FFF;">OK</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-accent" onclick="actualizarStock({{ ins.id }})">Guardar</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <div class="config-add-row" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--divider);">
+                <input type="text" class="form-input form-input-sm" id="nuevoInsumoNombre" placeholder="Nombre" style="width: 150px;">
+                <input type="text" class="form-input form-input-sm" id="nuevoInsumoUnidad" placeholder="Unidad" style="width: 100px;" value="unidad">
+                <input type="number" class="form-input form-input-sm" id="nuevoInsumoStock" placeholder="Stock" style="width: 80px;" value="0" step="0.1">
+                <input type="number" class="form-input form-input-sm" id="nuevoInsumoMin" placeholder="Minimo" style="width: 80px;" value="0" step="0.1">
+                <button class="btn btn-sm btn-success" onclick="agregarInsumo()">+ Agregar</button>
+            </div>
+        </div>
+    </div>
+
+    {# ── Recetas ── #}
+    <div class="card">
+        <div class="card-header">&#x1F4D6; Recetas (Composicion por Producto)</div>
+        <div class="card-body">
+            {% for prod in productos %}
+            <div style="margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--divider);">
+                <h4 style="margin-bottom: 8px;">{{ icono(prod) }} {{ prod }}</h4>
+                {% if recetas[prod] %}
+                <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                    {% for r in recetas[prod] %}
+                    <span class="chip">{{ r.insumo_nombre }}: {{ '%.3f'|format(r.cantidad) }} {{ r.unidad }}</span>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <span class="text-muted" style="font-size: 13px;">Sin receta definida</span>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<script>
+function actualizarStock(insumoId) {
+    const input = document.getElementById('stock-' + insumoId);
+    const stock = parseFloat(input.value);
+    if (isNaN(stock) || stock < 0) {
+        alert('Valor invalido');
+        return;
+    }
+    fetch('/api/insumo/' + insumoId + '/stock', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({stock}),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) location.reload();
+        else alert('Error al actualizar');
+    });
+}
+
+function agregarInsumo() {
+    const nombre = document.getElementById('nuevoInsumoNombre').value.trim();
+    const unidad = document.getElementById('nuevoInsumoUnidad').value.trim();
+    const stock = parseFloat(document.getElementById('nuevoInsumoStock').value) || 0;
+    const stock_minimo = parseFloat(document.getElementById('nuevoInsumoMin').value) || 0;
+    if (!nombre) { alert('Nombre requerido'); return; }
+
+    fetch('/api/insumo', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({nombre, unidad, stock, stock_minimo}),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) location.reload();
+        else alert('Error: insumo ya existe o datos invalidos');
+    });
+}
+</script>
+{% endblock %}
