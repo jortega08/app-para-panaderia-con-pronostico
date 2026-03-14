@@ -35,6 +35,7 @@ from data.database import (
     obtener_resumen_ventas_dia,
     obtener_total_ventas_dia,
     obtener_vendido_dia_producto,
+    obtener_resumen_por_dia_semana,
     obtener_mesas,
     agregar_mesa,
     eliminar_mesa,
@@ -412,6 +413,130 @@ def api_productos():
         p["icono"] = icono(p["nombre"])
         p["color"] = color_prod(p["nombre"])
     return jsonify(productos)
+
+
+@app.route("/api/pronostico/dashboard")
+def api_pronostico_dashboard():
+    """API para el dashboard de pronostico (usado por el template AJAX)."""
+    producto_filtro = request.args.get("producto", "").strip()
+    dias = int(request.args.get("dias", 30))
+
+    productos = obtener_productos()
+    if producto_filtro and producto_filtro in productos:
+        productos = [producto_filtro]
+
+    pronosticos = []
+    for p in productos:
+        try:
+            r = calcular_pronostico(p)
+            registros = obtener_registros(p, dias=dias)
+            ef = calcular_eficiencia(registros)
+            tend = analizar_tendencia(registros)
+            pronosticos.append({
+                "producto": p,
+                "icono": icono(p),
+                "color": color_prod(p),
+                "sugerido": r.produccion_sugerida,
+                "promedio": r.promedio_ventas,
+                "dias": r.dias_historial,
+                "estado": r.estado,
+                "mensaje": r.mensaje,
+                "confianza": r.confianza,
+                "aprovechamiento": ef.get("tasa_aprovechamiento", 0) if ef else 0,
+                "tendencia": tend,
+                "modelo": r.modelo_usado,
+            })
+        except Exception:
+            pass
+
+    # Resumen semanal por dia
+    dias_semana = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]
+    prediccion_semanal = {}
+    for p in productos:
+        try:
+            resumen_dia = obtener_resumen_por_dia_semana(p)
+            prediccion_semanal[p] = {
+                dia: resumen_dia.get(dia, {}).get("promedio", 0)
+                for dia in dias_semana
+            }
+        except Exception:
+            prediccion_semanal[p] = {dia: 0 for dia in dias_semana}
+
+    # Historial producido vs vendido
+    historial = []
+    for p in productos:
+        registros = obtener_registros(p, dias=dias)
+        for reg in registros:
+            historial.append({
+                "fecha": reg["fecha"],
+                "dia_semana": reg["dia_semana"],
+                "producto": reg["producto"],
+                "producido": reg["producido"],
+                "vendido": reg["vendido"],
+                "sobrante": reg["sobrante"],
+            })
+
+    total_sugerido = sum(p["sugerido"] for p in pronosticos)
+    promedio_diario = round(sum(p["promedio"] for p in pronosticos), 1)
+    aprovechamiento_global = round(
+        sum(p["aprovechamiento"] for p in pronosticos) / max(len(pronosticos), 1), 1
+    )
+    tendencia_global = "estable"
+    if pronosticos:
+        tendencias = [p["tendencia"] for p in pronosticos]
+        if tendencias.count("subiendo") > tendencias.count("bajando"):
+            tendencia_global = "subiendo"
+        elif tendencias.count("bajando") > tendencias.count("subiendo"):
+            tendencia_global = "bajando"
+
+    return jsonify({
+        "pronosticos": pronosticos,
+        "resumen": {
+            "total_sugerido_semana": total_sugerido * 7,
+            "promedio_sugerido_diario": total_sugerido,
+            "aprovechamiento_historico": aprovechamiento_global,
+            "tendencia": tendencia_global,
+        },
+        "prediccion_semanal": prediccion_semanal,
+        "historial": historial,
+        "dias_semana": dias_semana,
+    })
+
+
+@app.route("/api/historial/dashboard")
+def api_historial_dashboard():
+    """API para el dashboard de historial (usado por el template AJAX)."""
+    producto_filtro = request.args.get("producto", "Todos").strip()
+    dias = int(request.args.get("dias", 30))
+
+    producto = producto_filtro if producto_filtro != "Todos" else None
+    registros = obtener_registros(producto, dias=dias)
+
+    for r in registros:
+        r["icono"] = icono(r["producto"])
+
+    # Resumen por producto
+    resumen = {}
+    for r in registros:
+        p = r["producto"]
+        if p not in resumen:
+            resumen[p] = {"producto": p, "icono": icono(p), "producido": 0,
+                          "vendido": 0, "sobrante": 0, "dias": 0}
+        resumen[p]["producido"] += r["producido"]
+        resumen[p]["vendido"] += r["vendido"]
+        resumen[p]["sobrante"] += r["sobrante"]
+        resumen[p]["dias"] += 1
+
+    for p in resumen.values():
+        p["aprovechamiento"] = round(
+            (p["vendido"] / p["producido"] * 100) if p["producido"] > 0 else 0, 1
+        )
+
+    return jsonify({
+        "registros": registros,
+        "resumen": list(resumen.values()),
+        "total_registros": len(registros),
+    })
 
 
 @app.route("/api/venta", methods=["POST"])
