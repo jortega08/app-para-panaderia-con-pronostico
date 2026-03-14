@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block title_extra %} - Pedido Mesa {{ mesa.numero }}{% endblock %}
+{% block content %}
+<div class="pos-layout">
+    {# ── GRID DE PRODUCTOS ── #}
+    <div class="pos-products">
+        <h2 class="page-title">&#x1FA91; Mesa {{ mesa.numero }} &mdash; {{ mesa.nombre }}</h2>
+        <p class="text-muted" style="margin-bottom: 16px;">Toca un producto para agregarlo al pedido</p>
+        <div class="product-grid">
+            {% for p in productos %}
+            <button class="product-card" onclick="addToCart('{{ p.nombre }}', {{ p.precio }}, '{{ p.icono }}')"
+                    style="--prod-color: {{ p.color }}">
+                <div class="product-color-bar" style="background: {{ p.color }}"></div>
+                <span class="product-icon">{{ p.icono }}</span>
+                <span class="product-name">{{ p.nombre }}</span>
+                <span class="product-price">${{ '%.2f'|format(p.precio) }}</span>
+            </button>
+            {% endfor %}
+        </div>
+    </div>
+
+    {# ── CARRITO DEL PEDIDO ── #}
+    <div class="cart-panel">
+        <div class="cart-header">
+            <h3>&#x1F4CB; Pedido Mesa {{ mesa.numero }}</h3>
+            <span class="cart-count" id="cartCount">0 items</span>
+        </div>
+
+        <div class="cart-items" id="cartItems">
+            <div class="cart-empty">
+                <span class="cart-empty-icon">&#x1F4CB;</span>
+                <p>El pedido esta vacio</p>
+                <p class="text-muted">Toca un producto para agregarlo</p>
+            </div>
+        </div>
+
+        <div style="padding: 12px 20px;">
+            <label style="font-size: 14px; font-weight: 600; color: var(--text-sec);">Notas del pedido:</label>
+            <textarea id="notasPedido" class="form-input" rows="2"
+                      placeholder="Ej: sin sal, para llevar..." style="margin-top: 6px;"></textarea>
+        </div>
+
+        <div class="cart-footer">
+            <div class="cart-total-row">
+                <span class="cart-total-label">TOTAL</span>
+                <span class="cart-total-value" id="cartTotal">$0.00</span>
+            </div>
+            <div class="cart-actions">
+                <a href="{{ url_for('mesero_mesas') }}" class="btn btn-outline">Volver</a>
+                <button class="btn btn-success btn-lg" onclick="enviarPedido()">&#x2714; Enviar Pedido</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let cart = [];
+const MESA_ID = {{ mesa.id }};
+
+function addToCart(nombre, precio, icono) {
+    const existing = cart.find(item => item.nombre === nombre);
+    if (existing) {
+        existing.cantidad++;
+    } else {
+        cart.push({nombre, precio, icono, cantidad: 1});
+    }
+    renderCart();
+}
+
+function updateQty(nombre, qty) {
+    qty = parseInt(qty);
+    if (isNaN(qty) || qty < 0) return;
+    const item = cart.find(i => i.nombre === nombre);
+    if (!item) return;
+    if (qty === 0) {
+        cart = cart.filter(i => i.nombre !== nombre);
+    } else {
+        item.cantidad = qty;
+    }
+    renderCart();
+}
+
+function removeFromCart(nombre) {
+    cart = cart.filter(i => i.nombre !== nombre);
+    renderCart();
+}
+
+function renderCart() {
+    const container = document.getElementById('cartItems');
+    const countEl = document.getElementById('cartCount');
+    const totalEl = document.getElementById('cartTotal');
+
+    let total = 0;
+    let totalItems = 0;
+
+    if (cart.length === 0) {
+        container.innerHTML = `
+            <div class="cart-empty">
+                <span class="cart-empty-icon">&#x1F4CB;</span>
+                <p>El pedido esta vacio</p>
+                <p class="text-muted">Toca un producto para agregarlo</p>
+            </div>`;
+        countEl.textContent = '0 items';
+        totalEl.textContent = '$0.00';
+        return;
+    }
+
+    let html = '';
+    cart.forEach(item => {
+        const subtotal = item.precio * item.cantidad;
+        total += subtotal;
+        totalItems += item.cantidad;
+
+        html += `
+        <div class="cart-item">
+            <div class="cart-item-info">
+                <span class="cart-item-icon">${item.icono}</span>
+                <div>
+                    <div class="cart-item-name">${item.nombre}</div>
+                    <div class="cart-item-price">$${item.precio.toFixed(2)} c/u</div>
+                </div>
+            </div>
+            <div class="cart-item-controls">
+                <button class="qty-btn qty-minus" onclick="updateQty('${item.nombre}', ${item.cantidad - 1})">-</button>
+                <input type="number" class="qty-input" value="${item.cantidad}" min="0"
+                       onchange="updateQty('${item.nombre}', this.value)">
+                <button class="qty-btn qty-plus" onclick="updateQty('${item.nombre}', ${item.cantidad + 1})">+</button>
+            </div>
+            <div class="cart-item-subtotal">$${subtotal.toFixed(2)}</div>
+            <button class="cart-item-remove" onclick="removeFromCart('${item.nombre}')">&times;</button>
+        </div>`;
+    });
+
+    container.innerHTML = html;
+    countEl.textContent = totalItems + (totalItems === 1 ? ' item' : ' items');
+    totalEl.textContent = '$' + total.toFixed(2);
+}
+
+function enviarPedido() {
+    if (cart.length === 0) {
+        alert('Agrega productos al pedido primero.');
+        return;
+    }
+
+    const items = cart.map(item => ({
+        producto: item.nombre,
+        cantidad: item.cantidad,
+        precio: item.precio,
+    }));
+
+    const notas = document.getElementById('notasPedido').value;
+
+    fetch('/api/pedido', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({mesa_id: MESA_ID, items, notas}),
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.ok) {
+            const total = cart.reduce((s, i) => s + i.precio * i.cantidad, 0);
+            const detalle = cart.map(i =>
+                `  ${i.icono} ${i.cantidad}x ${i.nombre}`
+            ).join('\n');
+            alert('Pedido enviado!\n\nMesa ' + MESA_ID + ':\n' + detalle + '\n\nTotal: $' + total.toFixed(2));
+            window.location.href = '/mesero/mesas';
+        } else {
+            alert('Error al enviar el pedido: ' + (data.error || 'Intenta de nuevo.'));
+        }
+    })
+    .catch(err => {
+        alert('Error de conexion: ' + err.message);
+    });
+}
+</script>
+{% endblock %}

@@ -814,6 +814,180 @@ input, select { font-family: inherit; }
 }
 
 /* ══════════════════════════════════════════════
+   MESERO LAYOUT
+   ══════════════════════════════════════════════ */
+.mesero-layout {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+.mesero-layout .main-content {
+    flex: 1;
+    overflow-y: auto;
+}
+.topbar-mesero {
+    background: var(--primary-dark);
+}
+
+/* ══════════════════════════════════════════════
+   MESAS GRID
+   ══════════════════════════════════════════════ */
+.mesas-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 16px;
+}
+.mesa-card {
+    background: var(--card);
+    border-radius: var(--radius);
+    box-shadow: var(--card-shadow);
+    padding: 24px 16px;
+    text-align: center;
+    text-decoration: none;
+    color: var(--text);
+    transition: all 0.2s;
+    border: 3px solid transparent;
+    display: block;
+}
+.mesa-card:hover {
+    box-shadow: var(--card-hover-shadow);
+    transform: translateY(-2px);
+}
+.mesa-libre { border-color: var(--success); }
+.mesa-libre:hover { background: var(--success-bg); }
+.mesa-pendiente { border-color: var(--warning); background: #FFFAF0; }
+.mesa-en_preparacion { border-color: var(--accent); background: #FFF8F0; }
+.mesa-listo { border-color: var(--success); background: var(--success-bg); }
+.mesa-numero {
+    font-size: 36px;
+    font-weight: 700;
+    color: var(--primary-dark);
+    line-height: 1;
+}
+.mesa-nombre {
+    font-size: 14px;
+    color: var(--text-sec);
+    margin: 4px 0 10px;
+}
+.mesa-badge {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 12px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.mesa-badge-libre { background: var(--success-bg); color: var(--success); }
+.mesa-badge-pendiente { background: var(--warning-bg); color: var(--warning); }
+.mesa-badge-preparacion { background: var(--accent-light); color: var(--accent-dark); }
+.mesa-badge-listo { background: var(--success-bg); color: var(--success); }
+.mesa-info {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 6px;
+}
+.mesa-total {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--primary);
+    margin-top: 4px;
+}
+
+/* ══════════════════════════════════════════════
+   PEDIDOS LIST
+   ══════════════════════════════════════════════ */
+.pedidos-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.pedido-card {
+    background: var(--card);
+    border-radius: var(--radius);
+    box-shadow: var(--card-shadow);
+    overflow: hidden;
+    border-left: 5px solid var(--border);
+}
+.pedido-estado-pendiente { border-left-color: var(--warning); }
+.pedido-estado-en_preparacion { border-left-color: var(--accent); }
+.pedido-estado-listo { border-left-color: var(--success); }
+.pedido-estado-pagado { border-left-color: var(--primary); opacity: 0.7; }
+.pedido-estado-cancelado { border-left-color: var(--danger); opacity: 0.5; }
+.pedido-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--divider);
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.pedido-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.pedido-id {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-muted);
+}
+.pedido-mesa {
+    font-size: 15px;
+    font-weight: 700;
+}
+.pedido-hora {
+    font-size: 13px;
+    color: var(--text-muted);
+}
+.pedido-mesero {
+    font-size: 13px;
+    color: var(--text-sec);
+}
+.pedido-badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 20px;
+    text-transform: uppercase;
+}
+.pedido-badge-pendiente { background: var(--warning-bg); color: var(--warning); }
+.pedido-badge-en_preparacion { background: var(--accent-light); color: var(--accent-dark); }
+.pedido-badge-listo { background: var(--success-bg); color: var(--success); }
+.pedido-badge-pagado { background: var(--primary-light); color: var(--primary-dark); }
+.pedido-badge-cancelado { background: var(--danger-bg); color: var(--danger); }
+.pedido-total {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--success);
+}
+.pedido-items {
+    padding: 10px 20px;
+}
+.pedido-item-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 14px;
+}
+.pedido-notas {
+    padding: 8px 20px;
+    font-size: 13px;
+    color: var(--text-sec);
+    background: var(--bg);
+    font-style: italic;
+}
+.pedido-actions {
+    padding: 12px 20px;
+    display: flex;
+    gap: 8px;
+    border-top: 1px solid var(--divider);
+    flex-wrap: wrap;
+}
+
+/* ══════════════════════════════════════════════
    UTILITIES
    ══════════════════════════════════════════════ */
 .text-muted { color: var(--text-muted) !important; }

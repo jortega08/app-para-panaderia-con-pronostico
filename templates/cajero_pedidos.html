@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title_extra %} - Pedidos{% endblock %}
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h1 class="page-title">&#x1F4CB; Pedidos del Dia</h1>
+        <div class="page-header-right">
+            <div class="filter-group">
+                <label>Filtrar:</label>
+                <select id="filtroEstado" class="form-input form-input-sm" style="width: auto;" onchange="filtrarPedidos()">
+                    <option value="todos">Todos</option>
+                    <option value="pendiente" selected>Pendientes</option>
+                    <option value="en_preparacion">En Preparacion</option>
+                    <option value="listo">Listos</option>
+                    <option value="pagado">Pagados</option>
+                    <option value="cancelado">Cancelados</option>
+                </select>
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="location.reload()">&#x1F504; Actualizar</button>
+        </div>
+    </div>
+
+    {% if not pedidos %}
+    <div class="card">
+        <div class="card-body" style="text-align: center; padding: 40px;">
+            <span style="font-size: 48px; opacity: 0.4;">&#x1F4CB;</span>
+            <p class="text-muted" style="margin-top: 12px;">No hay pedidos hoy</p>
+        </div>
+    </div>
+    {% else %}
+    <div class="pedidos-list" id="pedidosList">
+        {% for p in pedidos %}
+        <div class="pedido-card pedido-estado-{{ p.estado }}" data-estado="{{ p.estado }}">
+            <div class="pedido-header">
+                <div class="pedido-info">
+                    <span class="pedido-id">#{{ p.id }}</span>
+                    <span class="pedido-mesa">&#x1FA91; Mesa {{ p.mesa_numero or '?' }}</span>
+                    <span class="pedido-hora">{{ p.hora[:5] }}</span>
+                    <span class="pedido-mesero">&#x1F464; {{ p.mesero }}</span>
+                    <span class="pedido-badge pedido-badge-{{ p.estado }}">
+                        {% if p.estado == 'pendiente' %}Pendiente
+                        {% elif p.estado == 'en_preparacion' %}En Preparacion
+                        {% elif p.estado == 'listo' %}Listo
+                        {% elif p.estado == 'pagado' %}Pagado
+                        {% elif p.estado == 'cancelado' %}Cancelado
+                        {% endif %}
+                    </span>
+                </div>
+                <span class="pedido-total">${{ '%.2f'|format(p.total) }}</span>
+            </div>
+            <div class="pedido-items">
+                {% for item in p.items %}
+                <div class="pedido-item-row">
+                    <span>{{ icono(item.producto) }} {{ item.cantidad }}x {{ item.producto }}</span>
+                    <span class="text-muted">${{ '%.2f'|format(item.subtotal) }}</span>
+                </div>
+                {% endfor %}
+            </div>
+            {% if p.notas %}
+            <div class="pedido-notas">&#x1F4DD; {{ p.notas }}</div>
+            {% endif %}
+            <div class="pedido-actions">
+                {% if p.estado == 'pendiente' %}
+                <button class="btn btn-sm btn-accent" onclick="cambiarEstado({{ p.id }}, 'en_preparacion')">
+                    &#x1F373; En Preparacion
+                </button>
+                <button class="btn btn-sm btn-danger-outline" onclick="cambiarEstado({{ p.id }}, 'cancelado')">
+                    &#x274C; Cancelar
+                </button>
+                {% elif p.estado == 'en_preparacion' %}
+                <button class="btn btn-sm btn-success" onclick="cambiarEstado({{ p.id }}, 'listo')">
+                    &#x2705; Marcar Listo
+                </button>
+                {% elif p.estado == 'listo' %}
+                <button class="btn btn-sm btn-success btn-lg" onclick="cambiarEstado({{ p.id }}, 'pagado')">
+                    &#x1F4B0; Cobrar - ${{ '%.2f'|format(p.total) }}
+                </button>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+
+<script>
+function cambiarEstado(pedidoId, nuevoEstado) {
+    let msg = 'Cambiar estado del pedido #' + pedidoId;
+    if (nuevoEstado === 'pagado') msg = 'Cobrar y cerrar el pedido #' + pedidoId + '?';
+    if (nuevoEstado === 'cancelado') msg = 'Cancelar el pedido #' + pedidoId + '?';
+
+    if (!confirm(msg)) return;
+
+    fetch('/api/pedido/' + pedidoId + '/estado', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({estado: nuevoEstado}),
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.ok) {
+            location.reload();
+        } else {
+            alert('Error: ' + (data.error || 'No se pudo cambiar el estado'));
+        }
+    })
+    .catch(err => alert('Error de conexion: ' + err.message));
+}
+
+function filtrarPedidos() {
+    const filtro = document.getElementById('filtroEstado').value;
+    document.querySelectorAll('.pedido-card').forEach(card => {
+        if (filtro === 'todos' || card.dataset.estado === filtro) {
+            card.style.display = '';
+        } else {
+            card.style.display = 'none';
+        }
+    });
+}
+
+// Aplicar filtro inicial
+filtrarPedidos();
+
+// Auto-refresh cada 30 segundos
+setTimeout(function() { location.reload(); }, 30000);
+</script>
+{% endblock %}

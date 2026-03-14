@@ -4,10 +4,13 @@ database.py
 Capa de datos: gestion de la base de datos SQLite.
 Tablas:
   - productos: catalogo con precios
-  - usuarios: cajeros y panaderos con PIN
+  - usuarios: cajeros, panaderos y meseros con PIN
   - ventas: registro individual de cada venta (cajero)
   - registros_diarios: produccion diaria por producto (panadero)
   - alertas: reservada para futuras alertas
+  - mesas: catalogo de mesas del local
+  - pedidos: pedidos con estado, mesa y mesero
+  - pedido_items: productos dentro de un pedido
 """
 
 import sqlite3
@@ -48,7 +51,7 @@ def inicializar_base_de_datos() -> None:
                 id     INTEGER PRIMARY KEY AUTOINCREMENT,
                 nombre TEXT NOT NULL,
                 pin    TEXT NOT NULL,
-                rol    TEXT NOT NULL CHECK(rol IN ('panadero', 'cajero'))
+                rol    TEXT NOT NULL CHECK(rol IN ('panadero', 'cajero', 'mesero'))
             )
         """)
 
@@ -91,8 +94,51 @@ def inicializar_base_de_datos() -> None:
             )
         """)
 
+        # Mesas del local
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS mesas (
+                id     INTEGER PRIMARY KEY AUTOINCREMENT,
+                numero INTEGER UNIQUE NOT NULL,
+                nombre TEXT NOT NULL DEFAULT '',
+                activa INTEGER NOT NULL DEFAULT 1
+            )
+        """)
+
+        # Pedidos con estado y trazabilidad
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pedidos (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                mesa_id     INTEGER,
+                mesero      TEXT NOT NULL DEFAULT '',
+                estado      TEXT NOT NULL DEFAULT 'pendiente'
+                            CHECK(estado IN ('pendiente','en_preparacion','listo','pagado','cancelado')),
+                fecha       TEXT NOT NULL,
+                hora        TEXT NOT NULL,
+                hora_pagado TEXT DEFAULT NULL,
+                notas       TEXT DEFAULT '',
+                total       REAL NOT NULL DEFAULT 0.0,
+                FOREIGN KEY (mesa_id) REFERENCES mesas(id)
+            )
+        """)
+
+        # Items del pedido
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pedido_items (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                pedido_id   INTEGER NOT NULL,
+                producto    TEXT NOT NULL,
+                cantidad    INTEGER NOT NULL DEFAULT 1,
+                precio_unitario REAL NOT NULL DEFAULT 0.0,
+                subtotal    REAL NOT NULL DEFAULT 0.0,
+                notas       TEXT DEFAULT '',
+                FOREIGN KEY (pedido_id) REFERENCES pedidos(id) ON DELETE CASCADE
+            )
+        """)
+
         # Migrar tabla productos existente: agregar columnas si faltan
         _migrar_productos(conn)
+        # Migrar tabla usuarios: agregar rol mesero al CHECK
+        _migrar_usuarios(conn)
 
         # Productos iniciales con precios de ejemplo
         productos_iniciales = [
@@ -120,6 +166,17 @@ def inicializar_base_de_datos() -> None:
                 "INSERT INTO usuarios (nombre, pin, rol) VALUES (?, ?, ?)",
                 ("Cajero", "0000", "cajero")
             )
+            conn.execute(
+                "INSERT INTO usuarios (nombre, pin, rol) VALUES (?, ?, ?)",
+                ("Mesero", "1111", "mesero")
+            )
+
+        # Mesas iniciales (5 mesas por defecto)
+        for num in range(1, 6):
+            conn.execute(
+                "INSERT OR IGNORE INTO mesas (numero, nombre) VALUES (?, ?)",
+                (num, f"Mesa {num}")
+            )
 
         conn.commit()
 
@@ -133,6 +190,32 @@ def _migrar_productos(conn):
         conn.execute("ALTER TABLE productos ADD COLUMN precio REAL NOT NULL DEFAULT 0.0")
     if "activo" not in columnas:
         conn.execute("ALTER TABLE productos ADD COLUMN activo INTEGER NOT NULL DEFAULT 1")
+
+
+def _migrar_usuarios(conn):
+    """Recrea la tabla usuarios con el CHECK actualizado si mesero no esta permitido."""
+    try:
+        conn.execute(
+            "INSERT INTO usuarios (nombre, pin, rol) VALUES ('__test__', '9999', 'mesero')"
+        )
+        conn.execute("DELETE FROM usuarios WHERE nombre = '__test__'")
+    except sqlite3.IntegrityError:
+        # CHECK constraint fallo: necesitamos migrar
+        rows = conn.execute("SELECT id, nombre, pin, rol FROM usuarios").fetchall()
+        conn.execute("DROP TABLE usuarios")
+        conn.execute("""
+            CREATE TABLE usuarios (
+                id     INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre TEXT NOT NULL,
+                pin    TEXT NOT NULL,
+                rol    TEXT NOT NULL CHECK(rol IN ('panadero', 'cajero', 'mesero'))
+            )
+        """)
+        for r in rows:
+            conn.execute(
+                "INSERT INTO usuarios (id, nombre, pin, rol) VALUES (?, ?, ?, ?)",
+                (r["id"], r["nombre"], r["pin"], r["rol"])
+            )
 
 
 # ──────────────────────────────────────────────
@@ -406,3 +489,229 @@ def contar_registros(producto: str) -> int:
             (producto,)
         ).fetchone()
     return result["total"] if result else 0
+
+
+# ──────────────────────────────────────────────
+# Mesas
+# ──────────────────────────────────────────────
+
+def obtener_mesas() -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, numero, nombre, activa FROM mesas WHERE activa = 1 ORDER BY numero"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def agregar_mesa(numero: int, nombre: str = "") -> bool:
+    try:
+        if not nombre:
+            nombre = f"Mesa {numero}"
+        with get_connection() as conn:
+            conn.execute(
+                "INSERT INTO mesas (numero, nombre) VALUES (?, ?)",
+                (numero, nombre)
+            )
+            conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+def eliminar_mesa(mesa_id: int) -> bool:
+    try:
+        with get_connection() as conn:
+            conn.execute("UPDATE mesas SET activa = 0 WHERE id = ?", (mesa_id,))
+            conn.commit()
+        return True
+    except Exception:
+        return False
+
+
+# ──────────────────────────────────────────────
+# Pedidos
+# ──────────────────────────────────────────────
+
+def crear_pedido(mesa_id: int, mesero: str, items: list[dict],
+                 notas: str = "") -> int | None:
+    """Crea un pedido con sus items. Retorna el id del pedido o None."""
+    ahora = datetime.now()
+    fecha = ahora.strftime("%Y-%m-%d")
+    hora = ahora.strftime("%H:%M:%S")
+
+    total = sum(item["cantidad"] * item["precio_unitario"] for item in items)
+
+    try:
+        with get_connection() as conn:
+            cursor = conn.execute("""
+                INSERT INTO pedidos (mesa_id, mesero, estado, fecha, hora, notas, total)
+                VALUES (?, ?, 'pendiente', ?, ?, ?, ?)
+            """, (mesa_id, mesero, fecha, hora, notas, total))
+            pedido_id = cursor.lastrowid
+
+            for item in items:
+                subtotal = item["cantidad"] * item["precio_unitario"]
+                conn.execute("""
+                    INSERT INTO pedido_items
+                        (pedido_id, producto, cantidad, precio_unitario, subtotal, notas)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (pedido_id, item["producto"], item["cantidad"],
+                      item["precio_unitario"], subtotal, item.get("notas", "")))
+
+            conn.commit()
+        return pedido_id
+    except Exception as e:
+        print(f"[ERROR] crear_pedido: {e}")
+        return None
+
+
+def obtener_pedidos(estado: str = None, mesa_id: int = None,
+                    fecha: str = None) -> list[dict]:
+    """Obtiene pedidos filtrados por estado, mesa y/o fecha."""
+    if fecha is None:
+        fecha = datetime.now().strftime("%Y-%m-%d")
+
+    query = """
+        SELECT p.id, p.mesa_id, m.numero as mesa_numero, m.nombre as mesa_nombre,
+               p.mesero, p.estado, p.fecha, p.hora, p.hora_pagado, p.notas, p.total
+        FROM pedidos p
+        LEFT JOIN mesas m ON p.mesa_id = m.id
+        WHERE p.fecha = ?
+    """
+    params = [fecha]
+
+    if estado:
+        query += " AND p.estado = ?"
+        params.append(estado)
+    if mesa_id:
+        query += " AND p.mesa_id = ?"
+        params.append(mesa_id)
+
+    query += " ORDER BY p.hora DESC"
+
+    with get_connection() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def obtener_pedido(pedido_id: int) -> dict | None:
+    """Obtiene un pedido con sus items."""
+    with get_connection() as conn:
+        pedido = conn.execute("""
+            SELECT p.id, p.mesa_id, m.numero as mesa_numero, m.nombre as mesa_nombre,
+                   p.mesero, p.estado, p.fecha, p.hora, p.hora_pagado, p.notas, p.total
+            FROM pedidos p
+            LEFT JOIN mesas m ON p.mesa_id = m.id
+            WHERE p.id = ?
+        """, (pedido_id,)).fetchone()
+
+        if not pedido:
+            return None
+
+        items = conn.execute("""
+            SELECT id, producto, cantidad, precio_unitario, subtotal, notas
+            FROM pedido_items
+            WHERE pedido_id = ?
+            ORDER BY id
+        """, (pedido_id,)).fetchall()
+
+    result = dict(pedido)
+    result["items"] = [dict(i) for i in items]
+    return result
+
+
+def cambiar_estado_pedido(pedido_id: int, nuevo_estado: str) -> bool:
+    """Cambia el estado de un pedido."""
+    try:
+        with get_connection() as conn:
+            hora_pagado = None
+            if nuevo_estado == "pagado":
+                hora_pagado = datetime.now().strftime("%H:%M:%S")
+                conn.execute(
+                    "UPDATE pedidos SET estado = ?, hora_pagado = ? WHERE id = ?",
+                    (nuevo_estado, hora_pagado, pedido_id)
+                )
+            else:
+                conn.execute(
+                    "UPDATE pedidos SET estado = ? WHERE id = ?",
+                    (nuevo_estado, pedido_id)
+                )
+            conn.commit()
+        return True
+    except Exception as e:
+        print(f"[ERROR] cambiar_estado_pedido: {e}")
+        return False
+
+
+def pagar_pedido(pedido_id: int, registrado_por: str = "") -> bool:
+    """Marca pedido como pagado y registra las ventas correspondientes."""
+    try:
+        pedido = obtener_pedido(pedido_id)
+        if not pedido or pedido["estado"] == "pagado":
+            return False
+
+        with get_connection() as conn:
+            ahora = datetime.now()
+            hora_pagado = ahora.strftime("%H:%M:%S")
+            fecha = pedido["fecha"]
+
+            # Registrar cada item como venta
+            for item in pedido["items"]:
+                conn.execute("""
+                    INSERT INTO ventas (fecha, hora, producto, cantidad,
+                                        precio_unitario, total, registrado_por)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (fecha, hora_pagado, item["producto"], item["cantidad"],
+                      item["precio_unitario"], item["subtotal"], registrado_por))
+
+            # Marcar como pagado
+            conn.execute(
+                "UPDATE pedidos SET estado = 'pagado', hora_pagado = ? WHERE id = ?",
+                (hora_pagado, pedido_id)
+            )
+            conn.commit()
+        return True
+    except Exception as e:
+        print(f"[ERROR] pagar_pedido: {e}")
+        return False
+
+
+def obtener_pedidos_activos_mesa(mesa_id: int) -> list[dict]:
+    """Pedidos no pagados/cancelados de una mesa."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT id, mesero, estado, hora, total
+            FROM pedidos
+            WHERE mesa_id = ? AND estado NOT IN ('pagado', 'cancelado')
+              AND fecha = ?
+            ORDER BY hora DESC
+        """, (mesa_id, datetime.now().strftime("%Y-%m-%d"))).fetchall()
+    return [dict(r) for r in rows]
+
+
+def obtener_resumen_mesas() -> list[dict]:
+    """Resumen de mesas con sus pedidos activos."""
+    mesas = obtener_mesas()
+    hoy = datetime.now().strftime("%Y-%m-%d")
+    resultado = []
+    with get_connection() as conn:
+        for mesa in mesas:
+            pedidos = conn.execute("""
+                SELECT COUNT(*) as num_pedidos,
+                       COALESCE(SUM(total), 0) as total_mesa
+                FROM pedidos
+                WHERE mesa_id = ? AND estado NOT IN ('pagado', 'cancelado')
+                  AND fecha = ?
+            """, (mesa["id"], hoy)).fetchone()
+            mesa["num_pedidos"] = pedidos["num_pedidos"]
+            mesa["total_mesa"] = pedidos["total_mesa"]
+            # Estado de la mesa
+            ultimo = conn.execute("""
+                SELECT estado FROM pedidos
+                WHERE mesa_id = ? AND estado NOT IN ('pagado', 'cancelado')
+                  AND fecha = ?
+                ORDER BY hora DESC LIMIT 1
+            """, (mesa["id"], hoy)).fetchone()
+            mesa["estado_mesa"] = ultimo["estado"] if ultimo else "libre"
+            resultado.append(mesa)
+    return resultado

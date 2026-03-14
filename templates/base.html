@@ -48,8 +48,27 @@
         <a href="{{ url_for('cajero_pos') }}" class="{% if active_page == 'pos' %}active{% endif %}">
             &#x1F6D2; Punto de Venta
         </a>
+        <a href="{{ url_for('cajero_pedidos') }}" class="{% if active_page == 'pedidos' %}active{% endif %}">
+            &#x1F4CB; Pedidos
+        </a>
         <a href="{{ url_for('cajero_ventas') }}" class="{% if active_page == 'ventas' %}active{% endif %}">
             &#x1F4CA; Ventas de Hoy
+        </a>
+    </nav>
+    <a href="{{ url_for('logout') }}" class="topbar-logout">Salir</a>
+</header>
+{% elif layout == 'mesero' %}
+<header class="topbar topbar-mesero">
+    <div class="topbar-left">
+        <span class="topbar-brand">&#x1F35E; Panaderia</span>
+        <span class="topbar-user">{{ session.usuario.nombre }}</span>
+    </div>
+    <nav class="topbar-nav">
+        <a href="{{ url_for('mesero_mesas') }}" class="{% if active_page == 'mesas' %}active{% endif %}">
+            &#x1FA91; Mesas
+        </a>
+        <a href="{{ url_for('mesero_pedidos') }}" class="{% if active_page == 'pedidos' %}active{% endif %}">
+            &#x1F4CB; Mis Pedidos
         </a>
     </nav>
     <a href="{{ url_for('logout') }}" class="topbar-logout">Salir</a>

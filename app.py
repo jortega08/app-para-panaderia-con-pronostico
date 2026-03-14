@@ -35,6 +35,15 @@ from data.database import (
     obtener_resumen_ventas_dia,
     obtener_total_ventas_dia,
     obtener_vendido_dia_producto,
+    obtener_mesas,
+    agregar_mesa,
+    eliminar_mesa,
+    crear_pedido,
+    obtener_pedidos,
+    obtener_pedido,
+    cambiar_estado_pedido,
+    pagar_pedido,
+    obtener_resumen_mesas,
 )
 from logic.pronostico import (
     calcular_pronostico,
@@ -87,8 +96,11 @@ def login_required(f):
 def index():
     if "usuario" not in session:
         return redirect(url_for("login"))
-    if session["usuario"]["rol"] == "cajero":
+    rol = session["usuario"]["rol"]
+    if rol == "cajero":
         return redirect(url_for("cajero_pos"))
+    if rol == "mesero":
+        return redirect(url_for("mesero_mesas"))
     return redirect(url_for("panadero_pronostico"))
 
 
@@ -105,6 +117,8 @@ def login():
             session["usuario"] = usuario
             if usuario["rol"] == "cajero":
                 return redirect(url_for("cajero_pos"))
+            if usuario["rol"] == "mesero":
+                return redirect(url_for("mesero_mesas"))
             return redirect(url_for("panadero_pronostico"))
         flash("PIN incorrecto", "error")
     return render_template("login.html")
@@ -135,6 +149,59 @@ def cajero_pos():
 def cajero_ventas():
     return render_template("dashboard_ventas.html",
                            layout="cajero", active_page="ventas")
+
+
+@app.route("/cajero/pedidos")
+@login_required
+def cajero_pedidos():
+    pedidos = obtener_pedidos()
+    # Enriquecer con items
+    for p in pedidos:
+        detalle = obtener_pedido(p["id"])
+        p["items"] = detalle["items"] if detalle else []
+    return render_template("cajero_pedidos.html",
+                           pedidos=pedidos,
+                           layout="cajero", active_page="pedidos")
+
+
+# ── Mesero ──
+
+@app.route("/mesero/mesas")
+@login_required
+def mesero_mesas():
+    mesas = obtener_resumen_mesas()
+    return render_template("mesero_mesas.html",
+                           mesas=mesas,
+                           layout="mesero", active_page="mesas")
+
+
+@app.route("/mesero/pedido/<int:mesa_id>")
+@login_required
+def mesero_pedido(mesa_id):
+    productos = obtener_productos_con_precio()
+    for p in productos:
+        p["icono"] = icono(p["nombre"])
+        p["color"] = color_prod(p["nombre"])
+    mesas = obtener_mesas()
+    mesa = next((m for m in mesas if m["id"] == mesa_id), None)
+    if not mesa:
+        flash("Mesa no encontrada", "error")
+        return redirect(url_for("mesero_mesas"))
+    return render_template("mesero_pedido.html",
+                           mesa=mesa, productos=productos,
+                           layout="mesero", active_page="mesas")
+
+
+@app.route("/mesero/pedidos")
+@login_required
+def mesero_pedidos():
+    pedidos = obtener_pedidos()
+    for p in pedidos:
+        detalle = obtener_pedido(p["id"])
+        p["items"] = detalle["items"] if detalle else []
+    return render_template("mesero_pedidos.html",
+                           pedidos=pedidos,
+                           layout="mesero", active_page="pedidos")
 
 
 # ── Panadero ──
@@ -364,6 +431,80 @@ def api_eliminar_usuario(uid):
     return jsonify({"ok": ok})
 
 
+# ── API Pedidos ──
+
+@app.route("/api/pedido", methods=["POST"])
+@login_required
+def api_crear_pedido():
+    data = request.json
+    if not data or "items" not in data or not data["items"]:
+        return jsonify({"ok": False, "error": "Sin items"}), 400
+
+    mesa_id = data.get("mesa_id")
+    notas = data.get("notas", "")
+    mesero = session["usuario"]["nombre"] if "usuario" in session else ""
+
+    items = []
+    for item in data["items"]:
+        items.append({
+            "producto": item["producto"],
+            "cantidad": int(item["cantidad"]),
+            "precio_unitario": float(item["precio"]),
+            "notas": item.get("notas", ""),
+        })
+
+    pedido_id = crear_pedido(mesa_id, mesero, items, notas)
+    if pedido_id:
+        return jsonify({"ok": True, "pedido_id": pedido_id})
+    return jsonify({"ok": False, "error": "No se pudo crear el pedido"}), 500
+
+
+@app.route("/api/pedido/<int:pedido_id>/estado", methods=["PUT"])
+@login_required
+def api_cambiar_estado(pedido_id):
+    data = request.json
+    nuevo_estado = data.get("estado", "")
+    if nuevo_estado not in ("pendiente", "en_preparacion", "listo", "pagado", "cancelado"):
+        return jsonify({"ok": False, "error": "Estado invalido"}), 400
+
+    if nuevo_estado == "pagado":
+        usuario = session["usuario"]["nombre"] if "usuario" in session else ""
+        ok = pagar_pedido(pedido_id, usuario)
+    else:
+        ok = cambiar_estado_pedido(pedido_id, nuevo_estado)
+    return jsonify({"ok": ok})
+
+
+@app.route("/api/pedido/<int:pedido_id>")
+@login_required
+def api_obtener_pedido(pedido_id):
+    pedido = obtener_pedido(pedido_id)
+    if pedido:
+        return jsonify(pedido)
+    return jsonify({"error": "Pedido no encontrado"}), 404
+
+
+@app.route("/api/pedidos")
+@login_required
+def api_obtener_pedidos():
+    estado = request.args.get("estado")
+    mesa_id = request.args.get("mesa_id", type=int)
+    pedidos = obtener_pedidos(estado=estado, mesa_id=mesa_id)
+    return jsonify(pedidos)
+
+
+@app.route("/api/mesa", methods=["POST"])
+@login_required
+def api_agregar_mesa():
+    data = request.json
+    numero = int(data.get("numero", 0))
+    nombre = data.get("nombre", "")
+    if numero <= 0:
+        return jsonify({"ok": False, "error": "Numero invalido"}), 400
+    ok = agregar_mesa(numero, nombre)
+    return jsonify({"ok": ok})
+
+
 # ══════════════════════════════════════════════
 # UTILIDADES
 # ══════════════════════════════════════════════
@@ -402,7 +543,7 @@ if __name__ == "__main__":
     print("=" * 50)
     print(f"  Abrir en navegador: http://{ip}:5000")
     print(f"  QR clientes:        http://{ip}:5000/cliente/pedido")
-    print(f"  PIN Panadero: 1234  |  PIN Cajero: 0000")
+    print(f"  PIN Panadero: 1234  |  PIN Cajero: 0000  |  PIN Mesero: 1111")
     print("=" * 50)
     print()
     app.run(host="0.0.0.0", port=5000, debug=True)

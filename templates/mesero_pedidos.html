@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title_extra %} - Mis Pedidos{% endblock %}
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h1 class="page-title">&#x1F4CB; Pedidos de Hoy</h1>
+        <div class="page-header-right">
+            <button class="btn btn-outline btn-sm" onclick="location.reload()">&#x1F504; Actualizar</button>
+        </div>
+    </div>
+
+    {% if not pedidos %}
+    <div class="card">
+        <div class="card-body" style="text-align: center; padding: 40px;">
+            <span style="font-size: 48px; opacity: 0.4;">&#x1F4CB;</span>
+            <p class="text-muted" style="margin-top: 12px;">No hay pedidos hoy</p>
+        </div>
+    </div>
+    {% else %}
+    <div class="pedidos-list">
+        {% for p in pedidos %}
+        <div class="pedido-card pedido-estado-{{ p.estado }}">
+            <div class="pedido-header">
+                <div class="pedido-info">
+                    <span class="pedido-mesa">&#x1FA91; Mesa {{ p.mesa_numero or '?' }}</span>
+                    <span class="pedido-hora">{{ p.hora[:5] }}</span>
+                    <span class="pedido-badge pedido-badge-{{ p.estado }}">
+                        {% if p.estado == 'pendiente' %}Pendiente
+                        {% elif p.estado == 'en_preparacion' %}En Preparacion
+                        {% elif p.estado == 'listo' %}Listo para servir
+                        {% elif p.estado == 'pagado' %}Pagado
+                        {% elif p.estado == 'cancelado' %}Cancelado
+                        {% endif %}
+                    </span>
+                </div>
+                <span class="pedido-total">${{ '%.2f'|format(p.total) }}</span>
+            </div>
+            <div class="pedido-items">
+                {% for item in p.items %}
+                <div class="pedido-item-row">
+                    <span>{{ icono(item.producto) }} {{ item.cantidad }}x {{ item.producto }}</span>
+                    <span class="text-muted">${{ '%.2f'|format(item.subtotal) }}</span>
+                </div>
+                {% endfor %}
+            </div>
+            {% if p.notas %}
+            <div class="pedido-notas">&#x1F4DD; {{ p.notas }}</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+
+<script>
+// Auto-refresh cada 30 segundos
+setTimeout(function() { location.reload(); }, 30000);
+</script>
+{% endblock %}

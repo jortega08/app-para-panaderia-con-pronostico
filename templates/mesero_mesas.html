@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title_extra %} - Mesas{% endblock %}
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h1 class="page-title">&#x1FA91; Mesas</h1>
+    </div>
+
+    <div class="mesas-grid">
+        {% for mesa in mesas %}
+        <a href="{{ url_for('mesero_pedido', mesa_id=mesa.id) }}" class="mesa-card mesa-{{ mesa.estado_mesa }}">
+            <div class="mesa-numero">{{ mesa.numero }}</div>
+            <div class="mesa-nombre">{{ mesa.nombre }}</div>
+            {% if mesa.estado_mesa == 'libre' %}
+            <span class="mesa-badge mesa-badge-libre">Libre</span>
+            {% elif mesa.estado_mesa == 'pendiente' %}
+            <span class="mesa-badge mesa-badge-pendiente">Pendiente</span>
+            <div class="mesa-info">{{ mesa.num_pedidos }} pedido{{ 's' if mesa.num_pedidos != 1 else '' }}</div>
+            <div class="mesa-total">${{ '%.2f'|format(mesa.total_mesa) }}</div>
+            {% elif mesa.estado_mesa == 'en_preparacion' %}
+            <span class="mesa-badge mesa-badge-preparacion">En Preparacion</span>
+            <div class="mesa-info">{{ mesa.num_pedidos }} pedido{{ 's' if mesa.num_pedidos != 1 else '' }}</div>
+            <div class="mesa-total">${{ '%.2f'|format(mesa.total_mesa) }}</div>
+            {% elif mesa.estado_mesa == 'listo' %}
+            <span class="mesa-badge mesa-badge-listo">Listo</span>
+            <div class="mesa-info">{{ mesa.num_pedidos }} pedido{{ 's' if mesa.num_pedidos != 1 else '' }}</div>
+            <div class="mesa-total">${{ '%.2f'|format(mesa.total_mesa) }}</div>
+            {% endif %}
+        </a>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
