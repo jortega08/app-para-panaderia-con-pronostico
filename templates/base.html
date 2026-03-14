@@ -35,6 +35,9 @@
         <a href="{{ url_for('panadero_inventario') }}" class="{% if active_page == 'inventario' %}active{% endif %}">
             &#x1F4E6; Inventario
         </a>
+        <a href="{{ url_for('panadero_backups') }}" class="{% if active_page == 'backups' %}active{% endif %}">
+            &#x1F4BE; Respaldos
+        </a>
         <a href="{{ url_for('panadero_config') }}" class="{% if active_page == 'config' %}active{% endif %}">
             &#x2699;&#xFE0F; Configuracion
         </a>

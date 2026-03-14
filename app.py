@@ -58,6 +58,14 @@ from data.database import (
     obtener_consumo_diario,
     obtener_estadisticas_pedidos,
 )
+from backup import (
+    crear_backup,
+    listar_backups,
+    restaurar_backup,
+    eliminar_backup,
+    limpiar_backups_antiguos,
+    obtener_info_backup,
+)
 from logic.pronostico import (
     calcular_pronostico,
     calcular_eficiencia,
@@ -351,6 +359,16 @@ def panadero_inventario():
                            recetas=recetas,
                            alertas_stock=alertas_stock,
                            layout="panadero", active_page="inventario")
+
+
+@app.route("/panadero/backups")
+@login_required
+def panadero_backups():
+    info = obtener_info_backup()
+    backups = listar_backups()
+    return render_template("panadero_backups.html",
+                           info=info, backups=backups,
+                           layout="panadero", active_page="backups")
 
 
 @app.route("/panadero/config")
@@ -659,6 +677,42 @@ def api_agregar_mesa():
     return jsonify({"ok": ok})
 
 
+# ── API Backups ──
+
+@app.route("/api/backup", methods=["POST"])
+@login_required
+def api_crear_backup():
+    data = request.json or {}
+    nota = data.get("nota", "Backup manual")
+    result = crear_backup(nota)
+    return jsonify(result)
+
+
+@app.route("/api/backup/restaurar", methods=["POST"])
+@login_required
+def api_restaurar_backup():
+    data = request.json
+    timestamp = data.get("timestamp", "")
+    if not timestamp:
+        return jsonify({"ok": False, "error": "Timestamp requerido"}), 400
+    result = restaurar_backup(timestamp)
+    return jsonify(result)
+
+
+@app.route("/api/backup/<timestamp>", methods=["DELETE"])
+@login_required
+def api_eliminar_backup(timestamp):
+    result = eliminar_backup(timestamp)
+    return jsonify(result)
+
+
+@app.route("/api/backup/limpiar", methods=["POST"])
+@login_required
+def api_limpiar_backups():
+    result = limpiar_backups_antiguos()
+    return jsonify(result)
+
+
 # ══════════════════════════════════════════════
 # UTILIDADES
 # ══════════════════════════════════════════════
@@ -690,6 +744,11 @@ def utility_processor():
 
 if __name__ == "__main__":
     inicializar_base_de_datos()
+    # Backup automatico al iniciar
+    result = crear_backup("Backup automatico al iniciar")
+    if result["ok"]:
+        print("  Backup automatico creado")
+    limpiar_backups_antiguos()
     ip = _get_local_ip()
     print()
     print("=" * 50)
