@@ -1,76 +1,208 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block title_extra %} - Punto de Venta{% endblock %}
 {% block content %}
-<div class="pos-layout">
-    <div class="pos-products">
-        <h2 class="page-title">Toca un producto para agregarlo</h2>
-        <div class="product-grid">
-            {% for p in productos %}
-            <button class="product-card" onclick="addToCart('{{ p.nombre }}', {{ p.precio }})"
-                    style="--prod-color: {{ p.color }}">
-                <div class="product-color-bar" style="background: {{ p.color }}"></div>
-                <span class="product-name">{{ p.nombre }}</span>
-                <span class="product-price">${{ '%.2f'|format(p.precio) }}</span>
-            </button>
-            {% endfor %}
+<div class="page-container pos-page">
+    <div id="cajaStatusCard"></div>
+
+    <div class="pos-layout">
+        <div class="pos-products">
+            <h2 class="page-title">Punto de Venta</h2>
+            <p class="text-muted" style="margin-bottom: 16px;">Agrega productos a la cuenta y cobra desde caja.</p>
+            <div class="product-filters-panel">
+                <input type="text" id="productSearch" class="form-input" placeholder="Buscar producto por nombre..."
+                       oninput="applyProductFilters()">
+                <div class="product-filter-chips">
+                    <button type="button" class="chip chip-filter chip-filter-active" data-category-btn="todos"
+                            onclick="setCategoryFilter('todos')">Todos</button>
+                    {% for categoria in categorias %}
+                    <button type="button" class="chip chip-filter" data-category-btn="{{ categoria|lower }}"
+                            onclick="setCategoryFilter('{{ categoria|lower }}')">{{ categoria }}</button>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="product-grid">
+                {% for p in productos %}
+                <button class="product-card" onclick='addToCart({{ p.nombre|tojson }}, {{ p.precio }}, {{ p.icono|tojson }})'
+                        style="--prod-color: {{ p.color }}"
+                        data-category="{{ p.categoria|lower }}"
+                        data-name="{{ p.nombre|lower }}">
+                    <div class="product-color-bar" style="background: {{ p.color }}"></div>
+                    <span class="material-symbols-outlined product-icon">{{ p.icono }}</span>
+                    <span class="product-name">{{ p.nombre }}</span>
+                    <span class="chip product-category-chip">{{ p.categoria }}</span>
+                    <span class="product-price">${{ '%.2f'|format(p.precio) }}</span>
+                </button>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="cart-panel">
+            <div class="cart-header">
+                <h3>Venta Actual</h3>
+                <span class="cart-count" id="cartCount">0 items</span>
+            </div>
+
+            <div class="cart-items" id="cartItems">
+                <div class="cart-empty">
+                    <p>La venta esta vacia</p>
+                    <p class="text-muted">Toca un producto para agregarlo</p>
+                </div>
+            </div>
+
+            <div class="cart-footer">
+                <div class="cart-total-row">
+                    <span class="cart-total-label">TOTAL</span>
+                    <span class="cart-total-value" id="cartTotal">$0.00</span>
+                </div>
+                <div class="cart-actions">
+                    <button class="btn btn-danger-outline" onclick="clearCart()">Limpiar</button>
+                    <button class="btn btn-success btn-lg" onclick="openPaymentModal()">Cobrar</button>
+                </div>
+            </div>
         </div>
     </div>
+</div>
 
-    <div class="cart-panel">
-        <div class="cart-header">
-            <h3>Pedido Actual</h3>
-            <span class="cart-count" id="cartCount">0 items</span>
+<div class="modal-overlay" id="paymentModal" style="display:none;" onclick="if (event.target === this) closePaymentModal()">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3>Cobrar Venta</h3>
+            <button class="modal-close" onclick="closePaymentModal()">&times;</button>
         </div>
+        <div class="modal-body">
+            <div class="payment-summary-box">
+                <div class="payment-summary-row">
+                    <span>Total a cobrar</span>
+                    <strong id="paymentTotal">$0.00</strong>
+                </div>
+                <div class="payment-summary-row">
+                    <span>Items</span>
+                    <strong id="paymentItems">0</strong>
+                </div>
+            </div>
 
-        <div class="cart-items" id="cartItems">
-            <div class="cart-empty" id="cartEmpty">
-                <p>El pedido esta vacio</p>
-                <p class="text-muted">Toca un producto para agregarlo</p>
+            <div class="two-col-form">
+                <div>
+                    <label class="form-label" for="paymentMethod">Metodo de pago</label>
+                    <select id="paymentMethod" class="form-input" onchange="updatePaymentSummary()">
+                        <option value="efectivo">Efectivo</option>
+                        <option value="transferencia">Transferencia</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label" for="paymentReceived">Monto recibido</label>
+                    <input id="paymentReceived" type="number" min="0" step="0.01" class="form-input" oninput="updatePaymentSummary()">
+                    <div class="form-help">En transferencia se toma el total exacto.</div>
+                </div>
+            </div>
+
+            <div class="payment-summary-box payment-summary-box-soft">
+                <div class="payment-summary-row">
+                    <span>Recibido</span>
+                    <strong id="paymentReceivedText">$0.00</strong>
+                </div>
+                <div class="payment-summary-row">
+                    <span>Vueltas</span>
+                    <strong id="paymentChangeText">$0.00</strong>
+                </div>
             </div>
         </div>
-
-        <div class="cart-footer">
-            <div class="cart-total-row">
-                <span class="cart-total-label">TOTAL</span>
-                <span class="cart-total-value" id="cartTotal">$0.00</span>
-            </div>
-            <div class="cart-actions">
-                <button class="btn btn-danger-outline" onclick="clearCart()">Limpiar</button>
-                <button class="btn btn-success btn-lg" onclick="cobrar()">Cobrar</button>
-            </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="closePaymentModal()">Cancelar</button>
+            <button class="btn btn-success" onclick="confirmPayment()">Confirmar Cobro</button>
         </div>
     </div>
 </div>
 
 <script>
 let cart = [];
+let cajaActual = {{ caja|default({})|tojson }};
+let selectedCategory = 'todos';
 
-function addToCart(nombre, precio) {
+function money(value) {
+    return '$' + Number(value || 0).toFixed(2);
+}
+
+function setCategoryFilter(category) {
+    selectedCategory = category;
+    document.querySelectorAll('[data-category-btn]').forEach(btn => {
+        btn.classList.toggle('chip-filter-active', btn.dataset.categoryBtn === category);
+    });
+    applyProductFilters();
+}
+
+function applyProductFilters() {
+    const search = (document.getElementById('productSearch')?.value || '').trim().toLowerCase();
+    document.querySelectorAll('.product-grid .product-card').forEach(card => {
+        const matchesCategory = selectedCategory === 'todos' || card.dataset.category === selectedCategory;
+        const matchesSearch = !search || card.dataset.name.includes(search);
+        card.style.display = matchesCategory && matchesSearch ? '' : 'none';
+    });
+}
+
+function getCartTotal() {
+    return cart.reduce((sum, item) => sum + (item.precio * item.cantidad), 0);
+}
+
+function getCartCount() {
+    return cart.reduce((sum, item) => sum + item.cantidad, 0);
+}
+
+function renderCajaStatus() {
+    const container = document.getElementById('cajaStatusCard');
+    if (!cajaActual || !cajaActual.arqueo_activo) {
+        container.innerHTML = `
+            <div class="card caja-banner caja-banner-alert" style="margin-bottom: 18px;">
+                <div>
+                    <div class="caja-banner-title">Caja sin arqueo abierto</div>
+                    <div class="text-muted">Antes de cobrar ventas debes abrir la caja desde Ventas de Hoy.</div>
+                </div>
+                <a class="btn btn-accent" href="/cajero/ventas">Abrir Caja</a>
+            </div>
+        `;
+        return;
+    }
+
+    const arqueo = cajaActual.arqueo || {};
+    container.innerHTML = `
+        <div class="card caja-banner caja-banner-success" style="margin-bottom: 18px;">
+            <div>
+                <div class="caja-banner-title">Caja abierta</div>
+                <div class="text-muted">Abierta por ${arqueo.abierto_por || 'Cajero'} a las ${String(arqueo.abierto_en || '').slice(11, 19) || '--:--:--'}</div>
+            </div>
+            <div class="caja-banner-kpis">
+                <span class="badge badge-primary">Apertura ${money(cajaActual.monto_apertura)}</span>
+                <span class="badge badge-accent">En caja ${money(cajaActual.efectivo_en_caja)}</span>
+            </div>
+        </div>
+    `;
+}
+
+function addToCart(nombre, precio, icono) {
     const existing = cart.find(item => item.nombre === nombre);
     if (existing) {
-        existing.cantidad++;
+        existing.cantidad += 1;
     } else {
-        cart.push({ nombre: nombre, precio: precio, cantidad: 1 });
+        cart.push({ nombre, precio: Number(precio), icono, cantidad: 1 });
     }
     renderCart();
 }
 
-function updateQty(nombre, qty) {
-    qty = parseInt(qty);
-    if (isNaN(qty) || qty < 0) return;
-    const item = cart.find(i => i.nombre === nombre);
-    if (!item) return;
+function updateQty(index, qty) {
+    qty = parseInt(qty, 10);
+    if (Number.isNaN(qty) || qty < 0 || !cart[index]) return;
 
     if (qty === 0) {
-        cart = cart.filter(i => i.nombre !== nombre);
+        cart.splice(index, 1);
     } else {
-        item.cantidad = qty;
+        cart[index].cantidad = qty;
     }
     renderCart();
 }
 
-function removeFromCart(nombre) {
-    cart = cart.filter(i => i.nombre !== nombre);
+function removeFromCart(index) {
+    if (!cart[index]) return;
+    cart.splice(index, 1);
     renderCart();
 }
 
@@ -84,13 +216,10 @@ function renderCart() {
     const countEl = document.getElementById('cartCount');
     const totalEl = document.getElementById('cartTotal');
 
-    let total = 0;
-    let totalItems = 0;
-
     if (cart.length === 0) {
         container.innerHTML = `
             <div class="cart-empty">
-                <p>El pedido esta vacio</p>
+                <p>La venta esta vacia</p>
                 <p class="text-muted">Toca un producto para agregarlo</p>
             </div>`;
         countEl.textContent = '0 items';
@@ -98,40 +227,87 @@ function renderCart() {
         return;
     }
 
-    let html = '';
-    cart.forEach(item => {
+    container.innerHTML = cart.map((item, index) => {
         const subtotal = item.precio * item.cantidad;
-        total += subtotal;
-        totalItems += item.cantidad;
-
-        html += `
-        <div class="cart-item">
-            <div class="cart-item-info">
-                <div>
-                    <div class="cart-item-name">${item.nombre}</div>
-                    <div class="cart-item-price">$${item.precio.toFixed(2)} c/u</div>
+        return `
+            <div class="cart-item">
+                <div class="cart-item-info">
+                    <span class="material-symbols-outlined cart-item-icon">${item.icono}</span>
+                    <div>
+                        <div class="cart-item-name">${item.nombre}</div>
+                        <div class="cart-item-price">${money(item.precio)} c/u</div>
+                    </div>
                 </div>
-            </div>
-            <div class="cart-item-controls">
-                <button class="qty-btn qty-minus" onclick="updateQty('${item.nombre}', ${item.cantidad - 1})">-</button>
-                <input type="number" class="qty-input" value="${item.cantidad}" min="0"
-                       onchange="updateQty('${item.nombre}', this.value)"
-                       onkeyup="updateQty('${item.nombre}', this.value)">
-                <button class="qty-btn qty-plus" onclick="updateQty('${item.nombre}', ${item.cantidad + 1})">+</button>
-            </div>
-            <div class="cart-item-subtotal">$${subtotal.toFixed(2)}</div>
-            <button class="cart-item-remove" onclick="removeFromCart('${item.nombre}')">&times;</button>
-        </div>`;
-    });
+                <div class="cart-item-controls">
+                    <button class="qty-btn qty-minus" onclick="updateQty(${index}, ${item.cantidad - 1})">-</button>
+                    <input type="number" class="qty-input" value="${item.cantidad}" min="0"
+                           onchange="updateQty(${index}, this.value)"
+                           onkeyup="updateQty(${index}, this.value)">
+                    <button class="qty-btn qty-plus" onclick="updateQty(${index}, ${item.cantidad + 1})">+</button>
+                </div>
+                <div class="cart-item-subtotal">${money(subtotal)}</div>
+                <button class="cart-item-remove" onclick="removeFromCart(${index})">&times;</button>
+            </div>`;
+    }).join('');
 
-    container.innerHTML = html;
+    const total = getCartTotal();
+    const totalItems = getCartCount();
     countEl.textContent = totalItems + (totalItems === 1 ? ' item' : ' items');
-    totalEl.textContent = '$' + total.toFixed(2);
+    totalEl.textContent = money(total);
 }
 
-function cobrar() {
+function openPaymentModal() {
     if (cart.length === 0) {
-        alert('Agrega productos al pedido primero.');
+        alert('Agrega productos a la venta primero.');
+        return;
+    }
+    if (!cajaActual || !cajaActual.arqueo_activo) {
+        alert('Debes abrir el arqueo de caja antes de cobrar.');
+        return;
+    }
+
+    document.getElementById('paymentMethod').value = 'efectivo';
+    document.getElementById('paymentReceived').value = getCartTotal().toFixed(2);
+    updatePaymentSummary();
+    document.getElementById('paymentModal').style.display = 'flex';
+}
+
+function closePaymentModal() {
+    document.getElementById('paymentModal').style.display = 'none';
+}
+
+function updatePaymentSummary() {
+    const total = getCartTotal();
+    const metodo = document.getElementById('paymentMethod').value;
+    const receivedInput = document.getElementById('paymentReceived');
+    const itemsCount = getCartCount();
+
+    if (metodo === 'transferencia') {
+        receivedInput.value = total.toFixed(2);
+        receivedInput.disabled = true;
+    } else {
+        receivedInput.disabled = false;
+        if (!receivedInput.value) {
+            receivedInput.value = total.toFixed(2);
+        }
+    }
+
+    const recibido = Number(receivedInput.value || 0);
+    const cambio = metodo === 'efectivo' ? Math.max(recibido - total, 0) : 0;
+
+    document.getElementById('paymentTotal').textContent = money(total);
+    document.getElementById('paymentItems').textContent = itemsCount;
+    document.getElementById('paymentReceivedText').textContent = money(recibido);
+    document.getElementById('paymentChangeText').textContent = money(cambio);
+}
+
+async function confirmPayment() {
+    const metodo = document.getElementById('paymentMethod').value;
+    const total = getCartTotal();
+    const montoRecibido = Number(document.getElementById('paymentReceived').value || 0);
+
+    if (metodo === 'efectivo' && montoRecibido + 1e-9 < total) {
+        alert('El monto recibido debe cubrir el total de la venta.');
         return;
     }
 
@@ -141,32 +317,33 @@ function cobrar() {
         precio: item.precio,
     }));
 
-    fetch('/api/venta', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: items }),
-    })
-        .then(async res => {
-            const data = await res.json();
-            if (!res.ok || !data.ok) {
-                const detalle = (data.detalle || [])
-                    .map(d => '- ' + (d.error || 'Error de validacion'))
-                    .join('\n');
-                const msg = data.error || 'Error al registrar la venta.';
-                throw new Error(detalle ? msg + '\n' + detalle : msg);
-            }
-
-            const total = cart.reduce((s, i) => s + i.precio * i.cantidad, 0);
-            const detalleOk = cart.map(i =>
-                `  ${i.cantidad}x ${i.nombre} = $${(i.precio * i.cantidad).toFixed(2)}`
-            ).join('\n');
-            alert('Venta registrada.\n\n' + detalleOk + '\n\nTotal: $' + total.toFixed(2));
-            cart = [];
-            renderCart();
-        })
-        .catch(err => {
-            alert(err.message || 'Error de conexion.');
+    try {
+        const res = await fetch('/api/venta', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                items,
+                metodo_pago: metodo,
+                monto_recibido: montoRecibido,
+            }),
         });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+            const faltantes = (data.faltantes || []).map(item => `- ${item.producto}: faltan ${item.faltante}`).join('\n');
+            throw new Error(data.error + (faltantes ? `\n${faltantes}` : ''));
+        }
+
+        cajaActual = data.caja || cajaActual;
+        renderCajaStatus();
+        closePaymentModal();
+        clearCart();
+    } catch (err) {
+        alert(err.message || 'No se pudo registrar la venta.');
+    }
 }
+
+renderCajaStatus();
+renderCart();
+applyProductFilters();
 </script>
 {% endblock %}

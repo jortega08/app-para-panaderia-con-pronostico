@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block title_extra %} - Ventas de Hoy{% endblock %}
 {% block content %}
 <div class="page-container">
@@ -10,22 +10,28 @@
         </div>
     </div>
 
+    <div id="cajaSection" style="margin-bottom: 18px;"></div>
+
     <div class="metrics-row" id="metricsRow">
         <div class="metric-card">
             <div class="metric-label">Total Vendido</div>
             <div class="metric-value text-success" id="metricDinero">$0.00</div>
         </div>
         <div class="metric-card">
-            <div class="metric-label">Panes Vendidos</div>
-            <div class="metric-value text-primary" id="metricPanes">0</div>
-        </div>
-        <div class="metric-card">
             <div class="metric-label">Transacciones</div>
             <div class="metric-value text-accent" id="metricTrans">0</div>
         </div>
+        <div class="metric-card">
+            <div class="metric-label">Efectivo</div>
+            <div class="metric-value text-primary" id="metricEfectivo">$0.00</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Transferencia</div>
+            <div class="metric-value text-warning" id="metricTransferencia">$0.00</div>
+        </div>
     </div>
 
-    <div class="dashboard-row">
+    <div class="dashboard-row dashboard-row-double">
         <div class="card dashboard-chart">
             <div class="card-header">Ventas por Producto</div>
             <div class="card-body">
@@ -35,9 +41,27 @@
                 </p>
             </div>
         </div>
+        <div class="card dashboard-chart">
+            <div class="card-header">Medios de Pago</div>
+            <div class="card-body">
+                <canvas id="paymentChart" height="250"></canvas>
+                <p class="text-muted text-center" id="paymentChartEmpty" style="display:none; padding: 40px;">
+                    Aun no hay pagos registrados hoy.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <div class="dashboard-row dashboard-row-double">
         <div class="card dashboard-detail">
             <div class="card-header">Detalle por Producto</div>
             <div class="card-body" id="detalleProductos">
+                <p class="text-muted text-center" style="padding: 40px;">Cargando...</p>
+            </div>
+        </div>
+        <div class="card dashboard-detail">
+            <div class="card-header">Movimientos de Caja</div>
+            <div class="card-body" id="movimientosCaja">
                 <p class="text-muted text-center" style="padding: 40px;">Cargando...</p>
             </div>
         </div>
@@ -46,53 +70,87 @@
     <div class="card">
         <div class="card-header">Ultimas Transacciones</div>
         <div class="card-body">
-            <table class="table" id="transTable">
-                <thead>
-                    <tr>
-                        <th>Hora</th>
-                        <th>Producto</th>
-                        <th>Cantidad</th>
-                        <th>Total</th>
-                    </tr>
-                </thead>
-                <tbody id="transBody">
-                    <tr><td colspan="4" class="text-muted text-center">Cargando...</td></tr>
-                </tbody>
-            </table>
+            <div class="table-responsive">
+                <table class="table" id="transTable">
+                    <thead>
+                        <tr>
+                            <th>Hora</th>
+                            <th>Producto</th>
+                            <th>Cantidad</th>
+                            <th>Pago</th>
+                            <th>Registrado por</th>
+                            <th>Total</th>
+                        </tr>
+                    </thead>
+                    <tbody id="transBody">
+                        <tr><td colspan="6" class="text-muted text-center">Cargando...</td></tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 </div>
 
 <script>
-const PROD_COLORS = {{ productos_colores|default('{}')|tojson if productos_colores is defined else '{}' }};
+const ES_CAJERO = {{ (layout == 'cajero')|tojson }};
 let ventasChart = null;
+let paymentChart = null;
+let cajaActual = {{ caja|default({})|tojson }};
+let arqueosActuales = {{ historial_arqueos|default([])|tojson }};
+let movimientosActuales = {{ movimientos_caja|default([])|tojson }};
+
+function money(value) {
+    return '$' + Number(value || 0).toFixed(2);
+}
+
+function formatHoraCompleta(valor) {
+    if (!valor) return '--';
+    const texto = String(valor);
+    if (texto.length >= 19) return texto.slice(11, 19);
+    return texto.slice(0, 8) || texto;
+}
 
 function loadData() {
     fetch('/api/ventas/hoy')
     .then(r => r.json())
     .then(data => {
-        if (data.error) { console.error(data.error); return; }
-        updateMetrics(data.totales);
-        updateChart(data.resumen);
-        updateDetalle(data.resumen);
-        updateTable(data.ventas);
+        if (data.error) {
+            console.error(data.error);
+            return;
+        }
+        cajaActual = data.caja || cajaActual;
+        arqueosActuales = data.arqueos || arqueosActuales;
+        movimientosActuales = data.movimientos || movimientosActuales;
+
+        updateMetrics(data.totales || {}, cajaActual);
+        updateProductChart(data.resumen || []);
+        updatePaymentChart(data.metodos_pago || []);
+        updateDetalle(data.resumen || []);
+        updateMovimientos(movimientosActuales || []);
+        updateTable(data.ventas || []);
+        renderCaja();
         document.getElementById('lastUpdate').textContent =
-            'Actualizado: ' + new Date().toLocaleTimeString('es', {hour:'2-digit', minute:'2-digit'});
+            'Actualizado: ' + new Date().toLocaleTimeString('es-CO', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
     })
     .catch(err => console.error('Error:', err));
 }
 
-function updateMetrics(t) {
-    document.getElementById('metricDinero').textContent = '$' + t.dinero.toFixed(2);
-    document.getElementById('metricPanes').textContent = t.panes;
-    document.getElementById('metricTrans').textContent = t.transacciones;
+function updateMetrics(t, caja) {
+    document.getElementById('metricDinero').textContent = money(t.dinero);
+    document.getElementById('metricTrans').textContent = Number(t.transacciones || 0);
+    document.getElementById('metricEfectivo').textContent = money((caja || {}).ventas_efectivo || 0);
+    document.getElementById('metricTransferencia').textContent = money((caja || {}).ventas_transferencia || 0);
 }
 
-function updateChart(resumen) {
+function updateProductChart(resumen) {
     const canvas = document.getElementById('ventasChart');
     const emptyMsg = document.getElementById('chartEmpty');
 
     if (!resumen || resumen.length === 0) {
+        if (ventasChart) {
+            ventasChart.destroy();
+            ventasChart = null;
+        }
         canvas.style.display = 'none';
         emptyMsg.style.display = 'block';
         return;
@@ -102,16 +160,16 @@ function updateChart(resumen) {
 
     const labels = resumen.map(r => r.producto);
     const cantidades = resumen.map(r => r.total_cantidad);
-    const colores = ['#E8B44D','#E07A5F','#81B29A','#9B8EA0','#B0BEC5','#FFB74D'];
+    const colores = ['#E8B44D','#E07A5F','#81B29A','#9B8EA0','#B0BEC5','#FFB74D','#D4A373'];
 
     if (ventasChart) ventasChart.destroy();
 
     ventasChart = new Chart(canvas, {
         type: 'bar',
         data: {
-            labels: labels,
+            labels,
             datasets: [{
-                label: 'Panes vendidos',
+                label: 'Unidades vendidas',
                 data: cantidades,
                 backgroundColor: colores.slice(0, labels.length),
                 borderRadius: 8,
@@ -121,18 +179,52 @@ function updateChart(resumen) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: {
-                legend: {display: false},
-            },
+            plugins: { legend: {display: false} },
             scales: {
-                y: {
-                    beginAtZero: true,
-                    grid: {color: '#EFEBE9'},
-                    ticks: {color: '#5D4037'},
-                },
-                x: {
-                    grid: {display: false},
-                    ticks: {color: '#5D4037', font: {size: 13}},
+                y: { beginAtZero: true, grid: {color: '#EFEBE9'}, ticks: {color: '#5D4037'} },
+                x: { grid: {display: false}, ticks: {color: '#5D4037', font: {size: 13}} }
+            }
+        }
+    });
+}
+
+function updatePaymentChart(metodos) {
+    const canvas = document.getElementById('paymentChart');
+    const emptyMsg = document.getElementById('paymentChartEmpty');
+    const dataset = (metodos || []).filter(item => Number(item.total || 0) > 0);
+
+    if (!dataset.length) {
+        if (paymentChart) {
+            paymentChart.destroy();
+            paymentChart = null;
+        }
+        canvas.style.display = 'none';
+        emptyMsg.style.display = 'block';
+        return;
+    }
+    canvas.style.display = 'block';
+    emptyMsg.style.display = 'none';
+
+    if (paymentChart) paymentChart.destroy();
+    paymentChart = new Chart(canvas, {
+        type: 'doughnut',
+        data: {
+            labels: dataset.map(item => item.metodo),
+            datasets: [{
+                data: dataset.map(item => Number(item.total || 0)),
+                backgroundColor: ['#4F8C5B', '#D28B36', '#8B5E3C'],
+                borderWidth: 0,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'bottom' },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `${ctx.label}: ${money(ctx.raw)}`,
+                    }
                 }
             }
         }
@@ -151,8 +243,27 @@ function updateDetalle(resumen) {
         <div class="detail-row">
             <span class="detail-dot" style="background:${colores[r.producto] || '#B0BEC5'}"></span>
             <span class="detail-name">${r.producto}</span>
-            <span class="detail-qty">${r.total_cantidad} panes</span>
-            <span class="detail-total">$${r.total_dinero.toFixed(2)}</span>
+            <span class="detail-qty">${r.total_cantidad} und</span>
+            <span class="detail-total">${money(r.total_dinero)}</span>
+        </div>
+    `).join('');
+}
+
+function updateMovimientos(movimientos) {
+    const container = document.getElementById('movimientosCaja');
+    if (!movimientos || movimientos.length === 0) {
+        container.innerHTML = '<p class="text-muted text-center" style="padding:40px;">No hay movimientos manuales hoy.</p>';
+        return;
+    }
+
+    container.innerHTML = movimientos.slice(0, 12).map(m => `
+        <div class="caja-mov-row caja-mov-${m.tipo}">
+            <div>
+                <div class="caja-mov-title">${m.concepto}</div>
+                <div class="text-muted">${m.tipo === 'ingreso' ? 'Ingreso' : 'Egreso'} · ${m.registrado_por || '-'} · ${formatHoraCompleta(m.creado_en)}</div>
+                ${m.notas ? `<div class="caja-mov-note">${m.notas}</div>` : ''}
+            </div>
+            <strong>${money(m.monto)}</strong>
         </div>
     `).join('');
 }
@@ -160,19 +271,313 @@ function updateDetalle(resumen) {
 function updateTable(ventas) {
     const tbody = document.getElementById('transBody');
     if (!ventas || ventas.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center">Sin transacciones hoy</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">Sin transacciones hoy</td></tr>';
         return;
     }
     tbody.innerHTML = ventas.slice(0, 20).map(v => `
         <tr>
-            <td>${v.hora.substring(0, 5)}</td>
+            <td>${String(v.hora || '').substring(0, 8)}</td>
             <td>${v.producto}</td>
             <td class="text-center">${v.cantidad}</td>
-            <td class="text-right">$${v.total.toFixed(2)}</td>
+            <td>${(v.metodo_pago || 'efectivo').replace(/^./, l => l.toUpperCase())}</td>
+            <td>${v.registrado_por || '-'}</td>
+            <td class="text-right">${money(v.total)}</td>
         </tr>
     `).join('');
 }
 
+function renderCaja() {
+    const container = document.getElementById('cajaSection');
+    if (!container) return;
+
+    const caja = cajaActual || {};
+    const arqueo = caja.arqueo || {};
+    const cierre = caja.cierre || {};
+    const historial = (arqueosActuales || []).slice(0, 5).map(item => `
+        <div class="caja-history-item">
+            <strong>${item.fecha}</strong>
+            <span>${item.abierto_por || 'Cajero'} · ${formatHoraCompleta(item.abierto_en)}</span>
+            <span>${money(item.monto_apertura)}</span>
+        </div>
+    `).join('') || '<div class="text-muted">Sin historico reciente.</div>';
+
+    if (!caja.arqueo && ES_CAJERO) {
+        container.innerHTML = `
+            <div class="card caja-section-card">
+                <div class="card-header">Apertura de Caja</div>
+                <div class="card-body caja-open-grid">
+                    <div>
+                        <label class="form-label" for="montoApertura">Monto inicial en caja</label>
+                        <input id="montoApertura" type="number" min="0" step="0.01" class="form-input" placeholder="100000">
+                        <div class="form-help">Incluye billetes, monedas y base inicial.</div>
+                    </div>
+                    <div>
+                        <label class="form-label" for="notasApertura">Notas</label>
+                        <input id="notasApertura" type="text" class="form-input" placeholder="Observaciones opcionales">
+                        <div class="form-help">Ejemplo: caja recibida del turno anterior.</div>
+                    </div>
+                    <div class="caja-open-actions">
+                        <button class="btn btn-success btn-lg" onclick="abrirCaja()">Abrir Caja</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        return;
+    }
+
+    if (!caja.arqueo && !ES_CAJERO) {
+        container.innerHTML = `
+            <div class="card caja-section-card">
+                <div class="card-header">Resumen Contable del Dia</div>
+                <div class="card-body">
+                    <p class="text-muted">Todavia no hay apertura de caja registrada hoy.</p>
+                </div>
+            </div>
+        `;
+        return;
+    }
+
+    const formMovimiento = ES_CAJERO && caja.arqueo_activo ? `
+        <div class="caja-form-grid">
+            <div>
+                <label class="form-label" for="movTipo">Movimiento</label>
+                <select id="movTipo" class="form-input">
+                    <option value="ingreso">Ingreso</option>
+                    <option value="egreso">Egreso</option>
+                </select>
+                <div class="form-help">Si sacaste efectivo para comprar algo, registra un egreso.</div>
+            </div>
+            <div>
+                <label class="form-label" for="movConcepto">Concepto</label>
+                <input id="movConcepto" type="text" class="form-input" placeholder="Compra urgente de insumos">
+            </div>
+            <div>
+                <label class="form-label" for="movMonto">Monto</label>
+                <input id="movMonto" type="number" min="0" step="0.01" class="form-input" placeholder="15000">
+            </div>
+            <div>
+                <label class="form-label" for="movNotas">Notas</label>
+                <input id="movNotas" type="text" class="form-input" placeholder="Opcional">
+            </div>
+            <div class="caja-form-actions">
+                <button class="btn btn-accent" onclick="registrarMovimientoCaja()">Registrar Movimiento</button>
+            </div>
+        </div>
+    ` : '';
+
+    const formCierre = ES_CAJERO && caja.arqueo_activo ? `
+        <div class="caja-close-box">
+            <div class="subsection-title">Cierre de Caja</div>
+            <div class="caja-form-grid">
+                <div>
+                    <label class="form-label" for="montoCierre">Efectivo contado al cierre</label>
+                    <input id="montoCierre" type="number" min="0" step="0.01" class="form-input" placeholder="${(caja.efectivo_en_caja || 0).toFixed(2)}">
+                    <div class="form-help">Efectivo esperado segun sistema: ${money(caja.efectivo_en_caja || 0)}</div>
+                </div>
+                <div>
+                    <label class="form-label" for="notasCierre">Notas de cierre</label>
+                    <input id="notasCierre" type="text" class="form-input" placeholder="Observaciones del cuadre">
+                </div>
+                <div>
+                    <label class="form-label" for="codigoCierre">Codigo de verificacion</label>
+                    <input id="codigoCierre" type="password" class="form-input" placeholder="Codigo de caja">
+                </div>
+                <div class="caja-form-actions">
+                    <button class="btn btn-danger-outline" onclick="cerrarCaja()">Cerrar Caja</button>
+                </div>
+            </div>
+        </div>
+    ` : '';
+
+    const formReapertura = ES_CAJERO && !caja.arqueo_activo && cierre.cerrado_en ? `
+        <div class="caja-close-box caja-reopen-box">
+            <div class="subsection-title">Reabrir Caja</div>
+            <div class="caja-form-grid">
+                <div>
+                    <label class="form-label" for="codigoReapertura">Codigo de verificacion</label>
+                    <input id="codigoReapertura" type="password" class="form-input" placeholder="Codigo de caja">
+                </div>
+                <div>
+                    <label class="form-label" for="motivoReapertura">Novedad / motivo</label>
+                    <input id="motivoReapertura" type="text" class="form-input" placeholder="Explica por que se reabre la caja">
+                </div>
+                <div class="caja-form-actions">
+                    <button class="btn btn-accent" onclick="reabrirCaja()">Reabrir Caja</button>
+                </div>
+            </div>
+        </div>
+    ` : '';
+
+    const cierreResumen = (caja.arqueo_cerrado || cierre.cerrado_en) ? `
+        <div class="caja-close-summary">
+            <div class="subsection-title">Cierre Registrado</div>
+            <div class="pedido-meta-list">
+                <div class="pedido-meta-row"><span>Cerrado por</span><strong>${cierre.cerrado_por || '-'}</strong></div>
+                <div class="pedido-meta-row"><span>Hora de cierre</span><strong>${cierre.cerrado_en || '-'}</strong></div>
+                <div class="pedido-meta-row"><span>Efectivo esperado</span><strong>${money(cierre.efectivo_esperado || 0)}</strong></div>
+                <div class="pedido-meta-row"><span>Efectivo contado</span><strong>${money(cierre.monto_cierre || 0)}</strong></div>
+                <div class="pedido-meta-row"><span>Diferencia</span><strong>${money(cierre.diferencia || 0)}</strong></div>
+                ${cierre.notas_cierre ? `<div class="pedido-meta-row"><span>Notas</span><strong>${cierre.notas_cierre}</strong></div>` : ''}
+                ${cierre.reabierto_en ? `<div class="pedido-meta-row"><span>Reabierta</span><strong>${cierre.reabierto_en}</strong></div>` : ''}
+                ${cierre.reabierto_por ? `<div class="pedido-meta-row"><span>Reabierta por</span><strong>${cierre.reabierto_por}</strong></div>` : ''}
+                ${cierre.motivo_reapertura ? `<div class="pedido-meta-row"><span>Novedad</span><strong>${cierre.motivo_reapertura}</strong></div>` : ''}
+                ${Number(cierre.reaperturas || 0) > 0 ? `<div class="pedido-meta-row"><span>Total reaperturas</span><strong>${Number(cierre.reaperturas || 0)}</strong></div>` : ''}
+            </div>
+        </div>
+    ` : '';
+
+    container.innerHTML = `
+        <div class="card caja-section-card">
+            <div class="card-header">${ES_CAJERO ? 'Caja del Dia' : 'Resumen Contable del Dia'}</div>
+            <div class="card-body">
+                <div class="caja-status-head">
+                    <div>
+                        <div class="caja-banner-title">${caja.arqueo_activo ? 'Caja abierta' : 'Caja cerrada'}</div>
+                        <div class="text-muted">
+                            ${arqueo.abierto_por ? `Apertura: ${arqueo.abierto_por} · ${formatHoraCompleta(arqueo.abierto_en)}` : 'Sin responsable registrado'}
+                        </div>
+                    </div>
+                    <span class="badge ${caja.arqueo_activo ? 'badge-primary' : 'badge-accent'}">${caja.arqueo_activo ? 'Activa' : 'Cerrada'}</span>
+                </div>
+                <div class="caja-kpi-grid">
+                    <div class="metric-card"><div class="metric-label">Apertura</div><div class="metric-value">${money(caja.monto_apertura || 0)}</div></div>
+                    <div class="metric-card"><div class="metric-label">Ventas en efectivo</div><div class="metric-value text-success">${money(caja.ventas_efectivo || 0)}</div></div>
+                    <div class="metric-card"><div class="metric-label">Transferencias</div><div class="metric-value text-accent">${money(caja.ventas_transferencia || 0)}</div></div>
+                    <div class="metric-card"><div class="metric-label">Ingresos manuales</div><div class="metric-value text-primary">${money(caja.ingresos_manuales || 0)}</div></div>
+                    <div class="metric-card"><div class="metric-label">Egresos manuales</div><div class="metric-value text-warning">${money(caja.egresos_manuales || 0)}</div></div>
+                    <div class="metric-card"><div class="metric-label">Efectivo esperado</div><div class="metric-value">${money(caja.efectivo_en_caja || 0)}</div></div>
+                </div>
+                ${formMovimiento}
+                ${formCierre}
+                ${formReapertura}
+                ${cierreResumen}
+                <div class="caja-history-box">
+                    <div class="subsection-title">Aperturas recientes</div>
+                    ${historial}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+async function abrirCaja() {
+    const monto = Number(document.getElementById('montoApertura')?.value || 0);
+    const notas = document.getElementById('notasApertura')?.value || '';
+    if (Number.isNaN(monto) || monto < 0) {
+        alert('Ingresa un monto de apertura valido.');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/caja/abrir', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ monto_apertura: monto, notas }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'No se pudo abrir la caja');
+        cajaActual = data.caja || cajaActual;
+        loadData();
+    } catch (err) {
+        alert(err.message || 'No se pudo abrir la caja.');
+    }
+}
+
+async function registrarMovimientoCaja() {
+    const tipo = document.getElementById('movTipo')?.value || 'ingreso';
+    const concepto = document.getElementById('movConcepto')?.value || '';
+    const monto = Number(document.getElementById('movMonto')?.value || 0);
+    const notas = document.getElementById('movNotas')?.value || '';
+
+    if (!concepto.trim()) {
+        alert('Escribe el concepto del movimiento.');
+        return;
+    }
+    if (Number.isNaN(monto) || monto <= 0) {
+        alert('Ingresa un monto valido para el movimiento.');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/caja/movimiento', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tipo, concepto, monto, notas }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'No se pudo registrar el movimiento');
+        document.getElementById('movConcepto').value = '';
+        document.getElementById('movMonto').value = '';
+        document.getElementById('movNotas').value = '';
+        loadData();
+    } catch (err) {
+        alert(err.message || 'No se pudo registrar el movimiento.');
+    }
+}
+
+async function cerrarCaja() {
+    const montoCierre = Number(document.getElementById('montoCierre')?.value || 0);
+    const notasCierre = document.getElementById('notasCierre')?.value || '';
+    const codigoVerificacion = document.getElementById('codigoCierre')?.value || '';
+    if (Number.isNaN(montoCierre) || montoCierre < 0) {
+        alert('Ingresa un monto valido para el cierre.');
+        return;
+    }
+    if (!codigoVerificacion.trim()) {
+        alert('Ingresa el codigo de verificacion.');
+        return;
+    }
+    if (!confirm('Se cerrara la caja del dia. Deseas continuar?')) return;
+
+    try {
+        const res = await fetch('/api/caja/cerrar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                monto_cierre: montoCierre,
+                notas_cierre: notasCierre,
+                codigo_verificacion: codigoVerificacion,
+            }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'No se pudo cerrar la caja');
+        loadData();
+    } catch (err) {
+        alert(err.message || 'No se pudo cerrar la caja.');
+    }
+}
+
+async function reabrirCaja() {
+    const codigo = document.getElementById('codigoReapertura')?.value || '';
+    const motivo = document.getElementById('motivoReapertura')?.value || '';
+
+    if (!codigo.trim()) {
+        alert('Ingresa el codigo de verificacion.');
+        return;
+    }
+    if (!motivo.trim()) {
+        alert('Registra la novedad de reapertura.');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/caja/reabrir', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                codigo_verificacion: codigo,
+                motivo_reapertura: motivo,
+            }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'No se pudo reabrir la caja');
+        loadData();
+    } catch (err) {
+        alert(err.message || 'No se pudo reabrir la caja.');
+    }
+}
+
+renderCaja();
 loadData();
 setInterval(loadData, 30000);
 </script>

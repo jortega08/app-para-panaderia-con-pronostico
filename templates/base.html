@@ -1,131 +1,212 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rich{% block title_extra %}{% endblock %}</title>
+    {% set disable_mobile_zoom = layout in ['panadero', 'cajero', 'mesero'] or request.endpoint == 'login' %}
+    <meta name="viewport" content="{% if disable_mobile_zoom %}width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no{% else %}width=device-width, initial-scale=1.0{% endif %}">
+    <title>Panaderia{% block title_extra %}{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
 </head>
-<body class="{{ layout|default('') }}-layout">
 
-{% if layout == 'panadero' %}
-<button class="mobile-menu-btn" type="button" onclick="toggleSidebar()">Menu</button>
-<aside class="sidebar" id="panaderoSidebar">
-    <div class="sidebar-brand">
-        <span class="sidebar-name">Panaderia RICH</span>
+<body class="{{ layout|default('') }}-layout {% if disable_mobile_zoom %}app-no-zoom{% endif %}">
+
+    {% if layout == 'panadero' %}
+    <header class="mobile-shell-header">
+        <button type="button" class="mobile-nav-toggle" onclick="toggleAppSidebar()" aria-label="Abrir menu">
+            <span class="material-symbols-outlined">menu</span>
+        </button>
+        <div class="mobile-shell-brand">
+            <span class="material-symbols-outlined">bakery_dining</span>
+            <span>Richs</span>
+        </div>
+        <a href="{{ url_for('logout') }}" class="mobile-header-action">Salir</a>
+    </header>
+    <div class="mobile-nav-overlay" onclick="closeAppSidebar()"></div>
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <span class="sidebar-logo material-symbols-outlined">bakery_dining</span>
+            <span class="sidebar-name">PANADERIA RICHS</span>
+        </div>
+        <div class="sidebar-user">{{ session.usuario.nombre }}</div>
+        <nav class="sidebar-nav">
+            <a href="{{ url_for('panadero_pronostico') }}" class="{% if active_page == 'pronostico' %}active{% endif %}">
+                <span class="material-symbols-outlined">signal_cellular_alt</span> Pronóstico de producción
+            </a>
+            <a href="{{ url_for('panadero_produccion') }}" class="{% if active_page == 'produccion' %}active{% endif %}">
+                <span class="material-symbols-outlined">add_notes</span> Registrar Producción
+            </a>
+            <a href="{{ url_for('panadero_ventas') }}" class="{% if active_page == 'ventas' %}active{% endif %}">
+                <span class="material-symbols-outlined">paid</span> Ventas de Hoy
+            </a>
+            <a href="{{ url_for('panadero_operaciones') }}" class="{% if active_page == 'operaciones' %}active{% endif %}">
+                <span class="material-symbols-outlined">build</span> Operaciones
+            </a>
+            <a href="{{ url_for('panadero_historial') }}" class="{% if active_page == 'historial' %}active{% endif %}">
+                <span class="material-symbols-outlined">finance</span> Historial
+            </a>
+            <a href="{{ url_for('panadero_inventario') }}" class="{% if active_page == 'inventario' %}active{% endif %}">
+                <span class="material-symbols-outlined">inventory_2</span> Inventario
+            </a>
+            <a href="{{ url_for('panadero_backups') }}" class="{% if active_page == 'backups' %}active{% endif %}">
+                <span class="material-symbols-outlined">backup</span> Respaldos
+            </a>
+            <a href="{{ url_for('panadero_config') }}" class="{% if active_page == 'config' %}active{% endif %}">
+                <span class="material-symbols-outlined">settings</span> Configuración
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            <div class="sidebar-date">{{ ahora.strftime('%d/%m/%Y') }}</div>
+            <a href="{{ url_for('logout') }}" class="sidebar-logout">Cerrar Sesion</a>
+        </div>
+    </aside>
+    {% elif layout == 'cajero' %}
+    <header class="topbar">
+        <div class="topbar-main">
+            <div class="topbar-left">
+                <span class="topbar-brand"><span class="material-symbols-outlined">bakery_dining</span> Panaderia Richs</span>
+                <span class="topbar-user">{{ session.usuario.nombre }}</span>
+            </div>
+            <a href="{{ url_for('logout') }}" class="topbar-logout">Salir</a>
+        </div>
+        <nav class="topbar-nav">
+            <a href="{{ url_for('cajero_pos') }}" class="{% if active_page == 'pos' %}active{% endif %}">
+                <span class="material-symbols-outlined">point_of_sale</span> Punto de Venta
+            </a>
+            <a href="{{ url_for('cajero_pedidos') }}" class="{% if active_page == 'pedidos' %}active{% endif %}" id="cajeroPedidosLink">
+                <span class="material-symbols-outlined">assignment</span> Pedidos
+                <span class="nav-counter" id="pendingOrdersBadge" hidden>0</span>
+            </a>
+            <a href="{{ url_for('cajero_ventas') }}" class="{% if active_page == 'ventas' %}active{% endif %}">
+                <span class="material-symbols-outlined">bar_chart</span> Ventas de Hoy
+            </a>
+        </nav>
+    </header>
+    {% elif layout == 'mesero' %}
+    <header class="topbar topbar-mesero">
+        <div class="topbar-main">
+            <div class="topbar-left">
+                <span class="topbar-brand"><span class="material-symbols-outlined">bakery_dining</span> Panaderia Richs</span>
+                <span class="topbar-user">{{ session.usuario.nombre }}</span>
+            </div>
+            <a href="{{ url_for('logout') }}" class="topbar-logout">Salir</a>
+        </div>
+        <nav class="topbar-nav">
+            <a href="{{ url_for('mesero_mesas') }}" class="{% if active_page == 'mesas' %}active{% endif %}">
+                <span class="material-symbols-outlined">table_restaurant</span> Mesas
+            </a>
+            <a href="{{ url_for('mesero_pedidos') }}" class="{% if active_page == 'pedidos' %}active{% endif %}">
+                <span class="material-symbols-outlined">receipt_long</span> Mis Pedidos
+            </a>
+        </nav>
+    </header>
+    {% endif %}
+
+    <main class="main-content">
+        {% block content %}{% endblock %}
+    </main>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div class="flash-container">
+        {% for category, message in messages %}
+        <div class="flash flash-{{ category }}">
+            {{ message }}
+            <button onclick="this.parentElement.remove()" class="flash-close">&times;</button>
+        </div>
+        {% endfor %}
     </div>
-    <div class="sidebar-user">{{ session.usuario.nombre }}</div>
-    <nav class="sidebar-nav">
-        <a href="{{ url_for('panadero_pronostico') }}" class="{% if active_page == 'pronostico' %}active{% endif %}">
-            Cuantos Hornear
-        </a>
-        <a href="{{ url_for('panadero_produccion') }}" class="{% if active_page == 'produccion' %}active{% endif %}">
-            Registrar Produccion
-        </a>
-        <a href="{{ url_for('panadero_estandarizacion') }}" class="{% if active_page == 'estandarizacion' %}active{% endif %}">
-            Estandarizacion
-        </a>
-        <a href="{{ url_for('panadero_ventas') }}" class="{% if active_page == 'ventas' %}active{% endif %}">
-            Ventas de Hoy
-        </a>
-        <a href="{{ url_for('panadero_historial') }}" class="{% if active_page == 'historial' %}active{% endif %}">
-            Contabilidad
-        </a>
-        <a href="{{ url_for('panadero_config') }}" class="{% if active_page == 'config' %}active{% endif %}">
-            Configuracion
-        </a>
-    </nav>
-    <div class="sidebar-footer">
-        <div class="sidebar-date">{{ ahora.strftime('%d/%m/%Y') }}</div>
-        <a href="{{ url_for('logout') }}" class="sidebar-logout">Cerrar Sesion</a>
-    </div>
-</aside>
-{% elif layout == 'cajero' %}
-<header class="topbar">
-    <div class="topbar-left">
-        <span class="topbar-brand">Rich</span>
-        <span class="topbar-user">{{ session.usuario.nombre }}</span>
-    </div>
+    <script>
+        setTimeout(function () {
+            document.querySelectorAll('.flash').forEach(function (el) { el.remove(); });
+        }, 4000);
+    </script>
+    {% endif %}
+    {% endwith %}
 
-    <nav class="topbar-nav">
-        <a href="{{ url_for('cajero_pos') }}" class="{% if active_page == 'pos' %}active{% endif %}">
-            Punto de Venta
-        </a>
-        <a href="{{ url_for('cajero_ventas') }}" class="{% if active_page == 'ventas' %}active{% endif %}">
-            Ventas de Hoy
-        </a>
-    </nav>
+    {% if disable_mobile_zoom %}
+    <script>
+        (function () {
+            let lastTouchEnd = 0;
 
-    <a href="{{ url_for('logout') }}" class="topbar-logout">Salir</a>
-    <button class="topbar-menu-btn" type="button" onclick="toggleCajeroMenu()">Menu</button>
-</header>
+            document.addEventListener('touchend', function (event) {
+                const now = Date.now();
+                if (now - lastTouchEnd <= 300) {
+                    event.preventDefault();
+                }
+                lastTouchEnd = now;
+            }, { passive: false });
 
-<aside class="cajero-mobile-menu" id="cajeroMobileMenu">
-    <div class="cajero-mobile-header">Navegacion</div>
-    <nav class="cajero-mobile-nav">
-        <a href="{{ url_for('cajero_pos') }}" class="{% if active_page == 'pos' %}active{% endif %}">
-            Punto de Venta
-        </a>
-        <a href="{{ url_for('cajero_ventas') }}" class="{% if active_page == 'ventas' %}active{% endif %}">
-            Ventas de Hoy
-        </a>
-        <a href="{{ url_for('logout') }}">Cerrar Sesion</a>
-    </nav>
-</aside>
-{% endif %}
+            document.addEventListener('dblclick', function (event) {
+                event.preventDefault();
+            }, { passive: false });
 
-<div class="mobile-overlay" id="mobileOverlay" onclick="closeMobileMenus()"></div>
+            document.addEventListener('gesturestart', function (event) {
+                event.preventDefault();
+            }, { passive: false });
+        })();
+    </script>
+    {% endif %}
 
-<main class="main-content">
-    {% block content %}{% endblock %}
-</main>
+    {% if layout == 'panadero' %}
+    <script>
+        function closeAppSidebar() {
+            document.body.classList.remove('sidebar-open');
+        }
 
-{% with messages = get_flashed_messages(with_categories=true) %}
-{% if messages %}
-<div class="flash-container">
-    {% for category, message in messages %}
-    <div class="flash flash-{{ category }}">
-        {{ message }}
-        <button onclick="this.parentElement.remove()" class="flash-close">&times;</button>
-    </div>
-    {% endfor %}
-</div>
-<script>
-setTimeout(function () {
-    document.querySelectorAll('.flash').forEach(function (el) { el.remove(); });
-}, 4000);
-</script>
-{% endif %}
-{% endwith %}
+        function toggleAppSidebar() {
+            document.body.classList.toggle('sidebar-open');
+        }
 
-<script>
-function closeMobileMenus() {
-    document.body.classList.remove('sidebar-open');
-    document.body.classList.remove('cajero-menu-open');
-}
+        window.addEventListener('resize', function () {
+            if (window.innerWidth > 900) {
+                closeAppSidebar();
+            }
+        });
 
-function toggleSidebar() {
-    document.body.classList.toggle('sidebar-open');
-    if (document.body.classList.contains('sidebar-open')) {
-        document.body.classList.remove('cajero-menu-open');
-    }
-}
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') {
+                closeAppSidebar();
+            }
+        });
 
-function toggleCajeroMenu() {
-    document.body.classList.toggle('cajero-menu-open');
-    if (document.body.classList.contains('cajero-menu-open')) {
-        document.body.classList.remove('sidebar-open');
-    }
-}
+        document.querySelectorAll('.sidebar-nav a, .sidebar-logout').forEach(function (link) {
+            link.addEventListener('click', closeAppSidebar);
+        });
+    </script>
+    {% endif %}
 
-window.addEventListener('resize', function () {
-    if (window.innerWidth > 900) {
-        closeMobileMenus();
-    }
-});
-</script>
+    {% if layout == 'cajero' %}
+    <script>
+        (function () {
+            const badge = document.getElementById('pendingOrdersBadge');
+            if (!badge) return;
+
+            async function actualizarBadgePedidos() {
+                try {
+                    const res = await fetch('/api/pedidos?estado=pendiente', { cache: 'no-store' });
+                    const data = await res.json();
+                    const total = Array.isArray(data) ? data.length : 0;
+                    if (total > 0) {
+                        badge.hidden = false;
+                        badge.textContent = total > 9 ? '9+' : String(total);
+                    } else {
+                        badge.hidden = true;
+                        badge.textContent = '0';
+                    }
+                } catch (error) {
+                    console.error('No se pudo actualizar el badge de pedidos', error);
+                }
+            }
+
+            actualizarBadgePedidos();
+            setInterval(actualizarBadgePedidos, 15000);
+        })();
+    </script>
+    {% endif %}
 
 </body>
-</html>
 
+</html>

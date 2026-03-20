@@ -1,0 +1,1242 @@
+{% extends "base.html" %}
+{% block title_extra %} - Inventario{% endblock %}
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h1 class="page-title">Inventario de Insumos</h1>
+    </div>
+
+    {% if alertas_stock %}
+    <div class="card" style="border-left: 4px solid var(--danger); margin-bottom: 20px;">
+        <div class="card-header" style="color: var(--danger);">Insumos con Stock Bajo</div>
+        <div class="card-body">
+            {% for a in alertas_stock %}
+            <div class="detail-row">
+                <span class="detail-name text-danger">{{ a.nombre }}</span>
+                <span class="detail-qty">{{ '%.1f'|format(a.stock) }} {{ a.unidad }}</span>
+                <span class="text-muted">Min: {{ '%.1f'|format(a.stock_minimo) }} {{ a.unidad }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="card">
+        <div class="card-header">Stock Actual</div>
+        <div class="card-body">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Insumo</th>
+                        <th>Unidad</th>
+                        <th>Stock</th>
+                        <th>Minimo</th>
+                        <th>Estado</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ins in insumos %}
+                    <tr class="{% if ins.stock <= ins.stock_minimo %}row-danger{% elif ins.stock <= ins.stock_minimo * 1.5 %}row-warning{% endif %}">
+                        <td><strong>{{ ins.nombre }}</strong></td>
+                        <td>{{ ins.unidad }}</td>
+                        <td>
+                            <input type="number" class="form-input form-input-sm" style="width: 90px;"
+                                   id="stock-{{ ins.id }}" value="{{ '%.1f'|format(ins.stock) }}" step="0.1" min="0">
+                        </td>
+                        <td class="text-muted">{{ '%.1f'|format(ins.stock_minimo) }}</td>
+                        <td>
+                            {% if ins.stock <= ins.stock_minimo %}
+                            <span class="badge" style="background: var(--danger); color: #FFF;">BAJO</span>
+                            {% elif ins.stock <= ins.stock_minimo * 1.5 %}
+                            <span class="badge" style="background: var(--warning); color: #FFF;">ALERTA</span>
+                            {% else %}
+                            <span class="badge" style="background: var(--success); color: #FFF;">OK</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-accent" onclick="actualizarStock({{ ins.id }})">Guardar</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <div class="config-add-row" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--divider);">
+                <input type="text" class="form-input form-input-sm" id="nuevoInsumoNombre" placeholder="Nombre" style="width: 150px;">
+                <select class="form-input form-input-sm" id="nuevoInsumoUnidad" style="width: 120px;">
+                    <option value="kg">kg</option>
+                    <option value="g">g</option>
+                    <option value="litro">litro</option>
+                    <option value="ml">ml</option>
+                    <option value="unidad" selected>unidad</option>
+                </select>
+                <input type="number" class="form-input form-input-sm" id="nuevoInsumoStock" placeholder="Stock" style="width: 80px;" value="0" step="0.1">
+                <input type="number" class="form-input form-input-sm" id="nuevoInsumoMin" placeholder="Minimo" style="width: 80px;" value="0" step="0.1">
+                <button class="btn btn-sm btn-success" onclick="agregarInsumo()">Agregar</button>
+            </div>
+
+            <div class="catalog-import-box">
+                <div class="catalog-import-copy">
+                    <h4>Cargar inventario desde Excel</h4>
+                    <p class="text-muted">
+                        Sube un archivo <strong>.xlsx</strong> o <strong>.csv</strong> con columnas
+                        <strong>nombre</strong> y <strong>stock</strong>. Tambien puedes incluir
+                        <strong>unidad</strong> y <strong>stock_minimo</strong>.
+                    </p>
+                    <div class="catalog-import-example">
+                        <span>Ejemplo:</span>
+                        <code>nombre,stock,unidad,stock_minimo</code>
+                        <code>Harina,25,kg,10</code>
+                    </div>
+                </div>
+                <div class="catalog-import-actions">
+                    <input type="file" id="inventoryFile" class="form-input form-input-sm" accept=".xlsx,.csv">
+                    <button class="btn btn-primary" id="btnImportInventory" onclick="importInventory()">
+                        Importar inventario
+                    </button>
+                </div>
+                <div class="catalog-import-feedback text-muted" id="inventoryImportFeedback">
+                    Si el insumo ya existe, se actualiza su stock y se reactiva si estaba inactivo.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">Composicion y Recetas por Producto</div>
+        <div class="card-body">
+            {% if productos %}
+            <div class="recipe-editor-grid">
+                <div class="recipe-editor-panel">
+                    <div class="form-group">
+                        <label for="recetaProducto">Producto</label>
+                        <select id="recetaProducto" class="form-input" onchange="cargarEditorReceta()">
+                            {% for prod in productos %}
+                            <option value="{{ prod }}">{{ prod }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="recipe-inline-actions">
+                        <button class="btn btn-outline" type="button" onclick="agregarFilaReceta()">
+                            Agregar ingrediente
+                        </button>
+                        <button class="btn btn-accent" type="button" onclick="guardarRecetaProducto()">
+                            Guardar composicion
+                        </button>
+                    </div>
+
+                    <div id="recipeRows" class="recipe-rows"></div>
+                    <p class="recipe-helper text-muted">
+                        Guarda las recetas en gramos, mililitros o unidades. El sistema convierte automaticamente al stock real del inventario.
+                    </p>
+                    <div id="recipeModeHint" class="recipe-helper text-muted"></div>
+
+                    <div class="recipe-documentation-card recipe-components-card">
+                        <div class="recipe-inline-actions" style="margin-bottom: 10px;">
+                            <h4 class="recipe-summary-title" style="margin-bottom: 0;">Subproductos y componentes base</h4>
+                            <button class="btn btn-outline" type="button" onclick="agregarFilaComponente()">
+                                Agregar subproducto
+                            </button>
+                        </div>
+                        <div id="componentRows" class="recipe-rows"></div>
+                        <p class="recipe-helper text-muted" style="margin-top: 10px;">
+                            Usa esta parte para productos compuestos como desayunos, almuerzos o bebidas armadas. Ejemplo: Huevos Rancheros puede llevar 1 pan, 1 chocolate y ademas huevos o salchicha como insumos directos.
+                        </p>
+                    </div>
+
+                    <div class="recipe-documentation-card">
+                        <h4 class="recipe-summary-title">Ficha tecnica y paso a paso</h4>
+                        <div class="recipe-doc-grid">
+                            <div class="form-group">
+                                <label for="recetaRendimiento">Rendimiento</label>
+                                <input type="text" id="recetaRendimiento" class="form-input" placeholder="Ejemplo: 12 panes o 1 bandeja" oninput="actualizarVistaReceta()">
+                            </div>
+                            <div class="form-group">
+                                <label for="recetaTiempoPreparacion">Tiempo de preparacion (min)</label>
+                                <input type="number" id="recetaTiempoPreparacion" class="form-input" min="0" step="1" placeholder="0" oninput="actualizarVistaReceta()">
+                            </div>
+                            <div class="form-group">
+                                <label for="recetaTiempoAmasado">Tiempo de amasado (min)</label>
+                                <input type="number" id="recetaTiempoAmasado" class="form-input" min="0" step="1" placeholder="0" oninput="actualizarVistaReceta()">
+                            </div>
+                            <div class="form-group">
+                                <label for="recetaTiempoFermentacion">Tiempo de fermentacion (min)</label>
+                                <input type="number" id="recetaTiempoFermentacion" class="form-input" min="0" step="1" placeholder="0" oninput="actualizarVistaReceta()">
+                            </div>
+                            <div class="form-group">
+                                <label for="recetaTiempoHorneado">Tiempo de horneado (min)</label>
+                                <input type="number" id="recetaTiempoHorneado" class="form-input" min="0" step="1" placeholder="0" oninput="actualizarVistaReceta()">
+                            </div>
+                            <div class="form-group">
+                                <label for="recetaTemperatura">Temperatura de horneado (C)</label>
+                                <input type="number" id="recetaTemperatura" class="form-input" min="0" step="1" placeholder="0" oninput="actualizarVistaReceta()">
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="recetaPasos">Pasos estandar</label>
+                            <textarea id="recetaPasos" class="form-input recipe-textarea" rows="7" placeholder="Escribe un paso por linea para que cualquier panadero pueda seguir la receta." oninput="actualizarVistaReceta()"></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="recetaObservaciones">Observaciones de control</label>
+                            <textarea id="recetaObservaciones" class="form-input recipe-textarea" rows="4" placeholder="Color esperado, punto de masa, recomendaciones y validaciones finales." oninput="actualizarVistaReceta()"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="recipe-summary-panel">
+                    <h4 class="recipe-summary-title">Vista previa de la composicion</h4>
+                    <div id="recipeSummaryPreview" class="recipe-summary-preview"></div>
+                </div>
+            </div>
+            {% else %}
+            <div class="text-muted">
+                Necesitas al menos un producto registrado para poder definir su composicion.
+            </div>
+            {% endif %}
+
+            <div class="recipe-catalog">
+                {% for prod in productos %}
+                {% set receta = recetas[prod] %}
+                <div class="recipe-catalog-item">
+                    <h4 class="recipe-catalog-name">{{ prod }}</h4>
+                    {% if receta.ingredientes %}
+                    <div class="recipe-chip-list">
+                        {% for r in receta.ingredientes %}
+                        <span class="chip">{{ r.insumo_nombre }}: {{ '%.2f'|format(r.cantidad) }} {{ r.unidad_receta }}</span>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <span class="text-muted recipe-empty-note">Sin ingredientes definidos</span>
+                    {% endif %}
+
+                    {% if receta.componentes %}
+                    <div class="recipe-process-grid">
+                        {% for c in receta.componentes %}
+                        <span class="chip">Incluye {{ '%.2f'|format(c.cantidad) }} x {{ c.componente_producto }}</span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    {% if receta.ficha.rendimiento_texto or receta.ficha.tiempo_preparacion_min or receta.ficha.tiempo_amasado_min or receta.ficha.tiempo_fermentacion_min or receta.ficha.tiempo_horneado_min or receta.ficha.temperatura_horneado %}
+                    <div class="recipe-process-grid">
+                        {% if receta.ficha.rendimiento_texto %}<span class="chip">Rendimiento: {{ receta.ficha.rendimiento_texto }}</span>{% endif %}
+                        {% if receta.ficha.tiempo_preparacion_min %}<span class="chip">Preparacion: {{ receta.ficha.tiempo_preparacion_min|int }} min</span>{% endif %}
+                        {% if receta.ficha.tiempo_amasado_min %}<span class="chip">Amasado: {{ receta.ficha.tiempo_amasado_min|int }} min</span>{% endif %}
+                        {% if receta.ficha.tiempo_fermentacion_min %}<span class="chip">Fermentacion: {{ receta.ficha.tiempo_fermentacion_min|int }} min</span>{% endif %}
+                        {% if receta.ficha.tiempo_horneado_min %}<span class="chip">Horneado: {{ receta.ficha.tiempo_horneado_min|int }} min</span>{% endif %}
+                        {% if receta.ficha.temperatura_horneado %}<span class="chip">{{ receta.ficha.temperatura_horneado|int }} C</span>{% endif %}
+                    </div>
+                    {% endif %}
+
+                    {% if receta.ficha.pasos %}
+                    <div class="recipe-steps-static">{{ receta.ficha.pasos|replace('\n', '<br>')|safe }}</div>
+                    {% endif %}
+                    {% if receta.ficha.observaciones %}
+                    <div class="recipe-observation-static text-muted">{{ receta.ficha.observaciones }}</div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">Adicionales y Consumo de Inventario</div>
+        <div class="card-body">
+            <div class="recipe-editor-grid">
+                <div class="recipe-editor-panel">
+                    <div class="form-group">
+                        <label for="adicionalEditor">Adicional</label>
+                        <select id="adicionalEditor" class="form-input" onchange="cargarEditorAdicional()">
+                            {% for adicional in adicionales %}
+                            <option value="{{ adicional.id }}">{{ adicional.nombre }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="config-add-row" style="margin-top: 0;">
+                        <input type="text" class="form-input form-input-sm" id="nuevoAdicionalNombre"
+                               placeholder="Nuevo adicional" style="flex: 1.5;">
+                        <input type="number" class="form-input form-input-sm" id="nuevoAdicionalPrecio"
+                               placeholder="Precio" min="0" step="0.5" value="0" style="width: 110px;">
+                        <button class="btn btn-success" type="button" onclick="agregarAdicionalInventario()">
+                            Agregar adicional
+                        </button>
+                    </div>
+
+                    {% if adicionales %}
+                    <div class="recipe-doc-grid" style="margin-top: 16px;">
+                        <div class="form-group">
+                            <label for="adicionalPrecioEditor">Precio adicional</label>
+                            <input type="number" id="adicionalPrecioEditor" class="form-input"
+                                   min="0" step="0.5" placeholder="0" oninput="actualizarVistaAdicional()">
+                        </div>
+                    </div>
+
+                    <div class="recipe-inline-actions">
+                        <button class="btn btn-outline" type="button" onclick="agregarFilaAdicionalInsumo()">
+                            Agregar insumo
+                        </button>
+                        <button class="btn btn-outline" type="button" onclick="agregarFilaAdicionalComponente()">
+                            Agregar producto
+                        </button>
+                        <button class="btn btn-accent" type="button" onclick="guardarConfiguracionAdicional()">
+                            Guardar adicional
+                        </button>
+                    </div>
+
+                    <div id="adicionalInsumoRows" class="recipe-rows"></div>
+                    <p class="recipe-helper text-muted">
+                        Define el consumo real del adicional. Ejemplo: queso extra = 5 g de queso, huevo extra = 1 unidad.
+                    </p>
+
+                    <div class="recipe-documentation-card recipe-components-card">
+                        <div class="recipe-inline-actions" style="margin-bottom: 10px;">
+                            <h4 class="recipe-summary-title" style="margin-bottom: 0;">Productos base del adicional</h4>
+                        </div>
+                        <div id="adicionalComponentRows" class="recipe-rows"></div>
+                        <p class="recipe-helper text-muted" style="margin-top: 10px;">
+                            Usa productos base cuando el adicional represente algo ya producido o armado, por ejemplo 1 pan adicional.
+                        </p>
+                    </div>
+                    {% else %}
+                    <div class="text-muted">
+                        Crea al menos un adicional para configurarle su consumo de inventario.
+                    </div>
+                    {% endif %}
+                </div>
+
+                <div class="recipe-summary-panel">
+                    <h4 class="recipe-summary-title">Vista previa del adicional</h4>
+                    <div id="adicionalSummaryPreview" class="recipe-summary-preview"></div>
+                </div>
+            </div>
+
+            <div class="recipe-catalog">
+                {% for adicional in adicionales %}
+                <div class="recipe-catalog-item">
+                    <h4 class="recipe-catalog-name">{{ adicional.nombre }}</h4>
+                    <div class="recipe-process-grid">
+                        <span class="chip">Precio: ${{ '%.2f'|format(adicional.precio) }}</span>
+                        <span class="chip {% if adicional.tiene_configuracion %}text-success{% endif %}">
+                            {% if adicional.tiene_configuracion %}Configurado{% else %}Sin configuracion{% endif %}
+                        </span>
+                    </div>
+
+                    {% if adicional.insumos %}
+                    <div class="recipe-chip-list">
+                        {% for item in adicional.insumos %}
+                        <span class="chip">{{ item.insumo_nombre }}: {{ '%.2f'|format(item.cantidad) }} {{ item.unidad_config }}</span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    {% if adicional.componentes %}
+                    <div class="recipe-process-grid">
+                        {% for item in adicional.componentes %}
+                        <span class="chip">Incluye {{ '%.2f'|format(item.cantidad) }} x {{ item.componente_producto }}</span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    {% if not adicional.insumos and not adicional.componentes %}
+                    <span class="text-muted recipe-empty-note">Aun no tiene consumo definido.</span>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const insumosCatalogo = {{ insumos|tojson }};
+const productosCatalogo = {{ productos_catalogo|tojson }};
+const recetasCatalogo = {{ recetas|tojson }};
+const adicionalesCatalogo = {{ adicionales|tojson }};
+
+function actualizarStock(insumoId) {
+    const input = document.getElementById('stock-' + insumoId);
+    const stock = parseFloat(input.value);
+    if (isNaN(stock) || stock < 0) {
+        alert('Valor invalido');
+        return;
+    }
+    fetch('/api/insumo/' + insumoId + '/stock', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({stock}),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) location.reload();
+        else alert('Error al actualizar');
+    });
+}
+
+function agregarInsumo() {
+    const nombre = document.getElementById('nuevoInsumoNombre').value.trim();
+    const unidad = document.getElementById('nuevoInsumoUnidad').value.trim();
+    const stock = parseFloat(document.getElementById('nuevoInsumoStock').value) || 0;
+    const stock_minimo = parseFloat(document.getElementById('nuevoInsumoMin').value) || 0;
+    if (!nombre) { alert('Nombre requerido'); return; }
+
+    fetch('/api/insumo', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({nombre, unidad, stock, stock_minimo}),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) location.reload();
+        else alert('Error: insumo ya existe o datos invalidos');
+    });
+}
+
+function normalizarUnidad(unidad) {
+    return String(unidad || '').trim().toLowerCase();
+}
+
+function opcionesInsumos(selectedId = '') {
+    const actual = String(selectedId || '');
+    return insumosCatalogo.map(ins => {
+        const selected = String(ins.id) === actual ? 'selected' : '';
+        return `<option value="${ins.id}" ${selected}>${escapeHtml(ins.nombre)} (${escapeHtml(ins.unidad)})</option>`;
+    }).join('');
+}
+
+function obtenerInsumo(insumoId) {
+    return insumosCatalogo.find(ins => ins.id === Number(insumoId)) || null;
+}
+
+function obtenerProductoCatalogo(nombreProducto) {
+    return productosCatalogo.find(prod => prod.nombre === nombreProducto) || null;
+}
+
+function productoActualSeleccionado() {
+    const select = document.getElementById('recetaProducto');
+    return select ? select.value : '';
+}
+
+function opcionesProductosComponente(selectedName = '') {
+    const actual = String(selectedName || '');
+    const productoActual = productoActualSeleccionado();
+    return productosCatalogo
+        .filter(prod => prod.nombre !== productoActual)
+        .map(prod => {
+            const selected = prod.nombre === actual ? 'selected' : '';
+            return `<option value="${escapeHtml(prod.nombre)}" ${selected}>${escapeHtml(prod.nombre)} (${escapeHtml(prod.categoria)})</option>`;
+        }).join('');
+}
+
+function opcionesUnidadReceta(insumoId, unidadActual = '') {
+    const insumo = obtenerInsumo(insumoId);
+    const unidadInventario = normalizarUnidad(insumo ? insumo.unidad : '');
+    const actual = normalizarUnidad(unidadActual);
+    let opciones = ['unidad'];
+
+    if (['kg', 'kilogramo', 'kilogramos', 'g', 'gramo', 'gramos'].includes(unidadInventario)) {
+        opciones = ['g', 'kg'];
+    } else if (['litro', 'litros', 'l', 'ml', 'mililitro', 'mililitros'].includes(unidadInventario)) {
+        opciones = ['ml', 'litro'];
+    } else if (['unidad', 'unidades', 'und', 'u'].includes(unidadInventario)) {
+        opciones = ['unidad'];
+    } else if (unidadInventario) {
+        opciones = [unidadInventario];
+    }
+
+    const valorSeleccionado = opciones.includes(actual) ? actual : opciones[0];
+    const html = opciones.map(op => {
+        const selected = op === valorSeleccionado ? 'selected' : '';
+        return `<option value="${op}" ${selected}>${op}</option>`;
+    }).join('');
+
+    return { html, valorSeleccionado };
+}
+
+function sugerenciaCantidadPlaceholder(unidad) {
+    const unidadNorm = normalizarUnidad(unidad);
+    if (unidadNorm === 'g') return 'Ejemplo: 250';
+    if (unidadNorm === 'ml') return 'Ejemplo: 180';
+    if (unidadNorm === 'unidad') return 'Ejemplo: 2';
+    return 'Cantidad';
+}
+
+function sincronizarUnidadFila(row, unidadPreferida = '') {
+    if (!row) return;
+    const selectInsumo = row.querySelector('.recipe-select');
+    const selectUnidad = row.querySelector('.recipe-unit');
+    const inputCantidad = row.querySelector('.recipe-qty');
+    const note = row.querySelector('.recipe-row-note');
+    const insumo = obtenerInsumo(selectInsumo.value);
+    const { html, valorSeleccionado } = opcionesUnidadReceta(selectInsumo.value, unidadPreferida || selectUnidad.value);
+
+    selectUnidad.innerHTML = html;
+    inputCantidad.placeholder = sugerenciaCantidadPlaceholder(valorSeleccionado);
+    note.textContent = insumo
+        ? `Inventario en ${insumo.unidad}. La receta se guarda en ${valorSeleccionado}.`
+        : 'Selecciona un insumo para definir la unidad de la receta.';
+}
+
+function agregarFilaReceta(item = {}) {
+    const container = document.getElementById('recipeRows');
+    if (!container) return;
+
+    const row = document.createElement('div');
+    row.className = 'recipe-row-card';
+    row.innerHTML = `
+        <div class="recipe-row">
+            <select class="form-input recipe-select">
+                <option value="">Selecciona un insumo</option>
+                ${opcionesInsumos(item.insumo_id || '')}
+            </select>
+            <input type="number" class="form-input recipe-qty" step="0.001" min="0" placeholder="Cantidad"
+                   value="${item.cantidad !== undefined ? item.cantidad : ''}">
+            <select class="form-input recipe-unit"></select>
+            <button class="btn btn-danger-outline btn-sm" type="button">Quitar</button>
+        </div>
+        <div class="recipe-row-note text-muted"></div>
+    `;
+
+    container.appendChild(row);
+
+    const select = row.querySelector('.recipe-select');
+    const qtyInput = row.querySelector('.recipe-qty');
+    const unitSelect = row.querySelector('.recipe-unit');
+    const removeBtn = row.querySelector('button');
+
+    select.addEventListener('change', () => {
+        sincronizarUnidadFila(row);
+        actualizarVistaReceta();
+    });
+    qtyInput.addEventListener('input', actualizarVistaReceta);
+    unitSelect.addEventListener('change', actualizarVistaReceta);
+    removeBtn.addEventListener('click', () => eliminarFilaReceta(removeBtn));
+
+    sincronizarUnidadFila(row, item.unidad_receta || '');
+    actualizarVistaReceta();
+}
+
+function eliminarFilaReceta(btn) {
+    const row = btn.closest('.recipe-row-card');
+    if (row) row.remove();
+
+    const container = document.getElementById('recipeRows');
+    if (container && !container.children.length) {
+        agregarFilaReceta();
+        return;
+    }
+    actualizarVistaReceta();
+}
+
+function agregarFilaComponente(item = {}) {
+    const container = document.getElementById('componentRows');
+    if (!container) return;
+
+    const row = document.createElement('div');
+    row.className = 'recipe-row-card';
+    row.innerHTML = `
+        <div class="recipe-row recipe-row-component">
+            <select class="form-input component-select">
+                <option value="">Selecciona un subproducto</option>
+                ${opcionesProductosComponente(item.componente_producto || '')}
+            </select>
+            <input type="number" class="form-input component-qty" step="0.001" min="0" placeholder="Cantidad"
+                   value="${item.cantidad !== undefined ? item.cantidad : ''}">
+            <div class="recipe-row-component-note text-muted">Se descontara la composicion del subproducto cuando vendas este producto.</div>
+            <button class="btn btn-danger-outline btn-sm" type="button">Quitar</button>
+        </div>
+    `;
+
+    container.appendChild(row);
+
+    const select = row.querySelector('.component-select');
+    const qtyInput = row.querySelector('.component-qty');
+    const removeBtn = row.querySelector('button');
+
+    select.addEventListener('change', actualizarVistaReceta);
+    qtyInput.addEventListener('input', actualizarVistaReceta);
+    removeBtn.addEventListener('click', () => eliminarFilaComponente(removeBtn));
+
+    actualizarVistaReceta();
+}
+
+function eliminarFilaComponente(btn) {
+    const row = btn.closest('.recipe-row-card');
+    if (row) row.remove();
+    actualizarVistaReceta();
+}
+
+function recogerComponentesReceta() {
+    const filas = Array.from(document.querySelectorAll('#componentRows .recipe-row-card'));
+    const componentes = [];
+    const usados = new Set();
+    const productoActual = productoActualSeleccionado();
+
+    for (const fila of filas) {
+        const select = fila.querySelector('.component-select');
+        const qtyInput = fila.querySelector('.component-qty');
+        const componenteProducto = (select.value || '').trim();
+        const cantidad = parseFloat(qtyInput.value);
+
+        if (!componenteProducto && !qtyInput.value) {
+            continue;
+        }
+        if (!componenteProducto) {
+            throw new Error('Selecciona un subproducto en cada fila de componentes.');
+        }
+        if (componenteProducto === productoActual) {
+            throw new Error('Un producto no puede incluirse a si mismo como componente.');
+        }
+        if (!Number.isFinite(cantidad) || cantidad <= 0) {
+            throw new Error('La cantidad de cada subproducto debe ser mayor a 0.');
+        }
+        if (usados.has(componenteProducto)) {
+            throw new Error('No repitas el mismo subproducto dentro de la composicion.');
+        }
+
+        usados.add(componenteProducto);
+        componentes.push({
+            componente_producto: componenteProducto,
+            cantidad: cantidad,
+        });
+    }
+
+    return componentes;
+}
+
+function actualizarModoReceta() {
+    const producto = productoActualSeleccionado();
+    const info = obtenerProductoCatalogo(producto);
+    const hint = document.getElementById('recipeModeHint');
+    if (!hint) return;
+
+    if (!info) {
+        hint.textContent = 'Puedes combinar insumos directos y subproductos dentro de la composicion del producto.';
+        return;
+    }
+
+    if (info.categoria === 'Panaderia') {
+        hint.textContent = 'Producto de panaderia: usa insumos directos y completa la ficha tecnica para estandarizar el proceso.';
+    } else {
+        hint.textContent = `Producto de categoria ${info.categoria}: puedes definir insumos directos y tambien subproductos o componentes base del plato. La ficha tecnica es opcional.`;
+    }
+}
+
+function cargarEditorReceta() {
+    const producto = (document.getElementById('recetaProducto') || {}).value;
+    const container = document.getElementById('recipeRows');
+    const componentContainer = document.getElementById('componentRows');
+    const preview = document.getElementById('recipeSummaryPreview');
+    if (!producto || !container || !componentContainer || !preview) return;
+
+    container.innerHTML = '';
+    componentContainer.innerHTML = '';
+    const receta = recetasCatalogo[producto] || { ingredientes: [], componentes: [], ficha: {} };
+    const ingredientes = receta.ingredientes || [];
+    const componentes = receta.componentes || [];
+    const ficha = receta.ficha || {};
+
+    document.getElementById('recetaRendimiento').value = ficha.rendimiento_texto || '';
+    document.getElementById('recetaTiempoPreparacion').value = ficha.tiempo_preparacion_min || '';
+    document.getElementById('recetaTiempoAmasado').value = ficha.tiempo_amasado_min || '';
+    document.getElementById('recetaTiempoFermentacion').value = ficha.tiempo_fermentacion_min || '';
+    document.getElementById('recetaTiempoHorneado').value = ficha.tiempo_horneado_min || '';
+    document.getElementById('recetaTemperatura').value = ficha.temperatura_horneado || '';
+    document.getElementById('recetaPasos').value = ficha.pasos || '';
+    document.getElementById('recetaObservaciones').value = ficha.observaciones || '';
+
+    if (!ingredientes.length) {
+        agregarFilaReceta();
+    } else {
+        ingredientes.forEach(item => agregarFilaReceta({
+            insumo_id: item.insumo_id,
+            cantidad: item.cantidad,
+            unidad_receta: item.unidad_receta
+        }));
+    }
+    componentes.forEach(item => agregarFilaComponente({
+        componente_producto: item.componente_producto,
+        cantidad: item.cantidad,
+    }));
+
+    actualizarModoReceta();
+    actualizarVistaReceta();
+}
+
+function recogerIngredientesReceta() {
+    const filas = Array.from(document.querySelectorAll('#recipeRows .recipe-row-card'));
+    const ingredientes = [];
+    const usados = new Set();
+
+    for (const fila of filas) {
+        const select = fila.querySelector('.recipe-select');
+        const qtyInput = fila.querySelector('.recipe-qty');
+        const unitSelect = fila.querySelector('.recipe-unit');
+        const insumoId = parseInt(select.value, 10);
+        const cantidad = parseFloat(qtyInput.value);
+        const unidadReceta = unitSelect.value;
+
+        if (!select.value && !qtyInput.value) {
+            continue;
+        }
+        if (!insumoId) {
+            throw new Error('Selecciona un insumo en cada fila.');
+        }
+        if (!Number.isFinite(cantidad) || cantidad <= 0) {
+            throw new Error('La cantidad de cada ingrediente debe ser mayor a 0.');
+        }
+        if (!unidadReceta) {
+            throw new Error('Define la unidad de receta para cada ingrediente.');
+        }
+        if (usados.has(insumoId)) {
+            throw new Error('No repitas el mismo insumo dentro de la misma receta.');
+        }
+
+        usados.add(insumoId);
+        ingredientes.push({
+            insumo_id: insumoId,
+            cantidad: cantidad,
+            unidad_receta: unidadReceta
+        });
+    }
+
+    return ingredientes;
+}
+
+function recogerFichaReceta() {
+    return {
+        rendimiento_texto: document.getElementById('recetaRendimiento').value.trim(),
+        tiempo_preparacion_min: parseFloat(document.getElementById('recetaTiempoPreparacion').value) || 0,
+        tiempo_amasado_min: parseFloat(document.getElementById('recetaTiempoAmasado').value) || 0,
+        tiempo_fermentacion_min: parseFloat(document.getElementById('recetaTiempoFermentacion').value) || 0,
+        tiempo_horneado_min: parseFloat(document.getElementById('recetaTiempoHorneado').value) || 0,
+        temperatura_horneado: parseFloat(document.getElementById('recetaTemperatura').value) || 0,
+        pasos: document.getElementById('recetaPasos').value.trim(),
+        observaciones: document.getElementById('recetaObservaciones').value.trim(),
+    };
+}
+
+function fichaTieneContenido(ficha) {
+    return Boolean(
+        ficha.rendimiento_texto || ficha.tiempo_preparacion_min || ficha.tiempo_amasado_min ||
+        ficha.tiempo_fermentacion_min || ficha.tiempo_horneado_min || ficha.temperatura_horneado ||
+        ficha.pasos || ficha.observaciones
+    );
+}
+
+function escapeHtml(texto) {
+    return String(texto || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function formatearCantidad(valor) {
+    const numero = Number(valor || 0);
+    return numero.toLocaleString('es-CO', { maximumFractionDigits: 3 });
+}
+
+function renderBloqueProceso(ficha) {
+    const items = [];
+    if (ficha.rendimiento_texto) items.push(`<div class="recipe-preview-row"><strong>Rendimiento</strong><span>${escapeHtml(ficha.rendimiento_texto)}</span></div>`);
+    if (ficha.tiempo_preparacion_min) items.push(`<div class="recipe-preview-row"><strong>Preparacion</strong><span>${formatearCantidad(ficha.tiempo_preparacion_min)} min</span></div>`);
+    if (ficha.tiempo_amasado_min) items.push(`<div class="recipe-preview-row"><strong>Amasado</strong><span>${formatearCantidad(ficha.tiempo_amasado_min)} min</span></div>`);
+    if (ficha.tiempo_fermentacion_min) items.push(`<div class="recipe-preview-row"><strong>Fermentacion</strong><span>${formatearCantidad(ficha.tiempo_fermentacion_min)} min</span></div>`);
+    if (ficha.tiempo_horneado_min) items.push(`<div class="recipe-preview-row"><strong>Horneado</strong><span>${formatearCantidad(ficha.tiempo_horneado_min)} min</span></div>`);
+    if (ficha.temperatura_horneado) items.push(`<div class="recipe-preview-row"><strong>Temperatura</strong><span>${formatearCantidad(ficha.temperatura_horneado)} C</span></div>`);
+
+    if (!items.length) {
+        return '<div class="text-muted recipe-empty-note">Aun no has definido tiempos, temperatura o rendimiento.</div>';
+    }
+    return items.join('');
+}
+
+function actualizarVistaReceta() {
+    const preview = document.getElementById('recipeSummaryPreview');
+    if (!preview) return;
+
+    let ingredientes = [];
+    let componentes = [];
+    try {
+        ingredientes = recogerIngredientesReceta();
+        componentes = recogerComponentesReceta();
+    } catch (err) {
+        preview.innerHTML = `<div class="text-muted recipe-empty-note">${escapeHtml(err.message)}</div>`;
+        return;
+    }
+
+    const ficha = recogerFichaReceta();
+    const bloques = [];
+
+    if (ingredientes.length) {
+        const ingredientesHtml = ingredientes.map(item => {
+            const insumo = obtenerInsumo(item.insumo_id);
+            const nombre = insumo ? insumo.nombre : 'Insumo';
+            const inventario = insumo ? insumo.unidad : item.unidad_receta;
+            return `<div class="recipe-preview-row"><strong>${escapeHtml(nombre)}</strong><span>${formatearCantidad(item.cantidad)} ${escapeHtml(item.unidad_receta)} <small class="text-muted">(stock: ${escapeHtml(inventario)})</small></span></div>`;
+        }).join('');
+
+        bloques.push(`
+            <div class="recipe-preview-section">
+                <div class="recipe-summary-subtitle">Ingredientes por unidad</div>
+                ${ingredientesHtml}
+            </div>
+        `);
+    }
+
+    if (componentes.length) {
+        const componentesHtml = componentes.map(item => {
+            const producto = obtenerProductoCatalogo(item.componente_producto);
+            const categoria = producto ? producto.categoria : 'Producto';
+            return `<div class="recipe-preview-row"><strong>${escapeHtml(item.componente_producto)}</strong><span>${formatearCantidad(item.cantidad)} unidad(es) <small class="text-muted">(${escapeHtml(categoria)})</small></span></div>`;
+        }).join('');
+
+        bloques.push(`
+            <div class="recipe-preview-section">
+                <div class="recipe-summary-subtitle">Subproductos y componentes</div>
+                ${componentesHtml}
+            </div>
+        `);
+    }
+
+    bloques.push(`
+        <div class="recipe-preview-section">
+            <div class="recipe-summary-subtitle">Parametros de preparacion</div>
+            ${renderBloqueProceso(ficha)}
+        </div>
+    `);
+
+    const pasos = ficha.pasos
+        ? ficha.pasos.split(/\r?\n/).map(p => p.trim()).filter(Boolean)
+        : [];
+
+    if (pasos.length) {
+        bloques.push(`
+            <div class="recipe-preview-section">
+                <div class="recipe-summary-subtitle">Paso a paso estandar</div>
+                <ol class="recipe-step-list">${pasos.map(p => `<li>${escapeHtml(p)}</li>`).join('')}</ol>
+            </div>
+        `);
+    }
+
+    if (ficha.observaciones) {
+        bloques.push(`
+            <div class="recipe-preview-section">
+                <div class="recipe-summary-subtitle">Observaciones de control</div>
+                <div class="recipe-preview-note">${escapeHtml(ficha.observaciones)}</div>
+            </div>
+        `);
+    }
+
+    if (!ingredientes.length && !componentes.length && !fichaTieneContenido(ficha)) {
+        preview.innerHTML = '<div class="text-muted recipe-empty-note">Agrega insumos, subproductos o documenta el proceso para construir la composicion del producto.</div>';
+        return;
+    }
+
+    preview.innerHTML = bloques.join('');
+}
+
+function guardarRecetaProducto() {
+    const producto = (document.getElementById('recetaProducto') || {}).value;
+    if (!producto) {
+        alert('Selecciona un producto.');
+        return;
+    }
+
+    let ingredientes = [];
+    let componentes = [];
+    try {
+        ingredientes = recogerIngredientesReceta();
+        componentes = recogerComponentesReceta();
+    } catch (err) {
+        alert(err.message);
+        return;
+    }
+
+    const ficha = recogerFichaReceta();
+
+    if (!ingredientes.length && !componentes.length && !fichaTieneContenido(ficha)) {
+        if (!confirm('La composicion del producto quedara vacia. Deseas continuar?')) return;
+    }
+
+    fetch('/api/receta/' + encodeURIComponent(producto), {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ingredientes, componentes, ficha}),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) location.reload();
+        else alert('No se pudo guardar la receta');
+    })
+    .catch(() => {
+        alert('No se pudo guardar la receta');
+    });
+}
+
+function obtenerAdicionalCatalogo(adicionalId) {
+    return adicionalesCatalogo.find(ad => String(ad.id) === String(adicionalId)) || null;
+}
+
+function opcionesProductosAdicional(selectedName = '') {
+    const actual = String(selectedName || '');
+    return productosCatalogo.map(prod => {
+        const selected = prod.nombre === actual ? 'selected' : '';
+        return `<option value="${escapeHtml(prod.nombre)}" ${selected}>${escapeHtml(prod.nombre)} (${escapeHtml(prod.categoria)})</option>`;
+    }).join('');
+}
+
+function agregarAdicionalInventario() {
+    const nombre = document.getElementById('nuevoAdicionalNombre').value.trim();
+    const precio = parseFloat(document.getElementById('nuevoAdicionalPrecio').value) || 0;
+    if (!nombre) {
+        alert('Escribe el nombre del adicional.');
+        return;
+    }
+
+    fetch('/api/adicional', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({nombre, precio}),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) location.reload();
+        else alert('No se pudo crear el adicional.');
+    })
+    .catch(() => {
+        alert('No se pudo crear el adicional.');
+    });
+}
+
+function agregarFilaAdicionalInsumo(item = {}) {
+    const container = document.getElementById('adicionalInsumoRows');
+    if (!container) return;
+
+    const row = document.createElement('div');
+    row.className = 'recipe-row-card';
+    row.innerHTML = `
+        <div class="recipe-row">
+            <select class="form-input recipe-select">
+                <option value="">Selecciona un insumo</option>
+                ${opcionesInsumos(item.insumo_id || '')}
+            </select>
+            <input type="number" class="form-input recipe-qty" step="0.001" min="0" placeholder="Cantidad"
+                   value="${item.cantidad !== undefined ? item.cantidad : ''}">
+            <select class="form-input recipe-unit"></select>
+            <button class="btn btn-danger-outline btn-sm" type="button">Quitar</button>
+        </div>
+        <div class="recipe-row-note text-muted"></div>
+    `;
+
+    container.appendChild(row);
+
+    const select = row.querySelector('.recipe-select');
+    const qtyInput = row.querySelector('.recipe-qty');
+    const unitSelect = row.querySelector('.recipe-unit');
+    const removeBtn = row.querySelector('button');
+
+    select.addEventListener('change', () => {
+        sincronizarUnidadFila(row);
+        actualizarVistaAdicional();
+    });
+    qtyInput.addEventListener('input', actualizarVistaAdicional);
+    unitSelect.addEventListener('change', actualizarVistaAdicional);
+    removeBtn.addEventListener('click', () => eliminarFilaAdicionalInsumo(removeBtn));
+
+    sincronizarUnidadFila(row, item.unidad_config || '');
+    actualizarVistaAdicional();
+}
+
+function eliminarFilaAdicionalInsumo(btn) {
+    const row = btn.closest('.recipe-row-card');
+    if (row) row.remove();
+    actualizarVistaAdicional();
+}
+
+function agregarFilaAdicionalComponente(item = {}) {
+    const container = document.getElementById('adicionalComponentRows');
+    if (!container) return;
+
+    const row = document.createElement('div');
+    row.className = 'recipe-row-card';
+    row.innerHTML = `
+        <div class="recipe-row recipe-row-component">
+            <select class="form-input adicional-component-select">
+                <option value="">Selecciona un producto</option>
+                ${opcionesProductosAdicional(item.componente_producto || '')}
+            </select>
+            <input type="number" class="form-input adicional-component-qty" step="0.001" min="0" placeholder="Cantidad"
+                   value="${item.cantidad !== undefined ? item.cantidad : ''}">
+            <div class="recipe-row-component-note text-muted">Usa esta opcion para adicionales como pan adicional o bebida adicional.</div>
+            <button class="btn btn-danger-outline btn-sm" type="button">Quitar</button>
+        </div>
+    `;
+
+    container.appendChild(row);
+
+    const select = row.querySelector('.adicional-component-select');
+    const qtyInput = row.querySelector('.adicional-component-qty');
+    const removeBtn = row.querySelector('button');
+
+    select.addEventListener('change', actualizarVistaAdicional);
+    qtyInput.addEventListener('input', actualizarVistaAdicional);
+    removeBtn.addEventListener('click', () => eliminarFilaAdicionalComponente(removeBtn));
+
+    actualizarVistaAdicional();
+}
+
+function eliminarFilaAdicionalComponente(btn) {
+    const row = btn.closest('.recipe-row-card');
+    if (row) row.remove();
+    actualizarVistaAdicional();
+}
+
+function recogerInsumosAdicional() {
+    const filas = Array.from(document.querySelectorAll('#adicionalInsumoRows .recipe-row-card'));
+    const insumos = [];
+    const usados = new Set();
+
+    for (const fila of filas) {
+        const select = fila.querySelector('.recipe-select');
+        const qtyInput = fila.querySelector('.recipe-qty');
+        const unitSelect = fila.querySelector('.recipe-unit');
+        const insumoId = parseInt(select.value, 10);
+        const cantidad = parseFloat(qtyInput.value);
+        const unidadConfig = unitSelect.value;
+
+        if (!select.value && !qtyInput.value) continue;
+        if (!insumoId) throw new Error('Selecciona un insumo para cada consumo del adicional.');
+        if (!Number.isFinite(cantidad) || cantidad <= 0) throw new Error('La cantidad de cada insumo del adicional debe ser mayor a 0.');
+        if (!unidadConfig) throw new Error('Define la unidad para cada insumo del adicional.');
+        if (usados.has(insumoId)) throw new Error('No repitas el mismo insumo dentro del adicional.');
+
+        usados.add(insumoId);
+        insumos.push({
+            insumo_id: insumoId,
+            cantidad: cantidad,
+            unidad_config: unidadConfig,
+        });
+    }
+
+    return insumos;
+}
+
+function recogerComponentesAdicional() {
+    const filas = Array.from(document.querySelectorAll('#adicionalComponentRows .recipe-row-card'));
+    const componentes = [];
+    const usados = new Set();
+
+    for (const fila of filas) {
+        const select = fila.querySelector('.adicional-component-select');
+        const qtyInput = fila.querySelector('.adicional-component-qty');
+        const componenteProducto = (select.value || '').trim();
+        const cantidad = parseFloat(qtyInput.value);
+
+        if (!componenteProducto && !qtyInput.value) continue;
+        if (!componenteProducto) throw new Error('Selecciona un producto para cada componente del adicional.');
+        if (!Number.isFinite(cantidad) || cantidad <= 0) throw new Error('La cantidad de cada producto del adicional debe ser mayor a 0.');
+        if (usados.has(componenteProducto)) throw new Error('No repitas el mismo producto dentro del adicional.');
+
+        usados.add(componenteProducto);
+        componentes.push({
+            componente_producto: componenteProducto,
+            cantidad: cantidad,
+        });
+    }
+
+    return componentes;
+}
+
+function cargarEditorAdicional() {
+    const select = document.getElementById('adicionalEditor');
+    const insumoContainer = document.getElementById('adicionalInsumoRows');
+    const componenteContainer = document.getElementById('adicionalComponentRows');
+    const preview = document.getElementById('adicionalSummaryPreview');
+    if (!select || !insumoContainer || !componenteContainer || !preview) return;
+
+    const adicional = obtenerAdicionalCatalogo(select.value);
+    insumoContainer.innerHTML = '';
+    componenteContainer.innerHTML = '';
+
+    if (!adicional) {
+        preview.innerHTML = '<div class="text-muted recipe-empty-note">Selecciona un adicional para configurarlo.</div>';
+        return;
+    }
+
+    document.getElementById('adicionalPrecioEditor').value = adicional.precio || 0;
+
+    (adicional.insumos || []).forEach(item => agregarFilaAdicionalInsumo({
+        insumo_id: item.insumo_id,
+        cantidad: item.cantidad,
+        unidad_config: item.unidad_config || item.unidad_inventario,
+    }));
+
+    (adicional.componentes || []).forEach(item => agregarFilaAdicionalComponente({
+        componente_producto: item.componente_producto,
+        cantidad: item.cantidad,
+    }));
+
+    if (!insumoContainer.children.length) agregarFilaAdicionalInsumo();
+    actualizarVistaAdicional();
+}
+
+function actualizarVistaAdicional() {
+    const preview = document.getElementById('adicionalSummaryPreview');
+    const select = document.getElementById('adicionalEditor');
+    const precioInput = document.getElementById('adicionalPrecioEditor');
+    if (!preview || !select || !precioInput) return;
+
+    const adicional = obtenerAdicionalCatalogo(select.value);
+    if (!adicional) {
+        preview.innerHTML = '<div class="text-muted recipe-empty-note">Selecciona un adicional para ver su configuracion.</div>';
+        return;
+    }
+
+    let insumos = [];
+    let componentes = [];
+    try {
+        insumos = recogerInsumosAdicional();
+        componentes = recogerComponentesAdicional();
+    } catch (err) {
+        preview.innerHTML = `<div class="text-muted recipe-empty-note">${escapeHtml(err.message)}</div>`;
+        return;
+    }
+
+    const precio = parseFloat(precioInput.value) || 0;
+    const bloques = [`
+        <div class="recipe-preview-section">
+            <div class="recipe-summary-subtitle">Resumen</div>
+            <div class="recipe-preview-row"><strong>${escapeHtml(adicional.nombre)}</strong><span>$${formatearCantidad(precio)}</span></div>
+        </div>
+    `];
+
+    if (insumos.length) {
+        bloques.push(`
+            <div class="recipe-preview-section">
+                <div class="recipe-summary-subtitle">Insumos directos</div>
+                ${insumos.map(item => {
+                    const insumo = obtenerInsumo(item.insumo_id);
+                    return `<div class="recipe-preview-row"><strong>${escapeHtml(insumo ? insumo.nombre : 'Insumo')}</strong><span>${formatearCantidad(item.cantidad)} ${escapeHtml(item.unidad_config)}</span></div>`;
+                }).join('')}
+            </div>
+        `);
+    }
+
+    if (componentes.length) {
+        bloques.push(`
+            <div class="recipe-preview-section">
+                <div class="recipe-summary-subtitle">Productos base</div>
+                ${componentes.map(item => `<div class="recipe-preview-row"><strong>${escapeHtml(item.componente_producto)}</strong><span>${formatearCantidad(item.cantidad)} unidad(es)</span></div>`).join('')}
+            </div>
+        `);
+    }
+
+    if (!insumos.length && !componentes.length) {
+        bloques.push('<div class="text-muted recipe-empty-note">Aun no has definido el consumo de este adicional.</div>');
+    }
+
+    preview.innerHTML = bloques.join('');
+}
+
+function guardarConfiguracionAdicional() {
+    const select = document.getElementById('adicionalEditor');
+    const precioInput = document.getElementById('adicionalPrecioEditor');
+    if (!select || !precioInput || !select.value) {
+        alert('Selecciona un adicional.');
+        return;
+    }
+
+    let insumos = [];
+    let componentes = [];
+    try {
+        insumos = recogerInsumosAdicional();
+        componentes = recogerComponentesAdicional();
+    } catch (err) {
+        alert(err.message);
+        return;
+    }
+
+    const precio = parseFloat(precioInput.value) || 0;
+
+    fetch('/api/adicional/' + encodeURIComponent(select.value) + '/configuracion', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({precio, insumos, componentes}),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) location.reload();
+        else alert('No se pudo guardar la configuracion del adicional.');
+    })
+    .catch(() => {
+        alert('No se pudo guardar la configuracion del adicional.');
+    });
+}
+
+function importInventory() {
+    const fileInput = document.getElementById('inventoryFile');
+    const feedback = document.getElementById('inventoryImportFeedback');
+    const btn = document.getElementById('btnImportInventory');
+    const archivo = fileInput.files[0];
+
+    if (!archivo) {
+        alert('Selecciona un archivo .xlsx o .csv');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('archivo', archivo);
+
+    btn.disabled = true;
+    btn.textContent = 'Importando...';
+    feedback.textContent = 'Procesando archivo...';
+
+    fetch('/api/insumos/importar', {
+        method: 'POST',
+        body: formData,
+    })
+    .then(async r => {
+        const data = await r.json();
+        if (!r.ok || !data.ok) {
+            throw new Error(data.error || 'No se pudo importar el inventario');
+        }
+        return data;
+    })
+    .then(data => {
+        const resumen = [
+            'Procesados: ' + data.procesados,
+            'creados: ' + data.creados,
+            'actualizados: ' + data.actualizados
+        ].join(', ');
+
+        if (data.errores && data.errores.length) {
+            feedback.textContent = resumen + '. Filas omitidas: ' + data.errores.length;
+            alert(resumen + '\n\nSe omitieron algunas filas:\n- ' + data.errores.join('\n- '));
+        } else {
+            feedback.textContent = resumen + '.';
+        }
+
+        setTimeout(() => location.reload(), 700);
+    })
+    .catch(err => {
+        feedback.textContent = err.message;
+        alert(err.message);
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.textContent = 'Importar inventario';
+    });
+}
+
+cargarEditorReceta();
+cargarEditorAdicional();
+</script>
+{% endblock %}

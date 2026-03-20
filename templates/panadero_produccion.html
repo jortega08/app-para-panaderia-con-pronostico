@@ -13,12 +13,14 @@
                 <div class="two-col-form">
                     <div class="form-group">
                         <label for="fecha">Fecha</label>
-                        <input type="date" name="fecha" id="fecha" value="{{ hoy }}" class="form-input" required>
+                        <input type="date" name="fecha" id="fecha" value="{{ hoy }}" class="form-input" required
+                               onchange="autoVendido(); cargarSugerenciaProduccion();">
                     </div>
 
                     <div class="form-group">
                         <label for="producto">Producto</label>
-                        <select name="producto" id="producto" class="form-input" required onchange="autoVendido()">
+                        <select name="producto" id="producto" class="form-input" required
+                                onchange="autoVendido(); cargarSugerenciaProduccion();">
                             {% for p in productos %}
                             <option value="{{ p }}">{{ p }}</option>
                             {% endfor %}
@@ -28,7 +30,30 @@
                     <div class="form-group">
                         <label for="producido">Cantidad horneada</label>
                         <input type="number" name="producido" id="producido" class="form-input"
-                               min="0" placeholder="Ej: 100" required oninput="calcBalance()">
+                               min="0" placeholder="Ingrese cantidad horneada" required oninput="calcBalance()">
+                        <div class="production-suggestion" id="sugerenciaProduccionBox">
+                            <div class="production-suggestion-top">
+                                <div>
+                                    <div class="production-suggestion-label">Sugerencia del sistema</div>
+                                    <div class="production-suggestion-value">
+                                        <span id="sugerenciaCantidad">--</span> panes
+                                    </div>
+                                </div>
+                                <button type="button" class="btn btn-outline btn-sm" id="btnUsarSugerencia"
+                                        onclick="usarSugerencia()" disabled>
+                                    Usar sugerencia
+                                </button>
+                            </div>
+                            <div class="forecast-chips production-suggestion-meta">
+                                <span class="chip" id="sugerenciaDia">Dia: --</span>
+                                <span class="chip" id="sugerenciaModelo">Modelo: --</span>
+                                <span class="chip" id="sugerenciaConfianza">Confianza: --</span>
+                                <span class="chip" id="sugerenciaPromedio">Promedio: --</span>
+                            </div>
+                            <div class="production-suggestion-message text-muted" id="sugerenciaMensaje">
+                                Consultando sugerencia para este producto...
+                            </div>
+                        </div>
                     </div>
 
                     <div class="form-group">
@@ -37,7 +62,7 @@
                             <span class="form-hint" id="autoHint"></span>
                         </label>
                         <input type="number" name="vendido" id="vendido" class="form-input"
-                               min="0" placeholder="Ej: 85" required oninput="calcBalance()">
+                               min="0" placeholder="Ingrese 0" required oninput="calcBalance()">
                     </div>
                 </div>
 
@@ -101,6 +126,8 @@
 </div>
 
 <script>
+let sugerenciaActual = null;
+
 function autoVendido() {
     const fecha = document.getElementById('fecha').value;
     const producto = document.getElementById('producto').value;
@@ -118,6 +145,55 @@ function autoVendido() {
         }
     })
     .catch(() => {});
+}
+
+function resetSugerencia(message = 'Selecciona un producto para consultar la sugerencia.') {
+    sugerenciaActual = null;
+    document.getElementById('sugerenciaCantidad').textContent = '--';
+    document.getElementById('sugerenciaDia').textContent = 'Dia: --';
+    document.getElementById('sugerenciaModelo').textContent = 'Modelo: --';
+    document.getElementById('sugerenciaConfianza').textContent = 'Confianza: --';
+    document.getElementById('sugerenciaPromedio').textContent = 'Promedio: --';
+    document.getElementById('sugerenciaMensaje').textContent = message;
+    document.getElementById('btnUsarSugerencia').disabled = true;
+}
+
+function cargarSugerenciaProduccion() {
+    const fecha = document.getElementById('fecha').value;
+    const producto = document.getElementById('producto').value;
+
+    if (!fecha || !producto) {
+        resetSugerencia();
+        return;
+    }
+
+    document.getElementById('sugerenciaMensaje').textContent = 'Calculando sugerencia recomendada...';
+
+    fetch('/api/pronostico/sugerencia?fecha=' + fecha + '&producto=' + encodeURIComponent(producto))
+    .then(r => r.json())
+    .then(data => {
+        if (!data.ok) {
+            throw new Error(data.error || 'No se pudo calcular la sugerencia');
+        }
+
+        sugerenciaActual = data;
+        document.getElementById('sugerenciaCantidad').textContent = data.sugerido ?? '--';
+        document.getElementById('sugerenciaDia').textContent = 'Dia: ' + (data.dia_objetivo || '--');
+        document.getElementById('sugerenciaModelo').textContent = 'Modelo: ' + (data.modelo_label || '--');
+        document.getElementById('sugerenciaConfianza').textContent = 'Confianza: ' + (data.confianza || '--');
+        document.getElementById('sugerenciaPromedio').textContent = 'Promedio: ' + (data.promedio ?? '--');
+        document.getElementById('sugerenciaMensaje').textContent = data.mensaje || 'Sugerencia generada correctamente.';
+        document.getElementById('btnUsarSugerencia').disabled = false;
+    })
+    .catch(() => {
+        resetSugerencia('No se pudo obtener la sugerencia en este momento.');
+    });
+}
+
+function usarSugerencia() {
+    if (!sugerenciaActual) return;
+    document.getElementById('producido').value = sugerenciaActual.sugerido ?? '';
+    calcBalance();
 }
 
 function calcBalance() {
@@ -141,5 +217,6 @@ function calcBalance() {
 }
 
 autoVendido();
+cargarSugerenciaProduccion();
 </script>
 {% endblock %}

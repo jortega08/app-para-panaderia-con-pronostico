@@ -3,14 +3,15 @@
 <div class="login-page">
     <div class="login-card">
         <div class="login-accent"></div>
-        <h1 class="login-title">Panaderia RICH</h1>
-        <p class="login-subtitle">Sistema de Ventas y Pronostico - Rich</p>
+        <div class="login-logo"><span class="material-symbols-outlined">bakery_dining</span></div>
+        <h1 class="login-title">PANADERIA</h1>
+        <p class="login-subtitle">Sistema de Ventas y Pronostico</p>
 
         <div class="login-divider"></div>
 
         <p class="login-instruction">Ingresa tu PIN:</p>
 
-        <form method="POST" action="{{ url_for('login') }}" id="loginForm" autocomplete="off">
+        <form method="POST" action="{{ url_for('login') }}" id="loginForm">
             <input type="hidden" name="pin" id="pinInput">
             <div class="pin-display" id="pinDisplay">
                 <span class="pin-dot"></span>
@@ -24,9 +25,9 @@
                 <div class="numpad-row">
                     {% for key in row %}
                     {% if key == 'del' %}
-                    <button type="button" class="numpad-btn numpad-del" onclick="pinDel()">Borrar</button>
+                    <button type="button" class="numpad-btn numpad-del" onclick="pinDel()"><span class="material-symbols-outlined">backspace</span></button>
                     {% elif key == 'ok' %}
-                    <button type="button" class="numpad-btn numpad-ok" onclick="pinSubmit()">Entrar</button>
+                    <button type="button" class="numpad-btn numpad-ok" onclick="pinSubmit()"><span class="material-symbols-outlined">login</span></button>
                     {% else %}
                     <button type="button" class="numpad-btn" onclick="pinAdd('{{ key }}')">{{ key }}</button>
                     {% endif %}
@@ -36,7 +37,7 @@
             </div>
         </form>
 
-        <p class="login-hint">Panadero: 1234 | Cajero: 0000</p>
+        <p class="login-hint">Panadero: 1234 &nbsp;|&nbsp; Cajero: 0000 &nbsp;|&nbsp; Mesero: 1111</p>
     </div>
 </div>
 
@@ -46,15 +47,9 @@ const dots = document.querySelectorAll('.pin-dot');
 const pinInput = document.getElementById('pinInput');
 
 function updateDots() {
-    dots.forEach(function (dot, i) {
+    dots.forEach(function(dot, i) {
         dot.classList.toggle('filled', i < pin.length);
     });
-}
-
-function resetPin() {
-    pin = '';
-    pinInput.value = '';
-    updateDots();
 }
 
 function pinAdd(n) {
@@ -79,14 +74,10 @@ function pinSubmit() {
     }
 }
 
-document.addEventListener('keydown', function (e) {
+document.addEventListener('keydown', function(e) {
     if (e.key >= '0' && e.key <= '9') pinAdd(e.key);
     else if (e.key === 'Backspace') pinDel();
     else if (e.key === 'Enter') pinSubmit();
 });
-
-window.addEventListener('pageshow', resetPin);
-resetPin();
 </script>
 {% endblock %}
-

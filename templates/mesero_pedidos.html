@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title_extra %} - Mis Pedidos{% endblock %}
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h1 class="page-title"><span class="material-symbols-outlined">assignment</span> Pedidos de Hoy</h1>
+        <div class="page-header-right">
+            <button class="btn btn-outline btn-sm" onclick="location.reload()"><span class="material-symbols-outlined">autorenew</span> Actualizar</button>
+        </div>
+    </div>
+
+    {% if not pedidos %}
+    <div class="card">
+        <div class="card-body" style="text-align: center; padding: 40px;">
+            <span style="font-size: 48px; opacity: 0.4;"><span class="material-symbols-outlined" style="font-size: 48px;">assignment</span></span>
+            <p class="text-muted" style="margin-top: 12px;">No hay pedidos hoy</p>
+        </div>
+    </div>
+    {% else %}
+    <div class="pedidos-list">
+        {% for p in pedidos %}
+        <div class="pedido-card pedido-estado-{{ p.estado }}">
+            <div class="pedido-header">
+                <div class="pedido-info">
+                    <span class="pedido-mesa"><span class="material-symbols-outlined">table_restaurant</span> Mesa {{ p.mesa_numero or '?' }}</span>
+                    <span class="pedido-hora">{{ p.hora[:5] }}</span>
+                    <span class="pedido-badge pedido-badge-{{ p.estado }}">
+                        {% if p.estado == 'pendiente' %}Pendiente
+                        {% elif p.estado == 'en_preparacion' %}En Preparacion
+                        {% elif p.estado == 'listo' %}Listo para servir
+                        {% elif p.estado == 'pagado' %}Pagado
+                        {% elif p.estado == 'cancelado' %}Cancelado
+                        {% endif %}
+                    </span>
+                </div>
+                <span class="pedido-total">${{ '%.2f'|format(p.total) }}</span>
+            </div>
+            <div class="pedido-items">
+                {% for item in p["items"] %}
+                <div class="pedido-item-row">
+                    <span><span class="material-symbols-outlined cart-item-icon">{{ icono(item.producto) }}</span> {{ item.cantidad }}x {{ item.producto }}</span>
+                    <span class="text-muted">${{ '%.2f'|format(item.subtotal) }}</span>
+                </div>
+                {% if item.modificaciones %}
+                <div class="pedido-item-mods">
+                    {% for m in item.modificaciones %}
+                    {% if m.tipo == 'adicional' %}
+                    <span class="mod-tag mod-tag-adicional">+ {{ m.descripcion }} (${{ '%.2f'|format(m.precio_extra) }})</span>
+                    {% else %}
+                    <span class="mod-tag mod-tag-exclusion"><span class="material-symbols-outlined">cancel</span> {{ m.descripcion }}</span>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
+            {% if p.notas %}
+            <div class="pedido-notas"><span class="material-symbols-outlined">edit_note</span> {{ p.notas }}</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+
+<script>
+// Auto-refresh cada 30 segundos
+setTimeout(function() { location.reload(); }, 30000);
+</script>
+{% endblock %}

@@ -1,0 +1,302 @@
+﻿{% extends "base.html" %}
+{% block title_extra %} - Pedidos{% endblock %}
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h1 class="page-title">Pedidos del Dia</h1>
+        <div class="page-header-right">
+            <div class="filter-group">
+                <label>Filtrar:</label>
+                <select id="filtroEstado" class="form-input form-input-sm" style="width: auto;" onchange="filtrarPedidos()">
+                    <option value="todos" selected>Todos</option>
+                    <option value="pendiente">Pendientes</option>
+                    <option value="en_preparacion">En Preparacion</option>
+                    <option value="listo">Listos</option>
+                    <option value="pagado">Pagados</option>
+                    <option value="cancelado">Cancelados</option>
+                </select>
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="location.reload()">Actualizar</button>
+        </div>
+    </div>
+
+    {% if caja and caja.arqueo_activo %}
+    <div class="card caja-banner caja-banner-success" style="margin-bottom: 18px;">
+        <div>
+            <div class="caja-banner-title">Caja activa</div>
+            <div class="text-muted">Apertura {{ caja.arqueo.abierto_en if caja.arqueo else '' }} · {{ caja.arqueo.abierto_por if caja.arqueo else '' }}</div>
+        </div>
+        <div class="caja-banner-kpis">
+            <span class="badge badge-primary">Apertura ${{ '%.2f'|format(caja.monto_apertura or 0) }}</span>
+            <span class="badge badge-accent">En caja ${{ '%.2f'|format(caja.efectivo_en_caja or 0) }}</span>
+        </div>
+    </div>
+    {% else %}
+    <div class="card caja-banner caja-banner-alert" style="margin-bottom: 18px;">
+        <div>
+            <div class="caja-banner-title">Caja sin arqueo abierto</div>
+            <div class="text-muted">Debes abrir caja antes de cobrar pedidos.</div>
+        </div>
+        <a class="btn btn-accent" href="{{ url_for('cajero_ventas') }}">Ir a Ventas de Hoy</a>
+    </div>
+    {% endif %}
+
+    {% if not pedidos %}
+    <div class="card">
+        <div class="card-body text-center" style="padding: 40px;">
+            <p class="text-muted">No hay pedidos hoy</p>
+        </div>
+    </div>
+    {% else %}
+    <div class="pedidos-list" id="pedidosList">
+        {% for p in pedidos %}
+        <div class="pedido-card pedido-estado-{{ p['estado'] }}" data-estado="{{ p['estado'] }}">
+            <div class="pedido-header">
+                <div class="pedido-info">
+                    <span class="pedido-id">#{{ p['id'] }}</span>
+                    <span class="pedido-mesa">Mesa {{ p['mesa_numero'] or '?' }}</span>
+                    <span class="pedido-hora">Creado {{ (p['creado_en'] or (p['fecha'] ~ ' ' ~ p['hora'])) }}</span>
+                    <span class="pedido-mesero">Mesero: {{ p['mesero'] }}</span>
+                    <span class="pedido-badge pedido-badge-{{ p['estado'] }}">
+                        {% if p['estado'] == 'pendiente' %}Pendiente
+                        {% elif p['estado'] == 'en_preparacion' %}En Preparacion
+                        {% elif p['estado'] == 'listo' %}Listo
+                        {% elif p['estado'] == 'pagado' %}Pagado
+                        {% elif p['estado'] == 'cancelado' %}Cancelado
+                        {% endif %}
+                    </span>
+                </div>
+                <span class="pedido-total">${{ '%.2f'|format(p['total']) }}</span>
+            </div>
+
+            <div class="pedido-detail-grid">
+                <div class="pedido-detail-card">
+                    <div class="pedido-section-title">Resumen del pedido</div>
+                    <div class="pedido-meta-list">
+                        <div class="pedido-meta-row"><span>Pedido tomado</span><strong>{{ p['creado_en'] or (p['fecha'] ~ ' ' ~ p['hora']) }}</strong></div>
+                        <div class="pedido-meta-row"><span>Mesa</span><strong>{{ p['mesa_nombre'] or ('Mesa ' ~ (p['mesa_numero'] or '?')) }}</strong></div>
+                        <div class="pedido-meta-row"><span>Mesero</span><strong>{{ p['mesero'] or '-' }}</strong></div>
+                        <div class="pedido-meta-row"><span>Total</span><strong>${{ '%.2f'|format(p['total']) }}</strong></div>
+                        {% if p['pagado_en'] %}
+                        <div class="pedido-meta-row"><span>Cobrado</span><strong>{{ p['pagado_en'] }}</strong></div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="pedido-detail-card">
+                    <div class="pedido-section-title">Linea de tiempo</div>
+                    <div class="pedido-timeline">
+                        {% for h in p['historial_estados'] %}
+                        <div class="pedido-timeline-item estado-{{ h['estado'] }}">
+                            <div class="pedido-timeline-dot"></div>
+                            <div>
+                                <div class="pedido-timeline-title">
+                                    {% if h['estado'] == 'pendiente' %}Pedido creado
+                                    {% elif h['estado'] == 'en_preparacion' %}En preparacion
+                                    {% elif h['estado'] == 'listo' %}Pedido listo
+                                    {% elif h['estado'] == 'pagado' %}Pedido pagado
+                                    {% elif h['estado'] == 'cancelado' %}Pedido cancelado
+                                    {% else %}{{ h['estado'] }}
+                                    {% endif %}
+                                </div>
+                                <div class="text-muted">{{ h['cambiado_en'] }}{% if h['cambiado_por'] %} · {{ h['cambiado_por'] }}{% endif %}</div>
+                                {% if h['detalle'] %}<div class="pedido-timeline-note">{{ h['detalle'] }}</div>{% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="pedido-items">
+                {% for item in p['items'] %}
+                <div class="pedido-item-row">
+                    <span>{{ item['cantidad'] }}x {{ item['producto'] }}</span>
+                    <span class="text-muted">${{ '%.2f'|format(item['subtotal']) }}</span>
+                </div>
+                {% if item['modificaciones'] %}
+                <div class="pedido-item-mods">
+                    {% for m in item['modificaciones'] %}
+                    {% if m['tipo'] == 'adicional' %}
+                    <span class="mod-tag mod-tag-adicional">+ {{ m['descripcion'] }} x{{ m['cantidad'] }} (${{ '%.2f'|format(m['precio_extra']) }})</span>
+                    {% else %}
+                    <span class="mod-tag mod-tag-exclusion">Sin {{ m['descripcion'] }}</span>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
+
+            {% if p['metodo_pago'] or p['pagado_en'] %}
+            <div class="pedido-payment-summary">
+                <div class="pedido-section-title">Detalle del cobro</div>
+                <div class="pedido-meta-list">
+                    <div class="pedido-meta-row"><span>Metodo de pago</span><strong>{{ (p['metodo_pago'] or 'pendiente')|capitalize }}</strong></div>
+                    <div class="pedido-meta-row"><span>Monto recibido</span><strong>${{ '%.2f'|format(p['monto_recibido'] or 0) }}</strong></div>
+                    <div class="pedido-meta-row"><span>Vueltas</span><strong>${{ '%.2f'|format(p['cambio'] or 0) }}</strong></div>
+                    <div class="pedido-meta-row"><span>Cajero</span><strong>{{ p['pagado_por'] or '-' }}</strong></div>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if p['notas'] %}
+            <div class="pedido-notas">{{ p['notas'] }}</div>
+            {% endif %}
+
+            <div class="pedido-actions">
+                {% if p['estado'] == 'pendiente' %}
+                <button class="btn btn-sm btn-accent" onclick="cambiarEstado({{ p['id'] }}, 'en_preparacion')">En Preparacion</button>
+                <button class="btn btn-sm btn-danger-outline" onclick="cambiarEstado({{ p['id'] }}, 'cancelado')">Cancelar</button>
+                {% elif p['estado'] == 'en_preparacion' %}
+                <button class="btn btn-sm btn-success" onclick="cambiarEstado({{ p['id'] }}, 'listo')">Marcar Listo</button>
+                {% elif p['estado'] == 'listo' %}
+                <button class="btn btn-sm btn-success btn-lg" onclick="openChargeModal({{ p['id'] }}, {{ p['total'] }})">Cobrar - ${{ '%.2f'|format(p['total']) }}</button>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+
+<div class="modal-overlay" id="chargeModal" style="display:none;" onclick="if (event.target === this) closeChargeModal()">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3>Cobrar Pedido</h3>
+            <button class="modal-close" onclick="closeChargeModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="payment-summary-box">
+                <div class="payment-summary-row"><span>Pedido</span><strong id="chargePedidoId">#-</strong></div>
+                <div class="payment-summary-row"><span>Total</span><strong id="chargeTotal">$0.00</strong></div>
+            </div>
+            <div class="two-col-form">
+                <div>
+                    <label class="form-label" for="chargeMethod">Metodo de pago</label>
+                    <select id="chargeMethod" class="form-input" onchange="updateChargeSummary()">
+                        <option value="efectivo">Efectivo</option>
+                        <option value="transferencia">Transferencia</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label" for="chargeReceived">Monto recibido</label>
+                    <input id="chargeReceived" type="number" min="0" step="0.01" class="form-input" oninput="updateChargeSummary()">
+                    <div class="form-help">En transferencia se registra el total exacto.</div>
+                </div>
+            </div>
+            <div class="payment-summary-box payment-summary-box-soft">
+                <div class="payment-summary-row"><span>Recibido</span><strong id="chargeReceivedText">$0.00</strong></div>
+                <div class="payment-summary-row"><span>Vueltas</span><strong id="chargeChangeText">$0.00</strong></div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="closeChargeModal()">Cancelar</button>
+            <button class="btn btn-success" onclick="confirmCharge()">Confirmar Cobro</button>
+        </div>
+    </div>
+</div>
+
+<script>
+let cajaActiva = {{ caja|default({})|tojson }};
+let chargeContext = { pedidoId: null, total: 0 };
+
+function money(value) {
+    return '$' + Number(value || 0).toFixed(2);
+}
+
+function filtrarPedidos() {
+    const filtro = document.getElementById('filtroEstado').value;
+    document.querySelectorAll('.pedido-card').forEach(card => {
+        card.style.display = (filtro === 'todos' || card.dataset.estado === filtro) ? '' : 'none';
+    });
+}
+
+function cambiarEstado(pedidoId, nuevoEstado) {
+    let msg = 'Cambiar estado del pedido #' + pedidoId + '?';
+    if (nuevoEstado === 'cancelado') msg = 'Cancelar el pedido #' + pedidoId + '?';
+    if (!confirm(msg)) return;
+
+    fetch('/api/pedido/' + pedidoId + '/estado', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({estado: nuevoEstado}),
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.ok) {
+            location.reload();
+        } else {
+            alert('Error: ' + (data.error || 'No se pudo cambiar el estado'));
+        }
+    })
+    .catch(err => alert('Error de conexion: ' + err.message));
+}
+
+function openChargeModal(pedidoId, total) {
+    if (!cajaActiva || !cajaActiva.arqueo_activo) {
+        alert('Debes abrir la caja antes de cobrar pedidos.');
+        return;
+    }
+    chargeContext = { pedidoId, total: Number(total) };
+    document.getElementById('chargePedidoId').textContent = '#' + pedidoId;
+    document.getElementById('chargeTotal').textContent = money(total);
+    document.getElementById('chargeMethod').value = 'efectivo';
+    document.getElementById('chargeReceived').value = Number(total).toFixed(2);
+    updateChargeSummary();
+    document.getElementById('chargeModal').style.display = 'flex';
+}
+
+function closeChargeModal() {
+    document.getElementById('chargeModal').style.display = 'none';
+}
+
+function updateChargeSummary() {
+    const metodo = document.getElementById('chargeMethod').value;
+    const input = document.getElementById('chargeReceived');
+    if (metodo === 'transferencia') {
+        input.value = chargeContext.total.toFixed(2);
+        input.disabled = true;
+    } else {
+        input.disabled = false;
+        if (!input.value) input.value = chargeContext.total.toFixed(2);
+    }
+    const recibido = Number(input.value || 0);
+    const cambio = metodo === 'efectivo' ? Math.max(recibido - chargeContext.total, 0) : 0;
+    document.getElementById('chargeReceivedText').textContent = money(recibido);
+    document.getElementById('chargeChangeText').textContent = money(cambio);
+}
+
+async function confirmCharge() {
+    const metodo = document.getElementById('chargeMethod').value;
+    const recibido = Number(document.getElementById('chargeReceived').value || 0);
+    if (metodo === 'efectivo' && recibido + 1e-9 < chargeContext.total) {
+        alert('El monto recibido debe cubrir el total del pedido.');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/pedido/' + chargeContext.pedidoId + '/estado', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                estado: 'pagado',
+                metodo_pago: metodo,
+                monto_recibido: recibido,
+            }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+            const faltantes = (data.faltantes || []).map(item => `- ${item.producto}: faltan ${item.faltante}`).join('\n');
+            throw new Error(data.error + (faltantes ? `\n${faltantes}` : ''));
+        }
+        location.reload();
+    } catch (err) {
+        alert(err.message || 'No se pudo cobrar el pedido.');
+    }
+}
+
+filtrarPedidos();
+setTimeout(function() { location.reload(); }, 30000);
+</script>
+{% endblock %}

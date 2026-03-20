@@ -1,0 +1,405 @@
+﻿{% extends "base.html" %}
+{% block title_extra %} - Pedido Mesa {{ mesa.numero }}{% endblock %}
+{% block content %}
+<div class="pos-layout">
+    <div class="pos-products">
+        <h2 class="page-title">Mesa {{ mesa.numero }} - {{ mesa.nombre }}</h2>
+        <p class="text-muted" style="margin-bottom: 16px;">Toca un producto para agregarlo al pedido</p>
+
+        <div class="product-filters-panel">
+            <input type="text" id="productSearch" class="form-input" placeholder="Buscar producto por nombre..."
+                   oninput="applyProductFilters()">
+            <div class="product-filter-chips">
+                <button type="button" class="chip chip-filter chip-filter-active" data-category-btn="todos"
+                        onclick="setCategoryFilter('todos')">Todos</button>
+                {% for categoria in categorias %}
+                <button type="button" class="chip chip-filter" data-category-btn="{{ categoria|lower }}"
+                        onclick="setCategoryFilter('{{ categoria|lower }}')">{{ categoria }}</button>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="product-grid">
+            {% for p in productos %}
+            <button class="product-card" onclick='addToCart({{ p.nombre|tojson }}, {{ p.precio }}, {{ p.icono|tojson }})'
+                    style="--prod-color: {{ p.color }}"
+                    data-category="{{ p.categoria|lower }}"
+                    data-name="{{ p.nombre|lower }}">
+                <div class="product-color-bar" style="background: {{ p.color }}"></div>
+                <span class="material-symbols-outlined product-icon">{{ p.icono }}</span>
+                <span class="product-name">{{ p.nombre }}</span>
+                <span class="chip product-category-chip">{{ p.categoria }}</span>
+                <span class="product-price">${{ '%.2f'|format(p.precio) }}</span>
+            </button>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="cart-panel">
+        <div class="cart-header">
+            <h3>Pedido Mesa {{ mesa.numero }}</h3>
+            <span class="cart-count" id="cartCount">0 items</span>
+        </div>
+
+        <div class="cart-items" id="cartItems">
+            <div class="cart-empty">
+                <span class="cart-empty-icon">Pedido</span>
+                <p>El pedido esta vacio</p>
+                <p class="text-muted">Toca un producto para agregarlo</p>
+            </div>
+        </div>
+
+        <div style="padding: 12px 20px;">
+            <label style="font-size: 14px; font-weight: 600; color: var(--text-sec);">Notas del pedido:</label>
+            <textarea id="notasPedido" class="form-input" rows="2"
+                      placeholder="Ej: sin sal, para llevar..." style="margin-top: 6px;"></textarea>
+        </div>
+
+        <div class="cart-footer">
+            <div class="cart-total-row">
+                <span class="cart-total-label">TOTAL</span>
+                <span class="cart-total-value" id="cartTotal">$0.00</span>
+            </div>
+            <div class="cart-actions">
+                <a href="{{ url_for('mesero_mesas') }}" class="btn btn-outline">Volver</a>
+                <button class="btn btn-success btn-lg" onclick="enviarPedido()">Enviar pedido</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="modModal" style="display:none;">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 id="modModalTitle">Personalizar</h3>
+            <button class="modal-close" onclick="cerrarModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="mod-section">
+                <h4>Adicionales</h4>
+                <p class="text-muted" style="margin-bottom: 10px;">Los adicionales son opcionales. Ajusta solo los que necesites para este producto.</p>
+                <div class="mod-options" id="modAdicionales"></div>
+            </div>
+            <div class="mod-section">
+                <h4>Exclusiones</h4>
+                <input type="text" id="modExclusion" class="form-input" placeholder="Ej: sin salchicha, sin cebolla...">
+                <div id="modExclusiones" style="margin-top: 8px;"></div>
+                <button class="btn btn-sm btn-outline" style="margin-top: 6px;" onclick="agregarExclusion()">Agregar exclusion</button>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="cerrarModal()">Cancelar</button>
+            <button class="btn btn-success" onclick="guardarMods()">Guardar</button>
+        </div>
+    </div>
+</div>
+
+<script>
+let cart = [];
+let currentModItem = null;
+let tempExclusiones = [];
+let selectedCategory = 'todos';
+const MESA_ID = {{ mesa.id }};
+const ADICIONALES = {{ adicionales | tojson }};
+const ADICIONALES_DISPONIBLES = (ADICIONALES || []).filter(a => a.tiene_configuracion !== false);
+
+function escapeHtml(texto) {
+    return String(texto || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function getAdicionalById(adicionalId) {
+    return (ADICIONALES_DISPONIBLES.length ? ADICIONALES_DISPONIBLES : ADICIONALES)
+        .find(a => String(a.id) === String(adicionalId)) || null;
+}
+
+function getInputAdicional(adicionalId) {
+    return document.querySelector(`[data-adicional-qty="${adicionalId}"]`);
+}
+
+function setCategoryFilter(category) {
+    selectedCategory = category;
+    document.querySelectorAll('[data-category-btn]').forEach(btn => {
+        btn.classList.toggle('chip-filter-active', btn.dataset.categoryBtn === category);
+    });
+    applyProductFilters();
+}
+
+function applyProductFilters() {
+    const search = (document.getElementById('productSearch').value || '').trim().toLowerCase();
+    document.querySelectorAll('.product-grid .product-card').forEach(card => {
+        const matchesCategory = selectedCategory === 'todos' || card.dataset.category === selectedCategory;
+        const matchesSearch = !search || card.dataset.name.includes(search);
+        card.style.display = matchesCategory && matchesSearch ? '' : 'none';
+    });
+}
+
+function addToCart(nombre, precio, icono) {
+    const id = Date.now() + Math.random();
+    cart.push({id, nombre, precio, icono, cantidad: 1, modificaciones: []});
+    renderCart();
+}
+
+function updateQty(itemId, qty) {
+    qty = parseInt(qty);
+    if (isNaN(qty) || qty < 0) return;
+    const item = cart.find(i => i.id === itemId);
+    if (!item) return;
+    if (qty === 0) {
+        cart = cart.filter(i => i.id !== itemId);
+    } else {
+        item.cantidad = qty;
+    }
+    renderCart();
+}
+
+function removeFromCart(itemId) {
+    cart = cart.filter(i => i.id !== itemId);
+    renderCart();
+}
+
+function calcItemTotal(item) {
+    let extras = 0;
+    item.modificaciones.forEach(m => {
+        if (m.tipo === 'adicional') extras += (m.cantidad || 1) * m.precio_extra;
+    });
+    return item.precio * item.cantidad + extras;
+}
+
+function renderCart() {
+    const container = document.getElementById('cartItems');
+    const countEl = document.getElementById('cartCount');
+    const totalEl = document.getElementById('cartTotal');
+
+    let total = 0;
+    let totalItems = 0;
+
+    if (cart.length === 0) {
+        container.innerHTML = `
+            <div class="cart-empty">
+                <span class="cart-empty-icon">Pedido</span>
+                <p>El pedido esta vacio</p>
+                <p class="text-muted">Toca un producto para agregarlo</p>
+            </div>`;
+        countEl.textContent = '0 items';
+        totalEl.textContent = '$0.00';
+        return;
+    }
+
+    let html = '';
+    cart.forEach(item => {
+        const subtotal = calcItemTotal(item);
+        total += subtotal;
+        totalItems += item.cantidad;
+
+        let modsHtml = '';
+        const adicionales = item.modificaciones.filter(m => m.tipo === 'adicional');
+        const exclusiones = item.modificaciones.filter(m => m.tipo === 'exclusion');
+        if (adicionales.length > 0) {
+            modsHtml += '<div class="cart-item-mods">';
+            adicionales.forEach(m => {
+                const totalExtra = (m.cantidad || 1) * m.precio_extra;
+                modsHtml += `<span class="mod-tag mod-tag-adicional">+ ${escapeHtml(m.descripcion)} x${m.cantidad || 1} ($${totalExtra.toFixed(2)})</span>`;
+            });
+            modsHtml += '</div>';
+        }
+        if (exclusiones.length > 0) {
+            modsHtml += '<div class="cart-item-mods">';
+            exclusiones.forEach(m => {
+                modsHtml += `<span class="mod-tag mod-tag-exclusion">${escapeHtml(m.descripcion)}</span>`;
+            });
+            modsHtml += '</div>';
+        }
+
+        html += `
+        <div class="cart-item-block">
+            <div class="cart-item">
+                <div class="cart-item-info">
+                    <span class="material-symbols-outlined cart-item-icon">${item.icono}</span>
+                    <div>
+                        <div class="cart-item-name">${item.nombre}</div>
+                        <div class="cart-item-price">$${item.precio.toFixed(2)} c/u</div>
+                    </div>
+                </div>
+                <div class="cart-item-controls">
+                    <button class="qty-btn qty-minus" onclick="updateQty(${item.id}, ${item.cantidad - 1})">-</button>
+                    <input type="number" class="qty-input" value="${item.cantidad}" min="0"
+                           onchange="updateQty(${item.id}, parseInt(this.value))">
+                    <button class="qty-btn qty-plus" onclick="updateQty(${item.id}, ${item.cantidad + 1})">+</button>
+                </div>
+                <div class="cart-item-subtotal">$${subtotal.toFixed(2)}</div>
+                <button class="cart-item-remove" onclick="removeFromCart(${item.id})">&times;</button>
+            </div>
+            ${modsHtml}
+            <button class="btn-mod-edit" onclick="abrirModal(${item.id})">${item.modificaciones.length ? 'Editar personalizacion' : 'Personalizar'}</button>
+        </div>`;
+    });
+
+    container.innerHTML = html;
+    countEl.textContent = totalItems + (totalItems === 1 ? ' item' : ' items');
+    totalEl.textContent = '$' + total.toFixed(2);
+}
+
+function abrirModal(itemId) {
+    const item = cart.find(i => i.id === itemId);
+    if (!item) return;
+    currentModItem = itemId;
+    tempExclusiones = item.modificaciones
+        .filter(m => m.tipo === 'exclusion')
+        .map(m => m.descripcion);
+
+    document.getElementById('modModalTitle').textContent = 'Personalizar: ' + item.nombre;
+    renderAdicionalesModal(item);
+
+    document.getElementById('modExclusion').value = '';
+    renderExclusiones();
+    document.getElementById('modModal').style.display = 'flex';
+}
+
+function cerrarModal() {
+    document.getElementById('modModal').style.display = 'none';
+    currentModItem = null;
+    tempExclusiones = [];
+}
+
+function agregarExclusion() {
+    const input = document.getElementById('modExclusion');
+    const val = input.value.trim();
+    if (val && !tempExclusiones.includes(val)) {
+        tempExclusiones.push(val);
+        input.value = '';
+        renderExclusiones();
+    }
+}
+
+function quitarExclusion(idx) {
+    tempExclusiones.splice(idx, 1);
+    renderExclusiones();
+}
+
+function renderExclusiones() {
+    const container = document.getElementById('modExclusiones');
+    if (tempExclusiones.length === 0) {
+        container.innerHTML = '<span class="text-muted" style="font-size:13px;">Sin exclusiones</span>';
+        return;
+    }
+    container.innerHTML = tempExclusiones.map((e, i) =>
+        `<span class="mod-tag mod-tag-exclusion" style="margin: 2px;">
+            ${e}
+            <button onclick="quitarExclusion(${i})" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:14px;padding:0 4px;">&times;</button>
+        </span>`
+    ).join('');
+}
+
+function renderAdicionalesModal(item) {
+    const container = document.getElementById('modAdicionales');
+    const catalogo = ADICIONALES_DISPONIBLES.length ? ADICIONALES_DISPONIBLES : ADICIONALES;
+
+    if (!catalogo.length) {
+        container.innerHTML = '<div class="text-muted" style="font-size: 13px;">No hay adicionales configurados.</div>';
+        return;
+    }
+
+    container.innerHTML = catalogo.map(adicional => {
+        const modActual = item.modificaciones.find(
+            m => m.tipo === 'adicional' && m.descripcion === adicional.nombre
+        );
+        const cantidad = modActual ? (parseInt(modActual.cantidad, 10) || 0) : 0;
+        return `
+            <div class="mod-option mod-option-qty">
+                <div class="mod-option-main">
+                    <span class="mod-option-name">${escapeHtml(adicional.nombre)}</span>
+                    <span class="mod-option-price">+ $${Number(adicional.precio || 0).toFixed(2)}</span>
+                </div>
+                <div class="mod-qty-controls">
+                    <button type="button" class="qty-btn qty-minus" onclick="cambiarCantidadAdicional(${adicional.id}, -1)">-</button>
+                    <input type="number" class="qty-input mod-qty-input" min="0" step="1"
+                           value="${cantidad}"
+                           data-adicional-qty="${adicional.id}">
+                    <button type="button" class="qty-btn qty-plus" onclick="cambiarCantidadAdicional(${adicional.id}, 1)">+</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function cambiarCantidadAdicional(adicionalId, delta) {
+    const input = getInputAdicional(adicionalId);
+    if (!input) return;
+    const actual = parseInt(input.value, 10) || 0;
+    input.value = Math.max(0, actual + delta);
+}
+
+function guardarMods() {
+    const item = cart.find(i => i.id === currentModItem);
+    if (!item) return;
+
+    const mods = [];
+
+    document.querySelectorAll('[data-adicional-qty]').forEach(input => {
+        const cantidad = parseInt(input.value, 10) || 0;
+        if (cantidad <= 0) return;
+        const adicional = getAdicionalById(input.dataset.adicionalQty);
+        if (!adicional) return;
+        mods.push({
+            tipo: 'adicional',
+            descripcion: adicional.nombre,
+            cantidad: cantidad,
+            precio_extra: parseFloat(adicional.precio || 0),
+        });
+    });
+
+    tempExclusiones.forEach(e => {
+        mods.push({
+            tipo: 'exclusion',
+            descripcion: e,
+            cantidad: 1,
+            precio_extra: 0,
+        });
+    });
+
+    item.modificaciones = mods;
+    cerrarModal();
+    renderCart();
+}
+
+function enviarPedido() {
+    if (cart.length === 0) {
+        alert('Agrega productos al pedido primero.');
+        return;
+    }
+
+    const items = cart.map(item => ({
+        producto: item.nombre,
+        cantidad: item.cantidad,
+        precio: item.precio,
+        modificaciones: item.modificaciones,
+    }));
+
+    const notas = document.getElementById('notasPedido').value;
+
+    fetch('/api/pedido', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({mesa_id: MESA_ID, items, notas}),
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.ok) {
+            window.location.href = '/mesero/mesas';
+        } else {
+            alert('Error al enviar el pedido: ' + (data.error || 'Intenta de nuevo.'));
+        }
+    })
+    .catch(err => {
+        alert('Error de conexion: ' + err.message);
+    });
+}
+
+applyProductFilters();
+</script>
+{% endblock %}
