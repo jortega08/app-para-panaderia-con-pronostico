@@ -1,7 +1,7 @@
 ﻿{% extends "base.html" %}
 {% block title_extra %} - Ventas de Hoy{% endblock %}
 {% block content %}
-<div class="page-container">
+<div class="page-container {% if layout == 'cajero' %}cajero-ventas-page{% endif %}">
     <div class="page-header">
         <h2 class="page-title">Ventas de Hoy</h2>
         <div class="page-header-right">

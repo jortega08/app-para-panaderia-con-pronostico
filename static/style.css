@@ -76,6 +76,7 @@ input, select { font-family: inherit; }
 .cajero-layout .main-content {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
 }
 
 /* ══════════════════════════════════════════════
@@ -251,7 +252,12 @@ input, select { font-family: inherit; }
 /* ══════════════════════════════════════════════
    PAGE CONTAINER
    ══════════════════════════════════════════════ */
-.page-container { padding: 24px 30px; max-width: 1200px; }
+.page-container { padding: 24px 30px; max-width: 1200px; width: 100%; }
+.page-container.pos-page,
+.page-container.cajero-pedidos-page,
+.page-container.cajero-ventas-page {
+    max-width: none;
+}
 .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
 .page-header-right { display: flex; align-items: center; gap: 12px; }
 .page-title { font-size: 24px; font-weight: 700; color: var(--text); }
@@ -355,10 +361,13 @@ input, select { font-family: inherit; }
     grid-template-columns: 1fr 380px;
     height: calc(100vh - 56px);
     gap: 0;
+    width: 100%;
+    min-width: 0;
 }
 .pos-products {
     padding: 24px;
     overflow-y: auto;
+    min-width: 0;
 }
 .product-grid {
     display: grid;
@@ -436,6 +445,8 @@ input, select { font-family: inherit; }
     display: flex;
     flex-direction: column;
     height: 100%;
+    min-width: 0;
+    width: 100%;
 }
 .cart-header {
     background: var(--primary-dark);
@@ -1383,6 +1394,8 @@ input, select { font-family: inherit; }
     display: flex;
     flex-direction: column;
     gap: 12px;
+    width: 100%;
+    min-width: 0;
 }
 .pedido-card {
     background: var(--card);
@@ -1390,6 +1403,8 @@ input, select { font-family: inherit; }
     box-shadow: var(--card-shadow);
     overflow: hidden;
     border-left: 5px solid var(--border);
+    width: 100%;
+    min-width: 0;
 }
 .pedido-estado-pendiente { border-left-color: var(--warning); }
 .pedido-estado-en_preparacion { border-left-color: var(--accent); }
@@ -1905,8 +1920,28 @@ input, select { font-family: inherit; }
     .sidebar-nav {
         overflow-y: auto;
     }
-    .pos-layout { grid-template-columns: 1fr; }
-    .cart-panel { border-left: none; border-top: 1px solid var(--divider); max-height: 50vh; }
+    .pos-page,
+    .cajero-pedidos-page {
+        max-width: none;
+    }
+    .pos-layout {
+        grid-template-columns: minmax(0, 1fr);
+        height: auto;
+        min-height: 0;
+    }
+    .pos-products,
+    .cart-panel,
+    .pedidos-list,
+    .pedido-card {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+    }
+    .cart-panel {
+        border-left: none;
+        border-top: 1px solid var(--divider);
+        max-height: none;
+    }
     .dashboard-row { grid-template-columns: 1fr; }
     .metrics-row { grid-template-columns: 1fr; }
     .two-col-form { grid-template-columns: 1fr; }
@@ -1952,6 +1987,11 @@ input, select { font-family: inherit; }
     }
     .page-container {
         padding: 18px 16px 24px;
+    }
+    .pedido-detail-grid,
+    .pedido-items,
+    .pedido-actions {
+        min-width: 0;
     }
     .caja-banner {
         flex-direction: column;

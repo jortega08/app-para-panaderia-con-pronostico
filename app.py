@@ -37,7 +37,9 @@ from data.database import (
     guardar_catalogo_productos,
     agregar_categoria_producto,
     actualizar_categoria_producto,
+    actualizar_producto_completo,
     actualizar_producto_adicional,
+    eliminar_producto_por_id,
     guardar_catalogo_insumos,
     actualizar_precio,
     verificar_pin,
@@ -80,6 +82,7 @@ from data.database import (
     obtener_resumen_mesas,
     obtener_adicionales,
     agregar_adicional,
+    actualizar_adicional_detalle,
     actualizar_adicional,
     eliminar_adicional,
     guardar_configuracion_adicional,
@@ -144,6 +147,21 @@ def _normalizar_texto(texto):
     base = "".join(ch for ch in base if not unicodedata.combining(ch))
     base = base.strip().lower()
     return re.sub(r"[^a-z0-9]+", " ", base).strip()
+
+
+def _obtener_adicionales_operativos():
+    catalogo = []
+    vistos = set()
+
+    for adicional in list(obtener_productos_adicionales()) + list(obtener_adicionales()):
+        nombre = str(adicional.get("nombre", "") or "").strip()
+        clave = _normalizar_texto(nombre)
+        if not clave or clave in vistos:
+            continue
+        catalogo.append(adicional)
+        vistos.add(clave)
+
+    return catalogo
 
 
 def _excel_col_to_index(ref_celda):
@@ -572,7 +590,7 @@ def mesero_pedido(mesa_id):
     for p in productos:
         p["icono"] = icono(p["nombre"], p.get("categoria"))
         p["color"] = color_prod(p["nombre"])
-    adicionales = obtener_productos_adicionales()
+    adicionales = _obtener_adicionales_operativos()
     mesas = obtener_mesas()
     mesa = next((m for m in mesas if m["id"] == mesa_id), None)
     if not mesa:
@@ -1404,7 +1422,34 @@ def api_agregar_producto():
     if not nombre:
         return jsonify({"ok": False, "error": "Nombre vacio"}), 400
     ok = agregar_producto(nombre, precio, categoria, es_adicional=es_adicional)
-    return jsonify({"ok": ok})
+    return jsonify({"ok": ok, "error": None if ok else "Ese producto ya existe"})
+
+
+@app.route("/api/producto/<int:producto_id>", methods=["PUT"])
+@login_required
+def api_actualizar_producto_completo(producto_id):
+    data = request.get_json(silent=True) or {}
+    nombre = str(data.get("nombre", "") or "").strip()
+    categoria = str(data.get("categoria", "Panaderia") or "").strip() or "Panaderia"
+    es_adicional = bool(data.get("es_adicional", False))
+
+    try:
+        precio = float(data.get("precio", 0) or 0)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Precio invalido"}), 400
+
+    if not nombre:
+        return jsonify({"ok": False, "error": "Nombre vacio"}), 400
+
+    ok = actualizar_producto_completo(producto_id, nombre, precio, categoria, es_adicional)
+    return jsonify({"ok": ok, "error": None if ok else "No se pudo actualizar el producto"})
+
+
+@app.route("/api/producto/<int:producto_id>", methods=["DELETE"])
+@login_required
+def api_eliminar_producto(producto_id):
+    ok = eliminar_producto_por_id(producto_id)
+    return jsonify({"ok": ok, "error": None if ok else "No se pudo eliminar el producto"})
 
 
 @app.route("/api/productos/importar", methods=["POST"])
@@ -1630,7 +1675,7 @@ def api_obtener_pedidos():
 @app.route("/api/adicionales")
 @login_required
 def api_obtener_adicionales():
-    return jsonify(obtener_adicionales())
+    return jsonify(_obtener_adicionales_operativos())
 
 
 @app.route("/api/adicional", methods=["POST"])
@@ -1642,7 +1687,7 @@ def api_agregar_adicional():
     if not nombre:
         return jsonify({"ok": False, "error": "Nombre vacio"}), 400
     ok = agregar_adicional(nombre, precio)
-    return jsonify({"ok": ok})
+    return jsonify({"ok": ok, "error": None if ok else "Ese adicional ya existe"})
 
 
 @app.route("/api/adicional/<int:aid>/precio", methods=["PUT"])
@@ -1658,16 +1703,22 @@ def api_actualizar_adicional(aid):
 @login_required
 def api_guardar_configuracion_adicional(aid):
     data = request.get_json(silent=True) or {}
+    nombre = str(data.get("nombre", "") or "").strip()
     insumos = data.get("insumos", [])
     componentes = data.get("componentes", [])
     try:
         precio = float(data.get("precio", 0) or 0)
     except (TypeError, ValueError):
         return jsonify({"ok": False, "error": "Precio invalido"}), 400
+    if not nombre:
+        return jsonify({"ok": False, "error": "Nombre invalido"}), 400
 
-    ok_precio = actualizar_adicional(aid, precio)
+    ok_precio = actualizar_adicional_detalle(aid, nombre, precio)
+    if not ok_precio:
+        return jsonify({"ok": False, "error": "No se pudo actualizar el adicional"}), 400
+
     ok_config = guardar_configuracion_adicional(aid, insumos, componentes)
-    return jsonify({"ok": bool(ok_precio and ok_config)})
+    return jsonify({"ok": bool(ok_config), "error": None if ok_config else "No se pudo guardar la configuracion"})
 
 
 @app.route("/api/adicional/<int:aid>", methods=["DELETE"])

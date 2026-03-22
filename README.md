@@ -1,101 +1,91 @@
-# Panaderia - Sistema de Ventas y Pronostico
+# Panaderia Richs - Sistema de ventas, produccion y pronostico
 
-Sistema sencillo para panaderias que combina punto de venta con pronostico
-de produccion. Disenado para ser facil de usar por personas de cualquier edad.
+Aplicacion web desarrollada en **Python + Flask + SQLite** para apoyar la
+operacion diaria de una panaderia. El sistema integra:
 
----
+- punto de venta para cajero
+- toma de pedidos por mesa para mesero
+- registro de produccion diaria para panaderia
+- inventario de insumos
+- recetas y productos compuestos
+- pronostico de produccion para productos de categoria `Panaderia`
+- control de caja con apertura, movimientos, cierre y reapertura
+- dashboards operativos, contables e historicos
 
-## Estructura del proyecto
+## Tecnologias
 
-```
-panaderia_app/
-|
-├── app.py                  <- Interfaz grafica (punto de entrada)
-├── seed_demo.py            <- Genera datos de prueba (ejecutar 1 vez)
-|
-├── data/
-|   ├── __init__.py
-|   └── database.py         <- Base de datos SQLite
-|
-├── logic/
-|   ├── __init__.py
-|   └── pronostico.py       <- Motor de pronostico
-|
-└── README.md
-```
+- Python
+- Flask
+- SQLite
+- HTML + Jinja2
+- JavaScript
+- CSS
+- Chart.js
 
----
+## Ejecucion
 
-## Instalacion
-
-### Requisitos
-- Python 3.10 o superior
-- Tkinter (ya viene con Python)
-- matplotlib (opcional, para graficas)
-
-### 1. Instalar dependencias opcionales
-
-```bash
-pip install matplotlib
-```
-
-### 2. (Opcional) Generar datos de demostracion
+1. Inicializar datos de prueba si se requiere:
 
 ```bash
 python seed_demo.py
 ```
 
-Crea 45 dias de historial con ventas simuladas.
-
-### 3. Ejecutar
+2. Ejecutar la aplicacion:
 
 ```bash
 python app.py
 ```
 
----
+## Usuarios por defecto
 
-## Roles
+- `Admin` - PIN `1234` - rol `panadero`
+- `Cajero` - PIN `0000` - rol `cajero`
+- `Mesero` - PIN `1111` - rol `mesero`
 
-| Rol       | PIN default | Que puede hacer                                      |
-|-----------|-------------|------------------------------------------------------|
-| Panadero  | 1234        | Ver pronosticos, registrar produccion, configurar     |
-| Cajero    | 0000        | Registrar ventas, ver resumen del dia                 |
+Si estos usuarios ya fueron modificados desde configuracion, se deben usar los
+datos actualizados.
 
-Los PINs y usuarios se pueden cambiar desde Configuracion (rol panadero).
+## Modulos principales
 
----
+### Panadero / Administrador
 
-## Funciones principales
+- Pronostico de produccion
+- Registro de produccion
+- Ventas de hoy
+- Operaciones
+- Historial
+- Inventario
+- Respaldos
+- Configuracion
 
 ### Cajero
-- **Registrar Venta**: Selecciona producto, cantidad, y registra. Muestra total.
-- **Ventas de Hoy**: Resumen de todas las ventas del dia.
 
-### Panadero
-- **Cuantos Hornear**: Pronostico por producto con colores de estado.
-- **Registrar Produccion**: Cuantos panes se hornearon (vendido se auto-llena desde ventas del cajero).
-- **Ventas de Hoy**: Ver lo que registro el cajero.
-- **Historial**: Tabla de produccion por dias.
-- **Configuracion**: Productos, precios y usuarios.
+- Punto de venta
+- Pedidos
+- Ventas de hoy
+- Apertura, movimientos, cierre y reapertura de caja
 
----
+### Mesero
 
-## Pronostico
+- Mesas
+- Toma de pedido por mesa
+- Seguimiento de pedidos
 
-El sistema calcula automaticamente cuantos panes hornear:
+## Reglas clave del sistema
 
-| Datos disponibles | Metodo                  | Confianza |
-|-------------------|-------------------------|-----------|
-| < 7 dias          | Estimacion inicial      | Poca      |
-| 7 - 29 dias       | Promedio de la semana   | Media     |
-| 30+ dias          | Promedio por dia        | Buena     |
+- Solo los productos de categoria `Panaderia` participan en produccion y
+  pronostico.
+- No se pueden vender o comprometer productos de panaderia si no existe
+  produccion suficiente registrada para el dia.
+- Los pedidos pueden pasar por estados como `pendiente`, `en preparacion`,
+  `listo` y `pagado`.
+- Los adicionales se configuran desde administracion y pueden descontar insumos
+  o productos base del inventario.
+- La caja debe abrirse antes de cobrar.
+- El cierre y la reapertura de caja requieren codigo de verificacion.
 
----
+## Documentacion
 
-## Futuras mejoras
+Consulta el manual de usuario completo en:
 
-- [ ] QR en caja para que el cliente registre su pedido
-- [ ] Exportar reportes a Excel/PDF
-- [ ] Notificaciones al inicio del dia
-- [ ] Version web
+- [MANUAL_USUARIO.md](C:/Users/mondr/OneDrive/Documentos/VisualStudioCode/PuntoVentaPanaderia/app-para-panaderia-con-pronostico/MANUAL_USUARIO.md)

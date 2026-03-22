@@ -9,36 +9,33 @@
     <div class="card">
         <div class="card-header">Productos y Precios</div>
         <div class="card-body" id="productList">
+            <p class="text-muted" style="margin-bottom: 14px;">
+                Desde aqui puedes editar nombre, precio, categoria y definir si un producto puede usarse como adicional.
+                Los productos marcados como adicional aparecen disponibles para mesero y cajero.
+            </p>
             {% for p in productos %}
             <div class="config-row">
                 <span class="config-dot" style="background: {{ p.color }}"></span>
                 <span class="material-symbols-outlined config-product-icon">{{ p.icono }}</span>
-                <span class="config-name">{{ p.nombre }}</span>
-                <span class="chip">{{ p.categoria }}</span>
-                {% if p.es_adicional %}
-                <span class="chip chip-success">Adicional</span>
-                {% endif %}
-                <span class="config-price">${{ '%.2f'|format(p.precio) }}</span>
+                <input type="text" class="form-input form-input-sm" id="prod-name-{{ p.id }}"
+                       value="{{ p.nombre }}" style="flex: 1.4; min-width: 180px;">
                 <input type="number" step="0.5" min="0" class="form-input form-input-sm price-input"
-                       value="{{ p.precio }}" id="price-{{ loop.index }}">
-                <button class="btn btn-sm btn-primary"
-                        onclick="changePrice({{ p.nombre|tojson }}, document.getElementById('price-{{ loop.index }}').value)">
-                    Cambiar
-                </button>
-                <select class="form-input form-input-sm" id="category-{{ loop.index }}" style="width: 190px;">
+                       value="{{ p.precio }}" id="prod-price-{{ p.id }}">
+                <select class="form-input form-input-sm" id="prod-category-{{ p.id }}" style="width: 190px;">
                     {% for categoria in categorias %}
                     <option value="{{ categoria }}" {% if categoria == p.categoria %}selected{% endif %}>{{ categoria }}</option>
                     {% endfor %}
                 </select>
-                <button class="btn btn-sm btn-outline"
-                        onclick="changeCategory({{ p.nombre|tojson }}, document.getElementById('category-{{ loop.index }}').value)">
-                    Categoria
-                </button>
                 <label class="config-toggle">
-                    <input type="checkbox" id="additional-{{ loop.index }}" {% if p.es_adicional %}checked{% endif %}
-                           onchange="changeAdditional({{ p.nombre|tojson }}, this.checked)">
+                    <input type="checkbox" id="prod-additional-{{ p.id }}" {% if p.es_adicional %}checked{% endif %}>
                     <span>Puede ser adicional</span>
                 </label>
+                <button class="btn btn-sm btn-primary" onclick="saveProduct({{ p.id }})">
+                    Guardar
+                </button>
+                <button class="btn btn-sm btn-danger-outline" onclick="deleteProduct({{ p.id }}, {{ p.nombre|tojson }})">
+                    Eliminar
+                </button>
             </div>
             {% endfor %}
 
@@ -190,32 +187,28 @@ try {
         '<p class="text-muted">No se pudo generar el QR.<br>URL: {{ qr_url }}</p>';
 }
 
-function changePrice(nombre, precio) {
-    precio = parseFloat(precio);
-    if (isNaN(precio) || precio < 0) { alert('Precio invalido'); return; }
-    fetch('/api/producto/precio', {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ nombre: nombre, precio: precio }),
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.ok) location.reload();
-        else alert('Error al cambiar precio');
-    });
-}
+function saveProduct(productId) {
+    const nombre = document.getElementById('prod-name-' + productId).value.trim();
+    const precio = parseFloat(document.getElementById('prod-price-' + productId).value);
+    const categoria = document.getElementById('prod-category-' + productId).value;
+    const es_adicional = document.getElementById('prod-additional-' + productId).checked;
 
-function changeCategory(nombre, categoria) {
+    if (!nombre) { alert('Escribe el nombre del producto'); return; }
+    if (isNaN(precio) || precio < 0) { alert('Precio invalido'); return; }
     if (!categoria) { alert('Selecciona una categoria'); return; }
-    fetch('/api/producto/categoria', {
+
+    fetch('/api/producto/' + productId, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ nombre: nombre, categoria: categoria }),
+        body: JSON.stringify({ nombre, precio, categoria, es_adicional }),
     })
     .then(r => r.json())
     .then(data => {
         if (data.ok) location.reload();
-        else alert('No se pudo actualizar la categoria');
+        else alert(data.error || 'No se pudo guardar el producto');
+    })
+    .catch(err => {
+        alert(err.message || 'No se pudo guardar el producto');
     });
 }
 
@@ -234,26 +227,22 @@ function addProduct() {
     .then(r => r.json())
     .then(data => {
         if (data.ok) location.reload();
-        else alert('Ese producto ya existe');
+        else alert(data.error || 'No se pudo agregar el producto');
     });
 }
 
-function changeAdditional(nombre, esAdicional) {
-    fetch('/api/producto/adicional', {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ nombre: nombre, es_adicional: esAdicional }),
+function deleteProduct(productId, nombre) {
+    if (!confirm('Eliminar el producto "' + nombre + '"?')) return;
+    fetch('/api/producto/' + productId, {
+        method: 'DELETE',
     })
     .then(r => r.json())
     .then(data => {
-        if (!data.ok) {
-            alert(data.error || 'No se pudo actualizar el adicional');
-            location.reload();
-        }
+        if (data.ok) location.reload();
+        else alert(data.error || 'No se pudo eliminar el producto');
     })
     .catch(err => {
-        alert(err.message || 'No se pudo actualizar el adicional');
-        location.reload();
+        alert(err.message || 'No se pudo eliminar el producto');
     });
 }
 

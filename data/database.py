@@ -447,21 +447,6 @@ def inicializar_base_de_datos() -> None:
                 (num, f"Mesa {num}")
             )
 
-        # Adicionales por defecto
-        adicionales_iniciales = [
-            ("Huevo extra", 5.0),
-            ("Queso extra", 8.0),
-            ("Jamon extra", 10.0),
-            ("Pan adicional", 8.0),
-            ("Cafe adicional", 15.0),
-            ("Mantequilla extra", 3.0),
-        ]
-        for nombre, precio in adicionales_iniciales:
-            conn.execute(
-                "INSERT OR IGNORE INTO adicionales (nombre, precio) VALUES (?, ?)",
-                (nombre, precio)
-            )
-
         # Insumos iniciales
         insumos_iniciales = [
             ("Harina", "kg", 50.0, 10.0),
@@ -560,54 +545,6 @@ def inicializar_base_de_datos() -> None:
                 ficha["pasos"],
                 ficha["observaciones"],
             ))
-
-        # Insumos por adicional
-        adicional_insumos_default = {
-            "Huevo extra": [("Huevos", 1.0, "unidad")],
-            "Queso extra": [("Queso", 50.0, "g")],
-            "Jamon extra": [("Jamon", 50.0, "g")],
-            "Cafe adicional": [("Cafe molido", 20.0, "g"), ("Leche", 100.0, "ml")],
-            "Mantequilla extra": [("Mantequilla", 30.0, "g")],
-        }
-        for adicional_nombre, ingredientes in adicional_insumos_default.items():
-            adic = conn.execute(
-                "SELECT id FROM adicionales WHERE nombre = ?", (adicional_nombre,)
-            ).fetchone()
-            if adic:
-                for insumo_nombre, cant, unidad_cfg in ingredientes:
-                    insumo = conn.execute(
-                        "SELECT id FROM insumos WHERE nombre = ?", (insumo_nombre,)
-                    ).fetchone()
-                    if insumo:
-                        conn.execute(
-                            "INSERT OR IGNORE INTO adicional_insumos (adicional_id, insumo_id, cantidad, unidad_config) VALUES (?, ?, ?, ?)",
-                            (adic["id"], insumo["id"], cant, unidad_cfg)
-                        )
-
-        pan_adicional = conn.execute(
-            "SELECT id FROM adicionales WHERE nombre = ?", ("Pan adicional",)
-        ).fetchone()
-        pan_frances = conn.execute(
-            "SELECT nombre FROM productos WHERE nombre = ? AND activo = 1",
-            ("Pan Frances",)
-        ).fetchone()
-        if pan_adicional and pan_frances:
-            conn.execute(
-                "INSERT OR IGNORE INTO adicional_componentes (adicional_id, componente_producto, cantidad) VALUES (?, ?, ?)",
-                (pan_adicional["id"], pan_frances["nombre"], 1.0)
-            )
-            filas_pan_adicional = conn.execute("""
-                SELECT ai.id, i.nombre
-                FROM adicional_insumos ai
-                JOIN insumos i ON i.id = ai.insumo_id
-                WHERE ai.adicional_id = ?
-            """, (pan_adicional["id"],)).fetchall()
-            nombres_pan_adicional = {fila["nombre"] for fila in filas_pan_adicional}
-            if nombres_pan_adicional and nombres_pan_adicional.issubset({"Harina", "Levadura"}):
-                conn.execute(
-                    "DELETE FROM adicional_insumos WHERE adicional_id = ?",
-                    (pan_adicional["id"],)
-                )
 
         conn.commit()
 
@@ -1022,15 +959,79 @@ def guardar_catalogo_insumos(insumos: list[dict]) -> dict:
     return resultado
 
 
+def _renombrar_producto_referencias_conn(conn, nombre_anterior: str, nuevo_nombre: str) -> None:
+    if not nombre_anterior or not nuevo_nombre or nombre_anterior == nuevo_nombre:
+        return
+
+    actualizaciones = [
+        ("ventas", "producto"),
+        ("registros_diarios", "producto"),
+        ("pedido_items", "producto"),
+        ("recetas", "producto"),
+        ("receta_fichas", "producto"),
+        ("producto_componentes", "producto"),
+        ("producto_componentes", "componente_producto"),
+        ("adicional_componentes", "componente_producto"),
+    ]
+
+    for tabla, columna in actualizaciones:
+        conn.execute(
+            f"UPDATE {tabla} SET {columna} = ? WHERE {columna} = ?",
+            (nuevo_nombre, nombre_anterior)
+        )
+
+    conn.execute("""
+        UPDATE pedido_item_modificaciones
+        SET descripcion = ?
+        WHERE tipo = 'adicional' AND descripcion = ?
+    """, (nuevo_nombre, nombre_anterior))
+
+
+def actualizar_producto_completo(producto_id: int, nombre: str, precio: float,
+                                 categoria: str, es_adicional: bool) -> bool:
+    nombre = str(nombre or "").strip()
+    categoria = str(categoria or "").strip() or "Panaderia"
+    if producto_id <= 0 or not nombre:
+        return False
+
+    try:
+        with get_connection() as conn:
+            actual = conn.execute(
+                "SELECT nombre FROM productos WHERE id = ?",
+                (producto_id,)
+            ).fetchone()
+            if not actual:
+                return False
+
+            nombre_anterior = str(actual["nombre"] or "")
+            conn.execute(
+                "INSERT OR IGNORE INTO categorias_producto (nombre, activa) VALUES (?, 1)",
+                (categoria,)
+            )
+            conn.execute("""
+                UPDATE productos
+                SET nombre = ?, precio = ?, categoria = ?, es_adicional = ?
+                WHERE id = ?
+            """, (nombre, float(precio), categoria, 1 if es_adicional else 0, producto_id))
+
+            _renombrar_producto_referencias_conn(conn, nombre_anterior, nombre)
+            conn.commit()
+            return True
+    except sqlite3.IntegrityError:
+        return False
+    except Exception:
+        return False
+
+
 def actualizar_precio(producto: str, nuevo_precio: float) -> bool:
     try:
         with get_connection() as conn:
-            conn.execute(
+            cur = conn.execute(
                 "UPDATE productos SET precio = ? WHERE nombre = ?",
                 (nuevo_precio, producto)
             )
             conn.commit()
-        return True
+        return cur.rowcount > 0
     except Exception:
         return False
 
@@ -1042,12 +1043,12 @@ def actualizar_categoria_producto(producto: str, nueva_categoria: str) -> bool:
                 "INSERT OR IGNORE INTO categorias_producto (nombre, activa) VALUES (?, 1)",
                 (nueva_categoria,)
             )
-            conn.execute(
+            cur = conn.execute(
                 "UPDATE productos SET categoria = ? WHERE nombre = ?",
                 (nueva_categoria, producto)
             )
             conn.commit()
-        return True
+        return cur.rowcount > 0
     except Exception:
         return False
 
@@ -1055,12 +1056,12 @@ def actualizar_categoria_producto(producto: str, nueva_categoria: str) -> bool:
 def actualizar_producto_adicional(producto: str, es_adicional: bool) -> bool:
     try:
         with get_connection() as conn:
-            conn.execute(
+            cur = conn.execute(
                 "UPDATE productos SET es_adicional = ? WHERE nombre = ?",
                 (1 if es_adicional else 0, producto)
             )
             conn.commit()
-        return True
+        return cur.rowcount > 0
     except Exception:
         return False
 
@@ -1069,12 +1070,25 @@ def eliminar_producto(producto: str) -> bool:
     """Desactiva un producto (soft delete)."""
     try:
         with get_connection() as conn:
-            conn.execute(
+            cur = conn.execute(
                 "UPDATE productos SET activo = 0 WHERE nombre = ?",
                 (producto,)
             )
             conn.commit()
-        return True
+        return cur.rowcount > 0
+    except Exception:
+        return False
+
+
+def eliminar_producto_por_id(producto_id: int) -> bool:
+    try:
+        with get_connection() as conn:
+            cur = conn.execute(
+                "UPDATE productos SET activo = 0 WHERE id = ?",
+                (producto_id,)
+            )
+            conn.commit()
+        return cur.rowcount > 0
     except Exception:
         return False
 
@@ -2299,15 +2313,41 @@ def agregar_adicional(nombre: str, precio: float) -> bool:
         return False
 
 
+def actualizar_adicional_detalle(adicional_id: int, nombre: str, precio: float) -> bool:
+    nombre = str(nombre or "").strip()
+    if adicional_id <= 0 or not nombre:
+        return False
+
+    try:
+        with get_connection() as conn:
+            existe = conn.execute(
+                "SELECT id FROM adicionales WHERE id = ?",
+                (adicional_id,)
+            ).fetchone()
+            if not existe:
+                return False
+
+            conn.execute(
+                "UPDATE adicionales SET nombre = ?, precio = ? WHERE id = ?",
+                (nombre, float(precio), adicional_id)
+            )
+            conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    except Exception:
+        return False
+
+
 def actualizar_adicional(adicional_id: int, precio: float) -> bool:
     try:
         with get_connection() as conn:
-            conn.execute(
+            cur = conn.execute(
                 "UPDATE adicionales SET precio = ? WHERE id = ?",
                 (precio, adicional_id)
             )
             conn.commit()
-        return True
+        return cur.rowcount > 0
     except Exception:
         return False
 
@@ -2315,9 +2355,9 @@ def actualizar_adicional(adicional_id: int, precio: float) -> bool:
 def eliminar_adicional(adicional_id: int) -> bool:
     try:
         with get_connection() as conn:
-            conn.execute("UPDATE adicionales SET activo = 0 WHERE id = ?", (adicional_id,))
+            cur = conn.execute("UPDATE adicionales SET activo = 0 WHERE id = ?", (adicional_id,))
             conn.commit()
-        return True
+        return cur.rowcount > 0
     except Exception:
         return False
 

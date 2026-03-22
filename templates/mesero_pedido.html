@@ -101,7 +101,7 @@ let tempExclusiones = [];
 let selectedCategory = 'todos';
 const MESA_ID = {{ mesa.id }};
 const ADICIONALES = {{ adicionales | tojson }};
-const ADICIONALES_DISPONIBLES = (ADICIONALES || []).filter(a => a.tiene_configuracion !== false);
+const ADICIONALES_DISPONIBLES = ADICIONALES || [];
 
 function escapeHtml(texto) {
     return String(texto || '')

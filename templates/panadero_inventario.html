@@ -247,6 +247,10 @@
     <div class="card">
         <div class="card-header">Adicionales y Consumo de Inventario</div>
         <div class="card-body">
+            <p class="text-muted" style="margin-bottom: 14px;">
+                Esta seccion es para adicionales manuales. Los productos marcados como <strong>Puede ser adicional</strong>
+                se administran desde configuracion y tambien aparecen disponibles en los pedidos.
+            </p>
             <div class="recipe-editor-grid">
                 <div class="recipe-editor-panel">
                     <div class="form-group">
@@ -271,6 +275,11 @@
                     {% if adicionales %}
                     <div class="recipe-doc-grid" style="margin-top: 16px;">
                         <div class="form-group">
+                            <label for="adicionalNombreEditor">Nombre del adicional</label>
+                            <input type="text" id="adicionalNombreEditor" class="form-input"
+                                   placeholder="Nombre del adicional" oninput="actualizarVistaAdicional()">
+                        </div>
+                        <div class="form-group">
                             <label for="adicionalPrecioEditor">Precio adicional</label>
                             <input type="number" id="adicionalPrecioEditor" class="form-input"
                                    min="0" step="0.5" placeholder="0" oninput="actualizarVistaAdicional()">
@@ -286,6 +295,9 @@
                         </button>
                         <button class="btn btn-accent" type="button" onclick="guardarConfiguracionAdicional()">
                             Guardar adicional
+                        </button>
+                        <button class="btn btn-danger-outline" type="button" onclick="eliminarAdicionalActual()">
+                            Eliminar adicional
                         </button>
                     </div>
 
@@ -909,7 +921,7 @@ function agregarAdicionalInventario() {
     .then(r => r.json())
     .then(data => {
         if (data.ok) location.reload();
-        else alert('No se pudo crear el adicional.');
+        else alert(data.error || 'No se pudo crear el adicional.');
     })
     .catch(() => {
         alert('No se pudo crear el adicional.');
@@ -1057,6 +1069,7 @@ function recogerComponentesAdicional() {
 
 function cargarEditorAdicional() {
     const select = document.getElementById('adicionalEditor');
+    const nombreInput = document.getElementById('adicionalNombreEditor');
     const insumoContainer = document.getElementById('adicionalInsumoRows');
     const componenteContainer = document.getElementById('adicionalComponentRows');
     const preview = document.getElementById('adicionalSummaryPreview');
@@ -1071,6 +1084,9 @@ function cargarEditorAdicional() {
         return;
     }
 
+    if (nombreInput) {
+        nombreInput.value = adicional.nombre || '';
+    }
     document.getElementById('adicionalPrecioEditor').value = adicional.precio || 0;
 
     (adicional.insumos || []).forEach(item => agregarFilaAdicionalInsumo({
@@ -1092,6 +1108,7 @@ function actualizarVistaAdicional() {
     const preview = document.getElementById('adicionalSummaryPreview');
     const select = document.getElementById('adicionalEditor');
     const precioInput = document.getElementById('adicionalPrecioEditor');
+    const nombreInput = document.getElementById('adicionalNombreEditor');
     if (!preview || !select || !precioInput) return;
 
     const adicional = obtenerAdicionalCatalogo(select.value);
@@ -1110,13 +1127,14 @@ function actualizarVistaAdicional() {
         return;
     }
 
-    const precio = parseFloat(precioInput.value) || 0;
-    const bloques = [`
-        <div class="recipe-preview-section">
-            <div class="recipe-summary-subtitle">Resumen</div>
-            <div class="recipe-preview-row"><strong>${escapeHtml(adicional.nombre)}</strong><span>$${formatearCantidad(precio)}</span></div>
-        </div>
-    `];
+      const precio = parseFloat(precioInput.value) || 0;
+      const nombre = (nombreInput && nombreInput.value.trim()) || adicional.nombre;
+      const bloques = [`
+          <div class="recipe-preview-section">
+              <div class="recipe-summary-subtitle">Resumen</div>
+              <div class="recipe-preview-row"><strong>${escapeHtml(nombre)}</strong><span>$${formatearCantidad(precio)}</span></div>
+          </div>
+      `];
 
     if (insumos.length) {
         bloques.push(`
@@ -1149,8 +1167,14 @@ function actualizarVistaAdicional() {
 function guardarConfiguracionAdicional() {
     const select = document.getElementById('adicionalEditor');
     const precioInput = document.getElementById('adicionalPrecioEditor');
-    if (!select || !precioInput || !select.value) {
+    const nombreInput = document.getElementById('adicionalNombreEditor');
+    if (!select || !precioInput || !select.value || !nombreInput) {
         alert('Selecciona un adicional.');
+        return;
+    }
+    const nombre = nombreInput.value.trim();
+    if (!nombre) {
+        alert('Escribe el nombre del adicional.');
         return;
     }
 
@@ -1169,15 +1193,38 @@ function guardarConfiguracionAdicional() {
     fetch('/api/adicional/' + encodeURIComponent(select.value) + '/configuracion', {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({precio, insumos, componentes}),
+        body: JSON.stringify({nombre, precio, insumos, componentes}),
     })
     .then(r => r.json())
     .then(data => {
         if (data.ok) location.reload();
-        else alert('No se pudo guardar la configuracion del adicional.');
+        else alert(data.error || 'No se pudo guardar la configuracion del adicional.');
     })
     .catch(() => {
         alert('No se pudo guardar la configuracion del adicional.');
+    });
+}
+
+function eliminarAdicionalActual() {
+    const select = document.getElementById('adicionalEditor');
+    if (!select || !select.value) {
+        alert('Selecciona un adicional.');
+        return;
+    }
+    const adicional = obtenerAdicionalCatalogo(select.value);
+    const nombre = adicional ? adicional.nombre : 'este adicional';
+    if (!confirm('Eliminar "' + nombre + '"?')) return;
+
+    fetch('/api/adicional/' + encodeURIComponent(select.value), {
+        method: 'DELETE',
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) location.reload();
+        else alert(data.error || 'No se pudo eliminar el adicional.');
+    })
+    .catch(err => {
+        alert(err.message || 'No se pudo eliminar el adicional.');
     });
 }
 

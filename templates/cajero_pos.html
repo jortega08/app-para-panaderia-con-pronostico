@@ -1,6 +1,51 @@
 ﻿{% extends "base.html" %}
 {% block title_extra %} - Punto de Venta{% endblock %}
 {% block content %}
+<style>
+@media (max-width: 900px) {
+    .cajero-layout .main-content {
+        width: 100vw;
+        max-width: 100vw;
+        overflow-x: hidden;
+    }
+    .page-container.pos-page {
+        width: 100vw;
+        max-width: 100vw;
+        margin: 0;
+        padding: 16px 12px 24px;
+    }
+    .page-container.pos-page > * {
+        width: 100%;
+        max-width: 100%;
+    }
+    .page-container.pos-page .pos-layout {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        height: auto;
+    }
+    .page-container.pos-page .pos-products,
+    .page-container.pos-page .cart-panel,
+    .page-container.pos-page #cajaStatusCard,
+    .page-container.pos-page .card {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        margin-left: 0;
+        margin-right: 0;
+    }
+    .page-container.pos-page .product-grid {
+        grid-template-columns: 1fr;
+    }
+    .page-container.pos-page .cart-panel {
+        max-height: none;
+        border-left: none;
+        border-top: 1px solid var(--divider);
+    }
+}
+</style>
 <div class="page-container pos-page">
     <div id="cajaStatusCard"></div>
 
