@@ -3332,7 +3332,7 @@ def guardar_receta(producto: str, ingredientes: list[dict], ficha: dict | None =
             conn.commit()
         return True
     except Exception as e:
-        print(f"[ERROR] guardar_receta: {e}")
+        logger.error(f"guardar_receta: {e}")
         return False
 
 
@@ -3476,7 +3476,7 @@ def registrar_audit(
                   str(detalle or ""), str(valor_antes or ""), str(valor_nuevo or "")))
             conn.commit()
     except Exception as e:
-        print(f"[AUDIT ERROR] {e}")
+        logger.error(f"registrar_audit: {e}")
 
 
 def obtener_audit_log(dias: int = 30, limite: int = 200) -> list[dict]:
@@ -3633,7 +3633,7 @@ def guardar_ajuste_pronostico(
             conn.commit()
         return True
     except Exception as e:
-        print(f"[ERROR] guardar_ajuste_pronostico: {e}")
+        logger.error(f"guardar_ajuste_pronostico: {e}")
         return False
 
 
@@ -3687,7 +3687,7 @@ def registrar_merma(
             conn.commit()
         return True
     except Exception as e:
-        print(f"[ERROR] registrar_merma: {e}")
+        logger.error(f"registrar_merma: {e}")
         return False
 
 
@@ -3769,7 +3769,7 @@ def guardar_dia_especial(
             conn.commit()
         return True
     except Exception as e:
-        print(f"[ERROR] guardar_dia_especial: {e}")
+        logger.error(f"guardar_dia_especial: {e}")
         return False
 
 

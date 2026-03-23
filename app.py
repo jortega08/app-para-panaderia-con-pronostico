@@ -2335,20 +2335,20 @@ def _iniciar_scheduler():
             result = crear_backup(f"Backup automático diario - {datetime.now().strftime('%Y-%m-%d')}")
             if result["ok"]:
                 limpiar_backups_antiguos(dias_retencion=retention_days)
-                print(f"[BACKUP] Backup automático completado: {result['backup']['archivo']}")
+                app.logger.info(f"Backup automático completado: {result['backup']['archivo']}")
             else:
-                print(f"[BACKUP ERROR] {result.get('error', 'Error desconocido')}")
+                app.logger.error(f"Backup automático falló: {result.get('error', 'Error desconocido')}")
 
         scheduler = BackgroundScheduler(daemon=True)
         scheduler.add_job(_backup_diario, "cron", hour=backup_hour, minute=0)
         scheduler.start()
-        print(f"  Backup automático programado a las {backup_hour:02d}:00")
+        app.logger.info(f"Backup automático programado a las {backup_hour:02d}:00")
         return scheduler
     except ImportError:
-        print("  [AVISO] APScheduler no instalado. Backups automáticos desactivados.")
+        app.logger.debug("APScheduler no instalado. Backups automáticos desactivados.")
         return None
     except Exception as e:
-        print(f"  [AVISO] No se pudo iniciar scheduler de backups: {e}")
+        app.logger.error(f"No se pudo iniciar scheduler de backups: {e}")
         return None
 
 
@@ -2361,17 +2361,14 @@ if __name__ == "__main__":
     # Backup automatico al iniciar en modo desarrollo
     result = crear_backup("Backup automatico al iniciar")
     if result["ok"]:
-        print("  Backup automatico creado")
+        app.logger.info("Backup automatico creado")
     limpiar_backups_antiguos()
     ip = _get_local_ip()
-    print()
-    print("=" * 50)
-    print("  PANADERIA - Sistema de Ventas y Pronostico")
-    print("=" * 50)
-    print(f"  Abrir en navegador: http://{ip}:5000")
-    print(f"  QR clientes:        http://{ip}:5000/cliente/pedido")
-    print()
-    print("  ADVERTENCIA: Cambia los PINes por defecto en Configuracion > Usuarios")
-    print("=" * 50)
-    print()
+    app.logger.info("=" * 50)
+    app.logger.info("  PANADERIA - Sistema de Ventas y Pronostico")
+    app.logger.info("=" * 50)
+    app.logger.info(f"  Abrir en navegador: http://{ip}:5000")
+    app.logger.info(f"  QR clientes:        http://{ip}:5000/cliente/pedido")
+    app.logger.info("  ADVERTENCIA: Cambia los PINes por defecto en Configuracion > Usuarios")
+    app.logger.info("=" * 50)
     app.run(host="0.0.0.0", port=5000, debug=os.environ.get("FLASK_ENV") == "development")
