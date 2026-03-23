@@ -1,0 +1,64 @@
+version: "3.9"
+
+services:
+  # ── Aplicación Flask ────────────────────────────────────────────────────────
+  web:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://panaderia:${POSTGRES_PASSWORD:-panaderia123}@db:5432/panaderia
+    volumes:
+      - backups:/app/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - panaderia_net
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: panaderia
+      POSTGRES_USER: panaderia
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-panaderia123}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U panaderia"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - panaderia_net
+
+  # ── Nginx (reverse proxy + SSL) ─────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - nginx_certs:/etc/letsencrypt
+      - nginx_www:/var/www/certbot
+    depends_on:
+      - web
+    networks:
+      - panaderia_net
+
+volumes:
+  postgres_data:
+  backups:
+  nginx_certs:
+  nginx_www:
+
+networks:
+  panaderia_net:
+    driver: bridge
