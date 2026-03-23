@@ -20,11 +20,14 @@ Tablas:
 """
 
 import hashlib
+import logging
 import sqlite3
 import os
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 from data.db_adapter import get_connection as _get_connection, DB_TYPE
 
@@ -625,26 +628,26 @@ def inicializar_base_de_datos() -> None:
 
 def _migrar_productos(conn):
     """Agrega columnas de soporte si la tabla productos ya existia."""
-    if DB_TYPE == "sqlite":
-        cursor = conn.execute("PRAGMA table_info(productos)")
-        columnas = [row["name"] for row in cursor.fetchall()]
-    else:
-        cursor = conn.execute("""
-            SELECT column_name as name FROM information_schema.columns
-            WHERE table_name = 'productos'
-        """)
-        columnas = [row["name"] for row in cursor.fetchall()]
-
-    if "precio" not in columnas:
+    try:
         conn.execute("ALTER TABLE productos ADD COLUMN precio REAL NOT NULL DEFAULT 0.0")
-    if "categoria" not in columnas:
+    except Exception:
+        pass
+    try:
         conn.execute("ALTER TABLE productos ADD COLUMN categoria TEXT NOT NULL DEFAULT 'Panaderia'")
-    if "activo" not in columnas:
+    except Exception:
+        pass
+    try:
         conn.execute("ALTER TABLE productos ADD COLUMN activo INTEGER NOT NULL DEFAULT 1")
-    if "es_adicional" not in columnas:
+    except Exception:
+        pass
+    try:
         conn.execute("ALTER TABLE productos ADD COLUMN es_adicional INTEGER NOT NULL DEFAULT 0")
-    if "stock_minimo" not in columnas:
+    except Exception:
+        pass
+    try:
         conn.execute("ALTER TABLE productos ADD COLUMN stock_minimo INTEGER NOT NULL DEFAULT 0")
+    except Exception:
+        pass
 
 
 def _sembrar_categorias_producto(conn):
@@ -837,21 +840,34 @@ def _migrar_ventas_pedidos_caja(conn):
                     VALUES (?, 'pagado', ?, ?, ?)
                 """, (pedido["id"], pagado_en, pedido["pagado_por"] or "", "Migrado desde pedidos existentes"))
 
-    arqueos_cols = [row["name"] for row in conn.execute("PRAGMA table_info(arqueos_caja)").fetchall()]
-    if "efectivo_esperado" not in arqueos_cols:
+    try:
         conn.execute("ALTER TABLE arqueos_caja ADD COLUMN efectivo_esperado REAL DEFAULT NULL")
-    if "diferencia_cierre" not in arqueos_cols:
+    except Exception:
+        pass
+    try:
         conn.execute("ALTER TABLE arqueos_caja ADD COLUMN diferencia_cierre REAL DEFAULT NULL")
-    if "notas_cierre" not in arqueos_cols:
+    except Exception:
+        pass
+    try:
         conn.execute("ALTER TABLE arqueos_caja ADD COLUMN notas_cierre TEXT DEFAULT ''")
-    if "reabierto_en" not in arqueos_cols:
+    except Exception:
+        pass
+    try:
         conn.execute("ALTER TABLE arqueos_caja ADD COLUMN reabierto_en TEXT DEFAULT ''")
-    if "reabierto_por" not in arqueos_cols:
+    except Exception:
+        pass
+    try:
         conn.execute("ALTER TABLE arqueos_caja ADD COLUMN reabierto_por TEXT DEFAULT ''")
-    if "motivo_reapertura" not in arqueos_cols:
+    except Exception:
+        pass
+    try:
         conn.execute("ALTER TABLE arqueos_caja ADD COLUMN motivo_reapertura TEXT DEFAULT ''")
-    if "reaperturas" not in arqueos_cols:
+    except Exception:
+        pass
+    try:
         conn.execute("ALTER TABLE arqueos_caja ADD COLUMN reaperturas INTEGER NOT NULL DEFAULT 0")
+    except Exception:
+        pass
 
 
 # ──────────────────────────────────────────────
@@ -1419,7 +1435,7 @@ def registrar_movimiento_caja(tipo: str, concepto: str, monto: float,
             conn.commit()
         return {"ok": True, "movimiento_id": cur.lastrowid}
     except Exception as e:
-        print(f"[ERROR] registrar_movimiento_caja: {e}")
+        logger.error(f"registrar_movimiento_caja: {e}")
         return {"ok": False, "error": str(e)}
 
 
@@ -1475,7 +1491,7 @@ def cerrar_arqueo_caja(cerrado_por: str, monto_cierre: float,
             "diferencia": diferencia,
         }
     except Exception as e:
-        print(f"[ERROR] cerrar_arqueo_caja: {e}")
+        logger.error(f"cerrar_arqueo_caja: {e}")
         return {"ok": False, "error": str(e)}
 
 
@@ -1512,7 +1528,7 @@ def reabrir_arqueo_caja(reabierto_por: str, codigo_verificacion: str,
             conn.commit()
         return {"ok": True, "arqueo": obtener_arqueo_caja_dia(fecha)}
     except Exception as e:
-        print(f"[ERROR] reabrir_arqueo_caja: {e}")
+        logger.error(f"reabrir_arqueo_caja: {e}")
         return {"ok": False, "error": str(e)}
 
 
