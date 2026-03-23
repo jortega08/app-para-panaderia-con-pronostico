@@ -6,7 +6,7 @@ Aplicacion Flask ligera con:
   - POS con carrito multi-producto
   - Dashboard de ventas con graficas
   - Pronostico de produccion
-  - Toma de pedidos operativa para meseros
+  - Pagina publica para clientes via QR
 """
 
 import csv
@@ -14,13 +14,13 @@ import io
 import os
 import re
 import secrets
+import socket
 import unicodedata
 import zipfile
 from collections import defaultdict
 from datetime import datetime, timedelta
 from functools import wraps
 from io import BytesIO
-from werkzeug.middleware.proxy_fix import ProxyFix
 from xml.etree import ElementTree as ET
 
 # Cargar variables de entorno desde .env si existe
@@ -37,7 +37,6 @@ from flask import (
 
 from data.database import (
     inicializar_base_de_datos,
-    get_connection as get_db_connection,
     registrar_audit,
     obtener_audit_log,
     obtener_top_productos_dia,
@@ -56,11 +55,7 @@ from data.database import (
     exportar_ventas_csv,
     exportar_inventario_csv,
     guardar_registro,
-    registrar_lote_produccion,
-    registrar_lotes_produccion,
     obtener_registros,
-    obtener_registro_diario,
-    obtener_lotes_produccion,
     obtener_productos,
     obtener_productos_con_precio,
     obtener_productos_adicionales,
@@ -85,7 +80,6 @@ from data.database import (
     obtener_resumen_ventas_dia,
     obtener_total_ventas_dia,
     obtener_vendido_dia_producto,
-    obtener_vendidos_rango_productos,
     obtener_ventas_rango,
     obtener_totales_ventas_rango,
     obtener_serie_ventas_diarias,
@@ -109,7 +103,7 @@ from data.database import (
     eliminar_mesa,
     crear_pedido,
     obtener_pedidos,
-    obtener_pedidos_detallados,
+    obtener_pedidos_con_detalle,
     obtener_pedido,
     cambiar_estado_pedido,
     pagar_pedido,
@@ -129,10 +123,8 @@ from data.database import (
     eliminar_insumo,
     obtener_insumos_bajo_stock,
     obtener_receta,
-    obtener_recetas_productos,
     guardar_receta,
     obtener_consumo_diario,
-    obtener_proyeccion_insumos_lotes,
     obtener_estadisticas_pedidos,
 )
 from backup import (
@@ -147,7 +139,6 @@ from logic.pronostico import (
     calcular_pronostico,
     calcular_eficiencia,
     analizar_tendencia,
-    TIPO_DIA,
 )
 
 app = Flask(__name__)
@@ -166,23 +157,14 @@ app.secret_key = _secret_key
 
 # ── Configuración de sesión ────────────────────────────────────────────────────
 _SESSION_HOURS = int(os.environ.get("SESSION_LIFETIME_HOURS", "8"))
-_IS_PRODUCTION = os.environ.get("FLASK_ENV", "").strip().lower() == "production"
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=_SESSION_HOURS)
-app.config["SESSION_COOKIE_HTTPONLY"] = True
-app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = _IS_PRODUCTION
-app.config["SESSION_REFRESH_EACH_REQUEST"] = True
-app.config["PREFERRED_URL_SCHEME"] = "https" if _IS_PRODUCTION else "http"
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
 
 # ── Rate limiting (en memoria, simple) ──────────────────────────────────────────
 _MAX_ATTEMPTS = int(os.environ.get("MAX_LOGIN_ATTEMPTS", "5"))
 _LOCKOUT_MINUTES = int(os.environ.get("LOGIN_LOCKOUT_MINUTES", "5"))
 _login_attempts: dict = defaultdict(lambda: {"count": 0, "until": None})
-ROLES_PANADERO = ("panadero",)
-ROLES_CAJA = ("panadero", "cajero")
-ROLES_MESAS = ("panadero", "mesero")
-ROLES_OPERATIVOS = ("panadero", "cajero", "mesero")
 
 # ── Iconos y colores por categoria/producto ──
 ICONOS_CATEGORIA = {
@@ -213,6 +195,17 @@ def color_prod(nombre):
     return COLORES_PROD.get(nombre, "#B0BEC5")
 
 
+@app.after_request
+def _set_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    if request.is_secure:
+        response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+    return response
+
+
 def _normalizar_texto(texto):
     base = unicodedata.normalize("NFKD", str(texto or ""))
     base = "".join(ch for ch in base if not unicodedata.combining(ch))
@@ -233,179 +226,6 @@ def _obtener_adicionales_operativos():
         vistos.add(clave)
 
     return catalogo
-
-
-def _catalogo_productos_por_nombre():
-    catalogo = {}
-    for producto in obtener_productos_con_precio():
-        nombre = str(producto.get("nombre", "") or "").strip()
-        clave = _normalizar_texto(nombre)
-        if not clave:
-            continue
-        catalogo[clave] = {
-            "nombre": nombre,
-            "precio": round(float(producto.get("precio", 0) or 0), 2),
-            "categoria": str(producto.get("categoria", "") or "").strip(),
-        }
-    return catalogo
-
-
-def _catalogo_adicionales_por_nombre():
-    catalogo = {}
-    for adicional in _obtener_adicionales_operativos():
-        nombre = str(adicional.get("nombre", "") or "").strip()
-        clave = _normalizar_texto(nombre)
-        if not clave:
-            continue
-        catalogo[clave] = {
-            "nombre": nombre,
-            "precio": round(float(adicional.get("precio", 0) or 0), 2),
-        }
-    return catalogo
-
-
-def _normalizar_modificaciones_payload(modificaciones_raw, catalogo_adicionales, item_index):
-    modificaciones = []
-    errores = []
-    total_extras_unitario = 0.0
-
-    for mod_index, mod_raw in enumerate(modificaciones_raw or [], start=1):
-        if not isinstance(mod_raw, dict):
-            errores.append({
-                "item": item_index,
-                "modificacion": mod_index,
-                "error": "La modificación tiene un formato inválido",
-            })
-            continue
-
-        descripcion = str(mod_raw.get("descripcion", "") or "").strip()
-        if not descripcion:
-            continue
-
-        tipo = str(mod_raw.get("tipo", "adicional") or "adicional").strip().lower()
-        if tipo == "exclusion":
-            modificaciones.append({
-                "tipo": "exclusion",
-                "descripcion": descripcion,
-                "cantidad": 1,
-                "precio_extra": 0.0,
-            })
-            continue
-
-        if tipo != "adicional":
-            errores.append({
-                "item": item_index,
-                "modificacion": mod_index,
-                "error": f"Tipo de modificación inválido: {tipo}",
-            })
-            continue
-
-        try:
-            cantidad_mod = int(mod_raw.get("cantidad", 1) or 0)
-        except (TypeError, ValueError):
-            errores.append({
-                "item": item_index,
-                "modificacion": mod_index,
-                "error": "La cantidad del adicional es inválida",
-            })
-            continue
-
-        if cantidad_mod <= 0:
-            errores.append({
-                "item": item_index,
-                "modificacion": mod_index,
-                "error": "La cantidad del adicional debe ser mayor a cero",
-            })
-            continue
-
-        adicional = catalogo_adicionales.get(_normalizar_texto(descripcion))
-        if not adicional:
-            errores.append({
-                "item": item_index,
-                "modificacion": mod_index,
-                "error": f"Adicional no encontrado: {descripcion}",
-            })
-            continue
-
-        precio_extra = adicional["precio"]
-        total_extras_unitario += cantidad_mod * precio_extra
-        modificaciones.append({
-            "tipo": "adicional",
-            "descripcion": adicional["nombre"],
-            "cantidad": cantidad_mod,
-            "precio_extra": precio_extra,
-        })
-
-    return modificaciones, total_extras_unitario, errores
-
-
-def _normalizar_items_payload(items_raw, incluir_notas=False):
-    if not isinstance(items_raw, list):
-        return [], [{"error": "El payload de items debe ser una lista"}]
-
-    catalogo_productos = _catalogo_productos_por_nombre()
-    catalogo_adicionales = _catalogo_adicionales_por_nombre()
-    items_normalizados = []
-    errores = []
-
-    for item_index, item_raw in enumerate(items_raw, start=1):
-        if not isinstance(item_raw, dict):
-            errores.append({
-                "item": item_index,
-                "error": "El item tiene un formato inválido",
-            })
-            continue
-
-        producto_raw = str(item_raw.get("producto", "") or "").strip()
-        producto = catalogo_productos.get(_normalizar_texto(producto_raw))
-        if not producto:
-            errores.append({
-                "item": item_index,
-                "error": f"Producto no encontrado: {producto_raw or 'sin nombre'}",
-            })
-            continue
-
-        try:
-            cantidad = int(item_raw.get("cantidad", 0) or 0)
-        except (TypeError, ValueError):
-            errores.append({
-                "item": item_index,
-                "error": f"La cantidad es inválida para {producto['nombre']}",
-            })
-            continue
-
-        if cantidad <= 0:
-            errores.append({
-                "item": item_index,
-                "error": f"La cantidad debe ser mayor a cero para {producto['nombre']}",
-            })
-            continue
-
-        modificaciones, total_extras_unitario, errores_mod = _normalizar_modificaciones_payload(
-            item_raw.get("modificaciones", []),
-            catalogo_adicionales,
-            item_index,
-        )
-        if errores_mod:
-            errores.extend(errores_mod)
-            continue
-
-        precio_unitario = producto["precio"]
-        total = round((precio_unitario + total_extras_unitario) * cantidad, 2)
-        item_normalizado = {
-            "producto": producto["nombre"],
-            "cantidad": cantidad,
-            "precio": precio_unitario,
-            "precio_unitario": precio_unitario,
-            "total": total,
-            "modificaciones": modificaciones,
-        }
-        if incluir_notas:
-            item_normalizado["notas"] = str(item_raw.get("notas", "") or "").strip()
-
-        items_normalizados.append(item_normalizado)
-
-    return items_normalizados, errores
 
 
 def _excel_col_to_index(ref_celda):
@@ -711,61 +531,25 @@ def _extraer_catalogo_insumos(archivo):
 
 # ── Decoradores ──
 
-def _es_peticion_api():
-    return request.path.startswith("/api/") or request.is_json
-
-
-def _respuesta_no_autorizado(error, status):
-    if _es_peticion_api():
-        return jsonify({"ok": False, "error": error}), status
-    if status == 401:
-        return redirect(url_for("login"))
-    flash(error, "error")
-    return redirect(url_for("index"))
-
-
-def _validar_sesion_activa():
-    if "usuario" not in session:
-        return _respuesta_no_autorizado("No autenticado", 401)
-
-    login_ts = session.get("_login_ts")
-    if login_ts:
-        age = datetime.now().timestamp() - float(login_ts)
-        if age > _SESSION_HOURS * 3600:
-            session.clear()
-            if _es_peticion_api():
-                return jsonify({"ok": False, "error": "Sesion expirada"}), 401
-            flash("Tu sesion expiró. Inicia sesion de nuevo.", "info")
-            return redirect(url_for("login"))
-
-    return None
-
-
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        respuesta = _validar_sesion_activa()
-        if respuesta is not None:
-            return respuesta
+        if "usuario" not in session:
+            if request.is_json:
+                return jsonify({"ok": False, "error": "No autenticado"}), 401
+            return redirect(url_for("login"))
+        # Verificar expiración de sesión
+        login_ts = session.get("_login_ts")
+        if login_ts:
+            age = datetime.now().timestamp() - float(login_ts)
+            if age > _SESSION_HOURS * 3600:
+                session.clear()
+                if request.is_json:
+                    return jsonify({"ok": False, "error": "Sesion expirada"}), 401
+                flash("Tu sesion expiró. Inicia sesion de nuevo.", "info")
+                return redirect(url_for("login"))
         return f(*args, **kwargs)
     return decorated
-
-
-def roles_required(*roles):
-    def decorator(f):
-        @wraps(f)
-        def decorated(*args, **kwargs):
-            respuesta = _validar_sesion_activa()
-            if respuesta is not None:
-                return respuesta
-
-            rol = session.get("usuario", {}).get("rol")
-            if rol not in roles:
-                return _respuesta_no_autorizado("Sin permiso", 403)
-
-            return f(*args, **kwargs)
-        return decorated
-    return decorator
 
 
 # ══════════════════════════════════════════════
@@ -785,14 +569,31 @@ def index():
 
 
 @app.route("/health")
-def health():
-    try:
-        with get_db_connection() as conn:
-            conn.execute("SELECT 1 as ok").fetchone()
-        return jsonify({"ok": True, "database": "ok"}), 200
-    except Exception:
-        return jsonify({"ok": False, "database": "error"}), 503
+def health_check():
+    return jsonify({"status": "healthy"}), 200
 
+@app.route("/ready")
+def readiness_check():
+    try:
+        from data.database import get_connection
+        with get_connection() as conn:
+            conn.execute("SELECT 1")
+        return jsonify({"status": "ready"}), 200
+    except Exception as e:
+        return jsonify({"status": "not_ready", "error": str(e)}), 503
+
+@app.errorhandler(404)
+def pagina_no_encontrada(e):
+    if request.path.startswith('/api/'):
+        return jsonify({"ok": False, "error": "Recurso no encontrado"}), 404
+    return render_template("error.html", codigo=404, mensaje="Página no encontrada"), 404
+
+@app.errorhandler(500)
+def error_interno(e):
+    app.logger.error(f"Error interno: {e}")
+    if request.path.startswith('/api/'):
+        return jsonify({"ok": False, "error": "Error interno del servidor"}), 500
+    return render_template("error.html", codigo=500, mensaje="Error interno del servidor"), 500
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -817,11 +618,7 @@ def login():
             _login_attempts.pop(ip, None)
             session.clear()
             session.permanent = True
-            session["usuario"] = {
-                "id": usuario.get("id"),
-                "nombre": usuario.get("nombre", ""),
-                "rol": usuario.get("rol", ""),
-            }
+            session["usuario"] = usuario
             session["_login_ts"] = datetime.now().timestamp()
             registrar_audit(
                 usuario=usuario["nombre"],
@@ -858,7 +655,7 @@ def logout():
 # ── Cajero ──
 
 @app.route("/cajero/pos")
-@roles_required(*ROLES_CAJA)
+@login_required
 def cajero_pos():
     productos = obtener_productos_con_precio()
     categorias = obtener_categorias_producto()
@@ -866,17 +663,15 @@ def cajero_pos():
         p["icono"] = icono(p["nombre"], p.get("categoria"))
         p["color"] = color_prod(p["nombre"])
     caja = obtener_resumen_caja_dia()
-    adicionales = _obtener_adicionales_operativos()
     return render_template("cajero_pos.html",
                            productos=productos,
                            categorias=categorias,
-                           adicionales=adicionales,
                            caja=caja,
                            layout="cajero", active_page="pos")
 
 
 @app.route("/cajero/ventas")
-@roles_required(*ROLES_CAJA)
+@login_required
 def cajero_ventas():
     caja = obtener_resumen_caja_dia()
     historial_arqueos = obtener_historial_arqueos(8)
@@ -889,9 +684,9 @@ def cajero_ventas():
 
 
 @app.route("/cajero/pedidos")
-@roles_required(*ROLES_CAJA)
+@login_required
 def cajero_pedidos():
-    pedidos = obtener_pedidos_detallados()
+    pedidos = obtener_pedidos_con_detalle()
     caja = obtener_resumen_caja_dia()
     return render_template("cajero_pedidos.html",
                            pedidos=pedidos,
@@ -902,7 +697,7 @@ def cajero_pedidos():
 # ── Mesero ──
 
 @app.route("/mesero/mesas")
-@roles_required(*ROLES_MESAS)
+@login_required
 def mesero_mesas():
     mesas = obtener_resumen_mesas()
     return render_template("mesero_mesas.html",
@@ -911,7 +706,7 @@ def mesero_mesas():
 
 
 @app.route("/mesero/pedido/<int:mesa_id>")
-@roles_required(*ROLES_MESAS)
+@login_required
 def mesero_pedido(mesa_id):
     productos = obtener_productos_con_precio()
     categorias = obtener_categorias_producto()
@@ -932,9 +727,9 @@ def mesero_pedido(mesa_id):
 
 
 @app.route("/mesero/pedidos")
-@roles_required(*ROLES_MESAS)
+@login_required
 def mesero_pedidos():
-    pedidos = obtener_pedidos_detallados()
+    pedidos = obtener_pedidos_con_detalle()
     return render_template("mesero_pedidos.html",
                            pedidos=pedidos,
                            layout="mesero", active_page="pedidos")
@@ -943,7 +738,7 @@ def mesero_pedidos():
 # ── Panadero ──
 
 @app.route("/panadero/pronostico")
-@roles_required(*ROLES_PANADERO)
+@login_required
 def panadero_pronostico():
     productos = obtener_productos(categoria="Panaderia")
     producto_default = productos[0] if productos else ""
@@ -954,40 +749,29 @@ def panadero_pronostico():
 
 
 @app.route("/panadero/produccion", methods=["GET", "POST"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def panadero_produccion():
     productos = obtener_productos(categoria="Panaderia")
-    producto_default = productos[0] if productos else ""
     if request.method == "POST":
         try:
             fecha = request.form["fecha"]
             producto = request.form["producto"]
-            cantidad_lote = int(request.form["cantidad_lote"])
+            producido = int(request.form["producido"])
+            vendido = int(request.form["vendido"])
             obs = request.form.get("observaciones", "")
-            usuario = session.get("usuario", {}).get("nombre", "")
 
             datetime.strptime(fecha, "%Y-%m-%d")
 
-            if cantidad_lote <= 0:
-                flash("La cantidad del lote debe ser mayor a cero", "error")
+            if producido < 0 or vendido < 0:
+                flash("Los valores no pueden ser negativos", "error")
             elif producto not in productos:
                 flash("Solo puedes registrar produccion de productos de Panaderia", "error")
             else:
-                resultado = registrar_lote_produccion(
-                    fecha,
-                    producto,
-                    cantidad_lote,
-                    obs,
-                    registrado_por=usuario,
-                )
-                if resultado.get("ok"):
-                    flash(
-                        f"Lote registrado: {cantidad_lote} unidades de {producto}. "
-                        f"Total del dia: {resultado.get('producido_total', cantidad_lote)}",
-                        "success",
-                    )
+                ok = guardar_registro(fecha, producto, producido, vendido, obs)
+                if ok:
+                    flash(f"Registro guardado: {producto} - {fecha}", "success")
                 else:
-                    flash(resultado.get("error", "No se pudo guardar el lote"), "error")
+                    flash("No se pudo guardar", "error")
         except (ValueError, KeyError) as e:
             flash(f"Datos invalidos: {e}", "error")
 
@@ -995,38 +779,23 @@ def panadero_produccion():
     registros_recientes = obtener_registros(dias=30)
     productos_panaderia = set(productos)
     registros_recientes = [r for r in registros_recientes if r.get("producto") in productos_panaderia]
-    vendidos_por_fecha_producto = {}
-    if registros_recientes:
-        fechas = [
-            str(registro.get("fecha", hoy) or hoy)
-            for registro in registros_recientes
-        ]
-        vendidos_por_fecha_producto = obtener_vendidos_rango_productos(
-            min(fechas),
-            max(fechas),
-            sorted(productos_panaderia),
-        )
     for registro in registros_recientes:
         producido = int(registro.get("producido", 0) or 0)
-        fecha_registro = str(registro.get("fecha", hoy) or hoy)
-        producto_registro = str(registro.get("producto", "") or "")
-        vendido = int(vendidos_por_fecha_producto.get((fecha_registro, producto_registro), 0))
-        registro["vendido"] = vendido
-        sobrante = max(producido - vendido, 0)
+        vendido = int(registro.get("vendido", 0) or 0)
+        sobrante = int(registro.get("sobrante", 0) or 0)
         registro["faltante"] = max(vendido - producido, 0)
-        registro["sobrante"] = sobrante
+        registro["sobrante"] = max(sobrante, 0)
         registro.setdefault("registrado_por", "")
         registro.setdefault("registrado_en", "")
     return render_template("panadero_produccion.html",
                            productos=productos,
-                           producto_default=producto_default,
                            hoy=hoy,
                            registros_recientes=registros_recientes,
                            layout="panadero", active_page="produccion")
 
 
 @app.route("/panadero/ventas")
-@roles_required(*ROLES_PANADERO)
+@login_required
 def panadero_ventas():
     caja = obtener_resumen_caja_dia()
     historial_arqueos = obtener_historial_arqueos(8)
@@ -1039,48 +808,27 @@ def panadero_ventas():
 
 
 @app.route("/panadero/historial")
-@roles_required(*ROLES_PANADERO)
+@login_required
 def panadero_historial():
     producto = request.args.get("producto", "Todos")
-    try:
-        dias = int(request.args.get("dias", 30) or 30)
-    except (TypeError, ValueError):
-        dias = 30
-    hoy = datetime.now().date()
-    fecha_fin = (request.args.get("fecha_fin", "") or "").strip()
-    fecha_inicio = (request.args.get("fecha_inicio", "") or "").strip()
-
-    try:
-        fecha_fin_obj = datetime.strptime(fecha_fin, "%Y-%m-%d").date() if fecha_fin else hoy
-    except ValueError:
-        fecha_fin_obj = hoy
-    try:
-        fecha_inicio_obj = datetime.strptime(fecha_inicio, "%Y-%m-%d").date() if fecha_inicio else (
-            fecha_fin_obj - timedelta(days=max(dias - 1, 0))
-        )
-    except ValueError:
-        fecha_inicio_obj = fecha_fin_obj - timedelta(days=max(dias - 1, 0))
-
-    if fecha_inicio_obj > fecha_fin_obj:
-        fecha_inicio_obj, fecha_fin_obj = fecha_fin_obj, fecha_inicio_obj
-
+    dias = int(request.args.get("dias", 30))
     productos = obtener_productos()
+    registros = obtener_registros(
+        producto if producto != "Todos" else None, dias=dias)
 
-    filtro_personalizado = bool(fecha_inicio or fecha_fin)
+    for r in registros:
+        r["icono"] = icono(r["producto"])
 
     return render_template("panadero_historial.html",
+                           registros=registros,
                            productos=productos,
                            filtro_producto=producto,
                            filtro_dias=dias,
-                           filtro_personalizado=filtro_personalizado,
-                           filtro_fecha_inicio=fecha_inicio_obj.strftime("%Y-%m-%d"),
-                           filtro_fecha_fin=fecha_fin_obj.strftime("%Y-%m-%d"),
-                           hoy_str=hoy.strftime("%Y-%m-%d"),
                            layout="panadero", active_page="historial")
 
 
 @app.route("/panadero/operaciones")
-@roles_required(*ROLES_PANADERO)
+@login_required
 def panadero_operaciones():
     stats = obtener_estadisticas_pedidos()
     consumo = obtener_consumo_diario()
@@ -1089,7 +837,7 @@ def panadero_operaciones():
     mesas = obtener_resumen_mesas()
     ventas_resumen = obtener_resumen_ventas_dia()
     ventas_total = obtener_total_ventas_dia()
-    pedidos = obtener_pedidos_detallados()
+    pedidos = obtener_pedidos_con_detalle()
     proxima_mesa = (max((mesa["numero"] for mesa in mesas), default=0) + 1) if mesas else 1
     return render_template("panadero_operaciones.html",
                            stats=stats,
@@ -1105,13 +853,15 @@ def panadero_operaciones():
 
 
 @app.route("/panadero/inventario")
-@roles_required(*ROLES_PANADERO)
+@login_required
 def panadero_inventario():
     insumos = obtener_insumos()
     productos_catalogo = obtener_productos_con_precio()
     productos = [p["nombre"] for p in productos_catalogo]
     adicionales = obtener_adicionales()
-    recetas = obtener_recetas_productos(productos)
+    recetas = {}
+    for p in productos:
+        recetas[p] = obtener_receta(p)
     alertas_stock = obtener_insumos_bajo_stock()
     return render_template("panadero_inventario.html",
                            insumos=insumos,
@@ -1120,12 +870,11 @@ def panadero_inventario():
                            productos_catalogo=productos_catalogo,
                            recetas=recetas,
                            alertas_stock=alertas_stock,
-                           fecha_proyeccion_default=(datetime.now().date() + timedelta(days=1)).strftime("%Y-%m-%d"),
                            layout="panadero", active_page="inventario")
 
 
 @app.route("/panadero/backups")
-@roles_required(*ROLES_PANADERO)
+@login_required
 def panadero_backups():
     info = obtener_info_backup()
     backups = listar_backups()
@@ -1135,7 +884,7 @@ def panadero_backups():
 
 
 @app.route("/panadero/config")
-@roles_required(*ROLES_PANADERO)
+@login_required
 def panadero_config():
     productos = obtener_productos_con_precio()
     categorias = obtener_categorias_producto()
@@ -1144,6 +893,8 @@ def panadero_config():
         p["color"] = color_prod(p["nombre"])
 
     usuarios = obtener_usuarios()
+    local_ip = _get_local_ip()
+    qr_url = f"http://{local_ip}:5000/cliente/pedido"
     codigo_caja = obtener_codigo_verificacion_caja()
 
     return render_template("panadero_config.html",
@@ -1151,7 +902,19 @@ def panadero_config():
                            categorias=categorias,
                            usuarios=usuarios,
                            codigo_caja=codigo_caja,
+                           qr_url=qr_url,
                            layout="panadero", active_page="config")
+
+
+# ── Cliente (publico, sin login) ──
+
+@app.route("/cliente/pedido")
+def cliente_pedido():
+    productos = obtener_productos_con_precio()
+    for p in productos:
+        p["icono"] = icono(p["nombre"], p.get("categoria"))
+        p["color"] = color_prod(p["nombre"])
+    return render_template("cliente_pedido.html", productos=productos)
 
 
 # ══════════════════════════════════════════════
@@ -1159,7 +922,6 @@ def panadero_config():
 # ══════════════════════════════════════════════
 
 @app.route("/api/productos")
-@roles_required(*ROLES_OPERATIVOS)
 def api_productos():
     productos = obtener_productos_con_precio()
     for p in productos:
@@ -1169,7 +931,6 @@ def api_productos():
 
 
 @app.route("/api/pronostico/dashboard")
-@roles_required(*ROLES_PANADERO)
 def api_pronostico_dashboard():
     """API compatible con el dashboard de pronostico actual del frontend."""
     productos = obtener_productos(categoria="Panaderia")
@@ -1182,9 +943,6 @@ def api_pronostico_dashboard():
             "serie_ventas_producto": [],
             "ranking_productos": [],
             "resumen": {},
-            "insights": {},
-            "matriz_semana": [],
-            "periodo": {},
         })
 
     producto = request.args.get("producto", productos[0])
@@ -1193,7 +951,6 @@ def api_pronostico_dashboard():
         producto = productos[0]
 
     hoy = datetime.now().date()
-    orden_dias = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]
     dias_es = {
         "Monday": "Lunes",
         "Tuesday": "Martes",
@@ -1210,7 +967,6 @@ def api_pronostico_dashboard():
         fecha_str = fecha.strftime("%Y-%m-%d")
         try:
             resultado = calcular_pronostico(producto, fecha_objetivo=fecha_str)
-            delta = resultado.produccion_sugerida - float(resultado.promedio_ventas or 0)
             prediccion_semana.append({
                 "fecha": fecha_str,
                 "dia": dias_es.get(fecha.strftime("%A"), fecha.strftime("%A")),
@@ -1219,11 +975,6 @@ def api_pronostico_dashboard():
                 "estado": resultado.estado,
                 "confianza": resultado.confianza,
                 "modelo": resultado.modelo_usado,
-                "delta": round(delta, 1),
-                "delta_pct": round((delta / resultado.promedio_ventas * 100), 1) if resultado.promedio_ventas else 0,
-                "mensaje": resultado.mensaje,
-                "tipo_dia": resultado.detalles.get("tipo_dia", TIPO_DIA.get(dias_es.get(fecha.strftime("%A")), "laboral")),
-                "metricas": resultado.detalles.get("metricas", {}),
             })
         except Exception:
             app.logger.exception("Error calculando pronostico semanal para %s", producto)
@@ -1235,11 +986,6 @@ def api_pronostico_dashboard():
                 "estado": "alerta",
                 "confianza": "poca",
                 "modelo": "error",
-                "delta": 0,
-                "delta_pct": 0,
-                "mensaje": "No se pudo calcular la recomendacion para este dia.",
-                "tipo_dia": TIPO_DIA.get(dias_es.get(fecha.strftime("%A")), "laboral"),
-                "metricas": {},
             })
 
     historial = list(reversed(obtener_registros(producto, dias=dias)))
@@ -1251,7 +997,6 @@ def api_pronostico_dashboard():
     total_sobrante = sum(max(int(r.get("sobrante", 0) or 0), 0) for r in historial)
     aprovechamiento = round((total_vendido / total_producido * 100), 1) if total_producido else 0
     tendencia = analizar_tendencia(historial)
-    eficiencia = calcular_eficiencia(historial) or {}
 
     resumen = {
         "total_producido": total_producido,
@@ -1261,94 +1006,13 @@ def api_pronostico_dashboard():
         "tendencia": tendencia,
         "sugerido_semana": sum(d["sugerido"] for d in prediccion_semana),
         "promedio_sugerido": round(sum(d["sugerido"] for d in prediccion_semana) / 7, 1),
-        "ventas_promedio_periodo": round((total_vendido / len(historial)), 1) if historial else 0,
-        "brecha_total_semana": round(sum(d["delta"] for d in prediccion_semana), 1),
-        "brecha_promedio_semana": round(sum(d["delta"] for d in prediccion_semana) / len(prediccion_semana), 1) if prediccion_semana else 0,
-        "tasa_aprovechamiento": eficiencia.get("tasa_aprovechamiento", aprovechamiento),
     }
 
     # Compatibilidad extra con el contrato nuevo que ya habias empezado.
     resumen_dia = obtener_resumen_por_dia_semana(producto)
     prediccion_semanal = {
         dia: resumen_dia.get(dia, {}).get("promedio", 0)
-        for dia in orden_dias
-    }
-
-    max_promedio_base = max((float(info.get("promedio") or 0) for info in resumen_dia.values()), default=0)
-    max_sugerido = max((d["sugerido"] for d in prediccion_semana), default=0)
-    matriz_semana = []
-    for dia in orden_dias:
-        base = resumen_dia.get(dia, {})
-        promedio = float(base.get("promedio") or 0)
-        sugerido_dia = next((d for d in prediccion_semana if d["dia"] == dia), None)
-        referencia_intensidad = max(max_promedio_base, max_sugerido, 1)
-        intensidad = round((max(promedio, sugerido_dia["sugerido"] if sugerido_dia else 0) / referencia_intensidad), 3)
-        matriz_semana.append({
-            "dia": dia,
-            "tipo_dia": TIPO_DIA.get(dia, "laboral"),
-            "promedio": promedio,
-            "muestras": int(base.get("muestras") or 0),
-            "sugerido": sugerido_dia["sugerido"] if sugerido_dia else 0,
-            "delta": sugerido_dia["delta"] if sugerido_dia else 0,
-            "intensidad": intensidad,
-            "participacion": round((promedio / max_promedio_base * 100), 1) if max_promedio_base else 0,
-        })
-
-    confianza_conteo = defaultdict(int)
-    estado_conteo = defaultdict(int)
-    modelo_conteo = defaultdict(int)
-    for fila in prediccion_semana:
-        confianza_conteo[fila["confianza"]] += 1
-        estado_conteo[fila["estado"]] += 1
-        modelo_conteo[fila["modelo"]] += 1
-
-    dia_pico = max(prediccion_semana, key=lambda fila: fila["sugerido"], default={})
-    dia_relajado = min(prediccion_semana, key=lambda fila: fila["sugerido"], default={})
-    dia_mejor_historial = max(matriz_semana, key=lambda fila: fila["promedio"], default={})
-    dia_mas_flojo = min(matriz_semana, key=lambda fila: fila["promedio"], default={})
-    modelo_principal = max(modelo_conteo.items(), key=lambda item: item[1], default=("", 0))[0]
-
-    insights = {
-        "modelo_principal": modelo_principal,
-        "modelo_principal_label": modelo_principal.replace("_", " ").capitalize() if modelo_principal else "-",
-        "confianza": {
-            "buena": confianza_conteo.get("buena", 0),
-            "media": confianza_conteo.get("media", 0),
-            "poca": confianza_conteo.get("poca", 0),
-        },
-        "estados": {
-            "bien": estado_conteo.get("bien", 0),
-            "alerta": estado_conteo.get("alerta", 0),
-            "problema": estado_conteo.get("problema", 0),
-        },
-        "dia_pico": {
-            "dia": dia_pico.get("dia", "-"),
-            "fecha": dia_pico.get("fecha", ""),
-            "valor": dia_pico.get("sugerido", 0),
-            "confianza": dia_pico.get("confianza", "-"),
-        },
-        "dia_relajado": {
-            "dia": dia_relajado.get("dia", "-"),
-            "fecha": dia_relajado.get("fecha", ""),
-            "valor": dia_relajado.get("sugerido", 0),
-            "confianza": dia_relajado.get("confianza", "-"),
-        },
-        "mejor_historial": {
-            "dia": dia_mejor_historial.get("dia", "-"),
-            "valor": dia_mejor_historial.get("promedio", 0),
-        },
-        "dia_mas_flojo": {
-            "dia": dia_mas_flojo.get("dia", "-"),
-            "valor": dia_mas_flojo.get("promedio", 0),
-        },
-        "variacion_semana": max_sugerido - min((d["sugerido"] for d in prediccion_semana), default=0),
-    }
-
-    periodo = {
-        "dias": dias,
-        "muestras": len(historial),
-        "desde": historial[0].get("fecha") if historial else "",
-        "hasta": historial[-1].get("fecha") if historial else "",
+        for dia in ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]
     }
 
     return jsonify({
@@ -1360,14 +1024,11 @@ def api_pronostico_dashboard():
         "ranking_productos": ranking_productos,
         "resumen": resumen,
         "prediccion_semanal": prediccion_semanal,
-        "insights": insights,
-        "matriz_semana": matriz_semana,
-        "periodo": periodo,
     })
 
 
 @app.route("/api/pronostico/sugerencia")
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_pronostico_sugerencia():
     producto = request.args.get("producto", "").strip()
     fecha = request.args.get("fecha", datetime.now().strftime("%Y-%m-%d")).strip()
@@ -1402,463 +1063,25 @@ def api_pronostico_sugerencia():
         "dia_objetivo": resultado.detalles.get("dia_objetivo", fecha),
     })
 
-def _construir_contexto_produccion(fecha: str, producto: str, incluir_lotes: bool = True,
-                                   limite_lotes: int = 12) -> dict:
-    sugerido = 0
-    modelo = ""
-    modelo_label = "-"
-    confianza = "poca"
-    promedio = 0
-    mensaje = "No se pudo calcular la sugerencia para este dia."
-    estado = "alerta"
-    tendencia = "sin datos"
-    dia_objetivo = fecha
-
-    try:
-        resultado = calcular_pronostico(producto, fecha_objetivo=fecha)
-        sugerido = int(resultado.produccion_sugerida or 0)
-        modelo = resultado.modelo_usado
-        modelo_label = resultado.modelo_usado.replace("_", " ").capitalize() if resultado.modelo_usado else "-"
-        confianza = resultado.confianza
-        promedio = resultado.promedio_ventas
-        mensaje = resultado.mensaje
-        estado = resultado.estado
-        tendencia = resultado.detalles.get("tendencia", "sin datos")
-        dia_objetivo = resultado.detalles.get("dia_objetivo", fecha)
-    except Exception:
-        app.logger.exception("Error calculando contexto de produccion para %s", producto)
-
-    ajuste = obtener_ajuste_pronostico(fecha, producto)
-    meta_operativa = int(ajuste.get("ajustado", sugerido) or sugerido) if ajuste else sugerido
-
-    registro = obtener_registro_diario(fecha, producto) or {}
-    lotes = obtener_lotes_produccion(fecha, producto=producto, limite=limite_lotes) if incluir_lotes else []
-    producido_actual = int(registro.get("producido", 0) or 0)
-    vendido_actual = int(obtener_vendido_dia_producto(fecha, producto) or 0)
-    sobrante_actual = max(producido_actual - vendido_actual, 0)
-    faltante_actual = max(vendido_actual - producido_actual, 0)
-    restante_meta = max(meta_operativa - producido_actual, 0)
-    cumplimiento_pct = round((producido_actual / meta_operativa) * 100, 1) if meta_operativa > 0 else 0.0
-
-    return {
-        "ok": True,
-        "fecha": fecha,
-        "producto": producto,
-        "sugerencia": {
-            "sugerido": sugerido,
-            "modelo": modelo,
-            "modelo_label": modelo_label,
-            "confianza": confianza,
-            "promedio": promedio,
-            "mensaje": mensaje,
-            "estado": estado,
-            "tendencia": tendencia,
-            "dia_objetivo": dia_objetivo,
-        },
-        "meta": {
-            "sugerido": sugerido,
-            "operativa": meta_operativa,
-            "origen": "ajuste_manual" if ajuste and int(ajuste.get("ajustado", sugerido) or sugerido) != sugerido else "sistema",
-            "motivo": ajuste.get("motivo", "") if ajuste else "",
-            "registrado_por": ajuste.get("registrado_por", "") if ajuste else "",
-            "creado_en": ajuste.get("creado_en", "") if ajuste else "",
-        },
-        "avance": {
-            "producido_actual": producido_actual,
-            "vendido_actual": vendido_actual,
-            "sobrante_actual": sobrante_actual,
-            "faltante_actual": faltante_actual,
-            "restante_meta": restante_meta,
-            "cumplimiento_pct": cumplimiento_pct,
-        },
-        "registro": {
-            "fecha": registro.get("fecha", fecha),
-            "producto": producto,
-            "producido": producido_actual,
-            "vendido": vendido_actual,
-            "observaciones": registro.get("observaciones", ""),
-        },
-        "lotes": lotes,
-    }
-
-
-def _cargar_estado_produccion_masivo(fecha: str, productos: list[str]) -> tuple[dict, dict, dict]:
-    productos_limpios = list(dict.fromkeys(
-        str(producto or "").strip()
-        for producto in (productos or [])
-        if str(producto or "").strip()
-    ))
-    if not productos_limpios:
-        return {}, {}, {}
-
-    marcadores = ", ".join("?" for _ in productos_limpios)
-    params = (fecha, *productos_limpios)
-    with get_db_connection() as conn:
-        ajustes_rows = conn.execute(f"""
-            SELECT producto, ajustado, motivo, registrado_por, creado_en
-            FROM ajustes_pronostico
-            WHERE fecha = ? AND producto IN ({marcadores})
-        """, params).fetchall()
-        registros_rows = conn.execute(f"""
-            SELECT producto, COALESCE(SUM(producido), 0) as producido
-            FROM registros_diarios
-            WHERE fecha = ? AND producto IN ({marcadores})
-            GROUP BY producto
-        """, params).fetchall()
-
-    ajustes_por_producto = {
-        str(row["producto"]): dict(row)
-        for row in ajustes_rows
-    }
-    producidos_por_producto = {
-        str(row["producto"]): int(row["producido"] or 0)
-        for row in registros_rows
-    }
-    vendidos_rango = obtener_vendidos_rango_productos(fecha, fecha, productos_limpios)
-    vendidos_por_producto = {
-        producto: int(vendidos_rango.get((fecha, producto), 0) or 0)
-        for producto in productos_limpios
-    }
-    return ajustes_por_producto, producidos_por_producto, vendidos_por_producto
-
-
-def _normalizar_lotes_produccion_panaderia(lotes_raw: list[dict]) -> list[dict]:
-    productos_panaderia = set(obtener_productos(categoria="Panaderia"))
-    lotes: list[dict] = []
-
-    for lote in lotes_raw:
-        producto = str((lote or {}).get("producto", "") or "").strip()
-        try:
-            cantidad = int((lote or {}).get("cantidad", 0) or 0)
-        except (TypeError, ValueError):
-            cantidad = 0
-
-        if producto not in productos_panaderia:
-            raise ValueError(f"{producto or 'El producto'} no pertenece a Panaderia")
-        if cantidad <= 0:
-            raise ValueError(f"La cantidad para {producto or 'el producto'} debe ser mayor a cero")
-
-        lotes.append({
-            "producto": producto,
-            "cantidad": cantidad,
-            "observaciones": str((lote or {}).get("observaciones", "") or "").strip(),
-        })
-
-    return lotes
-
-
-def _evaluar_insumos_lotes(lotes: list[dict]) -> dict:
-    proyeccion = obtener_proyeccion_insumos_lotes(lotes)
-    return {
-        "ok": True,
-        "hay_riesgo": bool(
-            proyeccion.get("criticos")
-            or proyeccion.get("alertas")
-            or proyeccion.get("productos_sin_receta")
-            or proyeccion.get("productos_sin_rendimiento")
-        ),
-        **proyeccion,
-    }
-
-
-@app.route("/api/produccion/contexto")
-@roles_required(*ROLES_PANADERO)
-def api_produccion_contexto():
-    fecha = request.args.get("fecha", datetime.now().strftime("%Y-%m-%d")).strip()
-    producto = request.args.get("producto", "").strip()
-    productos_panaderia = set(obtener_productos(categoria="Panaderia"))
-
-    if not producto:
-        return jsonify({"ok": False, "error": "Producto requerido"}), 400
-    if producto not in productos_panaderia:
-        return jsonify({"ok": False, "error": "El contexto aplica solo a productos de Panaderia"}), 400
-
-    try:
-        datetime.strptime(fecha, "%Y-%m-%d")
-    except ValueError:
-        return jsonify({"ok": False, "error": "Fecha invalida"}), 400
-
-    return jsonify(_construir_contexto_produccion(fecha, producto))
-
-
-@app.route("/api/produccion/contexto-masivo")
-@roles_required(*ROLES_PANADERO)
-def api_produccion_contexto_masivo():
-    fecha = request.args.get("fecha", datetime.now().strftime("%Y-%m-%d")).strip()
-
-    try:
-        datetime.strptime(fecha, "%Y-%m-%d")
-    except ValueError:
-        return jsonify({"ok": False, "error": "Fecha invalida"}), 400
-
-    productos_panaderia = obtener_productos(categoria="Panaderia")
-    ajustes_por_producto, producidos_por_producto, vendidos_por_producto = _cargar_estado_produccion_masivo(
-        fecha,
-        productos_panaderia,
-    )
-    items = []
-    resumen = {
-        "productos": len(productos_panaderia),
-        "meta_total": 0,
-        "producido_total": 0,
-        "vendido_total": 0,
-        "restante_total": 0,
-    }
-
-    for producto in productos_panaderia:
-        sugerido = 0
-        modelo_label = "-"
-        confianza = "poca"
-        mensaje = "No se pudo calcular la sugerencia para este dia."
-        estado = "alerta"
-        tendencia = "sin datos"
-
-        try:
-            resultado = calcular_pronostico(producto, fecha_objetivo=fecha)
-            sugerido = int(resultado.produccion_sugerida or 0)
-            modelo_label = resultado.modelo_usado.replace("_", " ").capitalize() if resultado.modelo_usado else "-"
-            confianza = resultado.confianza
-            mensaje = resultado.mensaje
-            estado = resultado.estado
-            tendencia = resultado.detalles.get("tendencia", "sin datos")
-        except Exception:
-            app.logger.exception("Error calculando contexto masivo de produccion para %s", producto)
-
-        ajuste = ajustes_por_producto.get(producto)
-        meta_operativa = int(ajuste.get("ajustado", sugerido) or sugerido) if ajuste else sugerido
-        producido_actual = int(producidos_por_producto.get(producto, 0) or 0)
-        vendido_actual = int(vendidos_por_producto.get(producto, 0) or 0)
-        restante_meta = max(meta_operativa - producido_actual, 0)
-        cumplimiento_pct = round((producido_actual / meta_operativa) * 100, 1) if meta_operativa > 0 else 0.0
-        disponible_actual = max(producido_actual - vendido_actual, 0)
-        faltante_actual = max(vendido_actual - producido_actual, 0)
-        sobrante_actual = max(producido_actual - vendido_actual, 0)
-
-        item = {
-            "producto": producto,
-            "sugerido": sugerido,
-            "meta_operativa": meta_operativa,
-            "meta_origen": "ajuste_manual" if ajuste and meta_operativa != sugerido else "sistema",
-            "producido_actual": producido_actual,
-            "vendido_actual": vendido_actual,
-            "disponible_actual": disponible_actual,
-            "restante_meta": restante_meta,
-            "cumplimiento_pct": cumplimiento_pct,
-            "faltante_actual": faltante_actual,
-            "sobrante_actual": sobrante_actual,
-            "modelo_label": modelo_label,
-            "confianza": confianza,
-            "mensaje": mensaje,
-            "estado": estado,
-            "tendencia": tendencia,
-            "pendiente": restante_meta > 0,
-        }
-        items.append(item)
-        resumen["meta_total"] += item["meta_operativa"]
-        resumen["producido_total"] += item["producido_actual"]
-        resumen["vendido_total"] += item["vendido_actual"]
-        resumen["restante_total"] += item["restante_meta"]
-
-    items.sort(key=lambda item: (-item["restante_meta"], item["producto"].lower()))
-
-    return jsonify({
-        "ok": True,
-        "fecha": fecha,
-        "items": items,
-        "resumen": resumen,
-    })
-
-
-@app.route("/api/produccion/lotes-masivos", methods=["POST"])
-@roles_required(*ROLES_PANADERO)
-def api_produccion_lotes_masivos():
-    payload = request.get_json(silent=True) or {}
-    fecha = str(payload.get("fecha", "") or "").strip()
-    turno = str(payload.get("turno", "") or "").strip()
-    nota = str(payload.get("nota", "") or "").strip()
-    lotes_raw = payload.get("lotes") or []
-    usuario = session.get("usuario", {}).get("nombre", "")
-
-    try:
-        datetime.strptime(fecha, "%Y-%m-%d")
-    except ValueError:
-        return jsonify({"ok": False, "error": "Fecha invalida"}), 400
-
-    if not isinstance(lotes_raw, list) or not lotes_raw:
-        return jsonify({"ok": False, "error": "Selecciona al menos un producto para guardar"}), 400
-
-    try:
-        lotes_normalizados = _normalizar_lotes_produccion_panaderia(lotes_raw)
-    except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
-
-    lotes: list[dict] = []
-    for lote in lotes_normalizados:
-        observaciones_item = str(lote.get("observaciones", "") or "").strip()
-        partes_observacion = []
-        if turno:
-            partes_observacion.append(f"Tanda: {turno}")
-        if nota:
-            partes_observacion.append(nota)
-        if observaciones_item:
-            partes_observacion.append(observaciones_item)
-
-        lotes.append({
-            "fecha": fecha,
-            "producto": lote["producto"],
-            "cantidad": lote["cantidad"],
-            "observaciones": " | ".join(partes_observacion),
-            "registrado_por": usuario,
-        })
-
-    resultado = registrar_lotes_produccion(lotes, registrado_por=usuario)
-    status = 200 if resultado.get("ok") else 400
-    return jsonify(resultado), status
-
-
-@app.route("/api/produccion/validar-insumos", methods=["POST"])
-@roles_required(*ROLES_PANADERO)
-def api_produccion_validar_insumos():
-    payload = request.get_json(silent=True) or {}
-    lotes_raw = payload.get("lotes") or []
-
-    if not isinstance(lotes_raw, list) or not lotes_raw:
-        return jsonify({"ok": False, "error": "Selecciona al menos un lote para validar"}), 400
-
-    try:
-        lotes = _normalizar_lotes_produccion_panaderia(lotes_raw)
-    except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
-
-    return jsonify(_evaluar_insumos_lotes(lotes))
-
-
-@app.route("/api/inventario/proyeccion-insumos")
-@roles_required(*ROLES_PANADERO)
-def api_inventario_proyeccion_insumos():
-    fecha = request.args.get(
-        "fecha",
-        (datetime.now().date() + timedelta(days=1)).strftime("%Y-%m-%d"),
-    ).strip()
-
-    try:
-        datetime.strptime(fecha, "%Y-%m-%d")
-    except ValueError:
-        return jsonify({"ok": False, "error": "Fecha invalida"}), 400
-
-    productos = obtener_productos(categoria="Panaderia")
-    lotes = []
-    productos_planeados = []
-    for producto in productos:
-        contexto = _construir_contexto_produccion(fecha, producto, incluir_lotes=False)
-        meta = contexto.get("meta", {})
-        sugerencia = contexto.get("sugerencia", {})
-        cantidad = int(meta.get("operativa", 0) or 0)
-        if cantidad <= 0:
-            continue
-        lotes.append({"producto": producto, "cantidad": cantidad})
-        productos_planeados.append({
-            "producto": producto,
-            "cantidad": cantidad,
-            "modelo_label": sugerencia.get("modelo_label", "-"),
-            "confianza": sugerencia.get("confianza", "poca"),
-            "origen_meta": meta.get("origen", "sistema"),
-        })
-
-    evaluacion = _evaluar_insumos_lotes(lotes)
-    return jsonify({
-        "ok": True,
-        "fecha": fecha,
-        "productos": productos_planeados,
-        **evaluacion,
-    })
-
 
 @app.route("/api/historial/dashboard")
-@roles_required(*ROLES_PANADERO)
 def api_historial_dashboard():
     """API compatible con el dashboard contable/historico del frontend."""
-    try:
-        dias = int(request.args.get("dias", 30) or 30)
-    except (TypeError, ValueError):
-        dias = 30
+    dias = int(request.args.get("dias", 30))
     producto = request.args.get("producto", "Todos")
     producto_filtro = None if producto in ("", "Todos") else producto
-    fecha_inicio_raw = (request.args.get("fecha_inicio", "") or "").strip()
-    fecha_fin_raw = (request.args.get("fecha_fin", "") or "").strip()
 
-    hoy = datetime.now().date()
-    fecha_fin_obj = hoy
-    fecha_inicio_obj = hoy - timedelta(days=max(dias - 1, 0))
-    personalizado = False
+    totales = obtener_totales_ventas_rango(dias=dias, producto=producto_filtro)
+    serie_diaria = obtener_serie_ventas_diarias(dias=dias, producto=producto_filtro)
+    resumen_productos = obtener_resumen_productos_rango(dias=dias)
+    if producto_filtro:
+        resumen_productos = [r for r in resumen_productos if r.get("producto") == producto_filtro]
 
-    if fecha_inicio_raw or fecha_fin_raw:
-        try:
-            fecha_fin_obj = datetime.strptime(fecha_fin_raw, "%Y-%m-%d").date() if fecha_fin_raw else hoy
-        except ValueError:
-            fecha_fin_obj = hoy
-        try:
-            fecha_inicio_obj = datetime.strptime(fecha_inicio_raw, "%Y-%m-%d").date() if fecha_inicio_raw else (
-                fecha_fin_obj - timedelta(days=max(dias - 1, 0))
-            )
-        except ValueError:
-            fecha_inicio_obj = fecha_fin_obj - timedelta(days=max(dias - 1, 0))
-        personalizado = True
-
-    if fecha_inicio_obj > fecha_fin_obj:
-        fecha_inicio_obj, fecha_fin_obj = fecha_fin_obj, fecha_inicio_obj
-
-    fecha_inicio = fecha_inicio_obj.strftime("%Y-%m-%d")
-    fecha_fin = fecha_fin_obj.strftime("%Y-%m-%d")
-    dias_periodo = (fecha_fin_obj - fecha_inicio_obj).days + 1
-
-    totales = obtener_totales_ventas_rango(
-        dias=dias,
-        producto=producto_filtro,
-        fecha_inicio=fecha_inicio,
-        fecha_fin=fecha_fin,
-    )
-    serie_diaria = obtener_serie_ventas_diarias(
-        dias=dias,
-        producto=producto_filtro,
-        fecha_inicio=fecha_inicio,
-        fecha_fin=fecha_fin,
-    )
-    resumen_productos = obtener_resumen_productos_rango(
-        dias=dias,
-        producto=producto_filtro,
-        fecha_inicio=fecha_inicio,
-        fecha_fin=fecha_fin,
-    )
-
-    ventas = obtener_ventas_rango(
-        dias=dias,
-        producto=producto_filtro,
-        fecha_inicio=fecha_inicio,
-        fecha_fin=fecha_fin,
-    )
-    registros_operacion = obtener_registros(
-        producto=producto_filtro,
-        dias=dias,
-        fecha_inicio=fecha_inicio,
-        fecha_fin=fecha_fin,
-    )
-    arqueos_periodo = obtener_arqueos_rango(
-        dias=dias,
-        fecha_inicio=fecha_inicio,
-        fecha_fin=fecha_fin,
-    )
-    movimientos_periodo = obtener_movimientos_caja_rango(
-        dias=dias,
-        fecha_inicio=fecha_inicio,
-        fecha_fin=fecha_fin,
-    )
-    medios_pago_db = obtener_resumen_medios_pago_rango(
-        dias=dias,
-        producto=producto_filtro,
-        fecha_inicio=fecha_inicio,
-        fecha_fin=fecha_fin,
-    )
+    ventas = obtener_ventas_rango(dias=dias, producto=producto_filtro)
+    registros_operacion = obtener_registros(producto=producto_filtro, dias=dias)
+    arqueos_periodo = obtener_arqueos_rango(dias=dias)
+    movimientos_periodo = obtener_movimientos_caja_rango(dias=dias)
+    medios_pago_db = obtener_resumen_medios_pago_rango(dias=dias, producto=producto_filtro)
 
     transacciones = int(totales.get("transacciones", 0) or 0)
     dinero = float(totales.get("dinero", 0) or 0)
@@ -1876,42 +1099,6 @@ def api_historial_dashboard():
                 horas[key] += int(v.get("cantidad", 0) or 0)
 
     serie_horaria = [{"hora": k, "panes": v} for k, v in horas.items()]
-
-    dias_semana_orden = {
-        "Monday": "Lunes",
-        "Tuesday": "Martes",
-        "Wednesday": "Miercoles",
-        "Thursday": "Jueves",
-        "Friday": "Viernes",
-        "Saturday": "Sabado",
-        "Sunday": "Domingo",
-    }
-    dia_semana_acumulado = {
-        dia: {"dia": dia, "dinero": 0.0, "panes": 0, "transacciones": 0}
-        for dia in ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]
-    }
-    for fila in serie_diaria:
-        fecha_fila = fila.get("fecha")
-        if not fecha_fila:
-            continue
-        try:
-            dia_en = datetime.strptime(fecha_fila, "%Y-%m-%d").strftime("%A")
-        except ValueError:
-            continue
-        dia = dias_semana_orden.get(dia_en, dia_en)
-        bucket = dia_semana_acumulado.setdefault(dia, {"dia": dia, "dinero": 0.0, "panes": 0, "transacciones": 0})
-        bucket["dinero"] += float(fila.get("dinero", 0) or 0)
-        bucket["panes"] += int(fila.get("panes", 0) or 0)
-        bucket["transacciones"] += int(fila.get("transacciones", 0) or 0)
-    serie_dia_semana = [
-        {
-            "dia": dia,
-            "dinero": round(data["dinero"], 2),
-            "panes": int(data["panes"]),
-            "transacciones": int(data["transacciones"]),
-        }
-        for dia, data in dia_semana_acumulado.items()
-    ]
 
     medios_pago = []
     medios_por_nombre = {
@@ -1934,8 +1121,6 @@ def api_historial_dashboard():
 
     ventas_efectivo = round(sum(item["total"] for item in medios_pago if item["metodo"] == "Efectivo"), 2)
     ventas_transferencia = round(sum(item["total"] for item in medios_pago if item["metodo"] == "Transferencia"), 2)
-    porcentaje_transferencia = round((ventas_transferencia / dinero) * 100, 1) if dinero else 0.0
-    porcentaje_efectivo = round((ventas_efectivo / dinero) * 100, 1) if dinero else 0.0
 
     serie_pago_map = {}
     for venta in ventas:
@@ -2088,43 +1273,6 @@ def api_historial_dashboard():
         data["diferencia"] = round(data["diferencia"], 2)
         serie_caja.append(data)
 
-    promedio_diario = round((dinero / len(serie_diaria)), 2) if serie_diaria else 0.0
-    promedio_unidades_diario = round((int(totales.get("panes", 0) or 0) / len(serie_diaria)), 1) if serie_diaria else 0.0
-    dias_activos = len(serie_diaria)
-    mejor_dia = max(serie_diaria, key=lambda fila: float(fila.get("dinero", 0) or 0), default={})
-    dia_mas_lento = min(serie_diaria, key=lambda fila: float(fila.get("dinero", 0) or 0), default={}) if serie_diaria else {}
-    hora_pico = max(serie_horaria, key=lambda fila: int(fila.get("panes", 0) or 0), default={})
-    producto_lider = resumen_productos[0] if resumen_productos else {}
-
-    insights = {
-        "promedio_diario": promedio_diario,
-        "promedio_unidades_diario": promedio_unidades_diario,
-        "dias_activos": dias_activos,
-        "mejor_dia": {
-            "fecha": mejor_dia.get("fecha", ""),
-            "dinero": round(float(mejor_dia.get("dinero", 0) or 0), 2),
-            "panes": int(mejor_dia.get("panes", 0) or 0),
-        },
-        "dia_mas_lento": {
-            "fecha": dia_mas_lento.get("fecha", ""),
-            "dinero": round(float(dia_mas_lento.get("dinero", 0) or 0), 2),
-            "panes": int(dia_mas_lento.get("panes", 0) or 0),
-        },
-        "hora_pico": {
-            "hora": hora_pico.get("hora", ""),
-            "panes": int(hora_pico.get("panes", 0) or 0),
-        },
-        "producto_lider": {
-            "producto": producto_lider.get("producto", ""),
-            "dinero": round(float(producto_lider.get("dinero", 0) or 0), 2),
-            "panes": int(producto_lider.get("panes", 0) or 0),
-        },
-        "mix_pago": {
-            "efectivo_pct": porcentaje_efectivo,
-            "transferencia_pct": porcentaje_transferencia,
-        },
-    }
-
     # Compatibilidad adicional con payload resumido que habias empezado.
     resumen_simple = []
     resumen_aux = {}
@@ -2145,22 +1293,11 @@ def api_historial_dashboard():
     return jsonify({
         "filtro_producto": producto,
         "dias": dias,
-        "periodo": {
-            "fecha_inicio": fecha_inicio,
-            "fecha_fin": fecha_fin,
-            "dias": dias_periodo,
-            "personalizado": personalizado,
-            "label": f"{fecha_inicio} a {fecha_fin}",
-        },
-        "insights": insights,
         "totales": {
             "panes": int(totales.get("panes", 0) or 0),
             "dinero": dinero,
             "transacciones": transacciones,
             "ticket_promedio": ticket_promedio,
-            "promedio_diario": promedio_diario,
-            "promedio_unidades_diario": promedio_unidades_diario,
-            "dias_activos": dias_activos,
             "ventas_efectivo": ventas_efectivo,
             "ventas_transferencia": ventas_transferencia,
             "ingresos_manuales": ingresos_manuales,
@@ -2169,11 +1306,8 @@ def api_historial_dashboard():
             "cierres_registrados": cierres_registrados,
             "reaperturas": reaperturas,
             "diferencia_cierre": diferencia_total,
-            "porcentaje_transferencia": porcentaje_transferencia,
-            "porcentaje_efectivo": porcentaje_efectivo,
         },
         "serie_diaria": serie_diaria,
-        "serie_dia_semana": serie_dia_semana,
         "serie_pago": serie_pago,
         "serie_caja": serie_caja,
         "medios_pago": medios_pago,
@@ -2211,24 +1345,18 @@ def api_historial_dashboard():
 
 
 @app.route("/api/venta", methods=["POST"])
-@roles_required(*ROLES_CAJA)
 def api_venta():
-    data = request.get_json(silent=True) or {}
+    data = request.json
     if not data or "items" not in data:
         return jsonify({"ok": False, "error": "Sin datos"}), 400
 
-    items_venta, errores_items = _normalizar_items_payload(data.get("items", []))
-    if errores_items:
-        return jsonify({"ok": False, "error": "Items invalidos", "detalle": errores_items}), 400
-
-    items_validacion = [
-        {
-            "producto": item["producto"],
-            "cantidad": item["cantidad"],
-            "modificaciones": item["modificaciones"],
-        }
-        for item in items_venta
-    ]
+    items_validacion = []
+    for item in data["items"]:
+        items_validacion.append({
+            "producto": item.get("producto", ""),
+            "cantidad": int(item.get("cantidad", 0) or 0),
+            "modificaciones": [],
+        })
 
     validacion = validar_stock_pedido(items_validacion)
     if not validacion["ok"]:
@@ -2238,7 +1366,9 @@ def api_venta():
             "faltantes": validacion["faltantes"],
         }), 400
 
-    usuario = session.get("usuario", {}).get("nombre", "")
+    usuario = "Cliente"
+    if "usuario" in session:
+        usuario = session["usuario"]["nombre"]
 
     metodo_pago = str(data.get("metodo_pago", "efectivo") or "efectivo").strip().lower()
     monto_recibido = data.get("monto_recibido")
@@ -2247,6 +1377,20 @@ def api_venta():
             monto_recibido = float(monto_recibido)
         except (TypeError, ValueError):
             return jsonify({"ok": False, "error": "Monto recibido invalido"}), 400
+
+    items_venta = []
+    try:
+        for item in data["items"]:
+            cantidad = int(item["cantidad"])
+            precio = float(item["precio"])
+            items_venta.append({
+                "producto": item["producto"],
+                "cantidad": cantidad,
+                "precio": precio,
+                "total": round(cantidad * precio, 2),
+            })
+    except (KeyError, TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Items invalidos"}), 400
 
     resultado = registrar_venta_lote(
         items_venta,
@@ -2262,7 +1406,6 @@ def api_venta():
 
 
 @app.route("/api/ventas/hoy")
-@roles_required(*ROLES_CAJA)
 def api_ventas_hoy():
     try:
         caja = obtener_resumen_caja_dia()
@@ -2280,7 +1423,7 @@ def api_ventas_hoy():
 
 
 @app.route("/api/caja/abrir", methods=["POST"])
-@roles_required(*ROLES_CAJA)
+@login_required
 def api_abrir_caja():
     data = request.get_json(silent=True) or {}
     try:
@@ -2298,7 +1441,7 @@ def api_abrir_caja():
 
 
 @app.route("/api/caja/movimiento", methods=["POST"])
-@roles_required(*ROLES_CAJA)
+@login_required
 def api_registrar_movimiento_caja():
     data = request.get_json(silent=True) or {}
     tipo = str(data.get("tipo", "") or "").strip().lower()
@@ -2325,7 +1468,7 @@ def api_registrar_movimiento_caja():
 
 
 @app.route("/api/caja/cerrar", methods=["POST"])
-@roles_required(*ROLES_CAJA)
+@login_required
 def api_cerrar_caja():
     data = request.get_json(silent=True) or {}
     try:
@@ -2359,7 +1502,7 @@ def api_cerrar_caja():
 
 
 @app.route("/api/caja/reabrir", methods=["POST"])
-@roles_required(*ROLES_CAJA)
+@login_required
 def api_reabrir_caja():
     data = request.get_json(silent=True) or {}
     codigo_verificacion = str(data.get("codigo_verificacion", "") or "").strip()
@@ -2388,7 +1531,7 @@ def api_vendido_dia():
 
 
 @app.route("/api/producto", methods=["POST"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_agregar_producto():
     data = request.json
     nombre = data.get("nombre", "").strip()
@@ -2402,7 +1545,7 @@ def api_agregar_producto():
 
 
 @app.route("/api/producto/<int:producto_id>", methods=["PUT"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_actualizar_producto_completo(producto_id):
     data = request.get_json(silent=True) or {}
     nombre = str(data.get("nombre", "") or "").strip()
@@ -2422,7 +1565,7 @@ def api_actualizar_producto_completo(producto_id):
 
 
 @app.route("/api/producto/<int:producto_id>", methods=["DELETE"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_eliminar_producto(producto_id):
     nombre = request.args.get("nombre", str(producto_id))
     ok = eliminar_producto_por_id(producto_id)
@@ -2439,7 +1582,7 @@ def api_eliminar_producto(producto_id):
 
 
 @app.route("/api/productos/importar", methods=["POST"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_importar_productos():
     archivo = request.files.get("archivo")
     if archivo is None:
@@ -2464,7 +1607,7 @@ def api_importar_productos():
 
 
 @app.route("/api/categoria-producto", methods=["POST"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_agregar_categoria_producto():
     data = request.json
     nombre = data.get("nombre", "").strip()
@@ -2475,7 +1618,7 @@ def api_agregar_categoria_producto():
 
 
 @app.route("/api/producto/precio", methods=["PUT"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_actualizar_precio():
     data = request.json
     nombre = data.get("nombre", "")
@@ -2497,7 +1640,7 @@ def api_actualizar_precio():
 
 
 @app.route("/api/producto/categoria", methods=["PUT"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_actualizar_categoria_producto():
     data = request.json
     nombre = data.get("nombre", "").strip()
@@ -2509,7 +1652,7 @@ def api_actualizar_categoria_producto():
 
 
 @app.route("/api/producto/adicional", methods=["PUT"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_actualizar_producto_adicional():
     data = request.json
     nombre = data.get("nombre", "").strip()
@@ -2521,7 +1664,7 @@ def api_actualizar_producto_adicional():
 
 
 @app.route("/api/config/codigo-caja", methods=["PUT"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_guardar_codigo_caja():
     data = request.get_json(silent=True) or {}
     codigo = str(data.get("codigo", "") or "").strip()
@@ -2532,7 +1675,7 @@ def api_guardar_codigo_caja():
 
 
 @app.route("/api/usuario", methods=["POST"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_agregar_usuario():
     data = request.json
     ok = agregar_usuario(
@@ -2544,7 +1687,7 @@ def api_agregar_usuario():
 
 
 @app.route("/api/usuario/<int:uid>", methods=["DELETE"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_eliminar_usuario(uid):
     ok = eliminar_usuario(uid)
     return jsonify({"ok": ok})
@@ -2553,18 +1696,44 @@ def api_eliminar_usuario(uid):
 # ── API Pedidos ──
 
 @app.route("/api/pedido", methods=["POST"])
-@roles_required(*ROLES_MESAS)
+@login_required
 def api_crear_pedido():
-    data = request.get_json(silent=True) or {}
+    data = request.json
     if not data or "items" not in data or not data["items"]:
         return jsonify({"ok": False, "error": "Sin items"}), 400
 
     mesa_id = data.get("mesa_id")
     notas = data.get("notas", "")
-    mesero = session.get("usuario", {}).get("nombre", "")
-    items, errores_items = _normalizar_items_payload(data.get("items", []), incluir_notas=True)
-    if errores_items:
-        return jsonify({"ok": False, "error": "Items invalidos", "detalle": errores_items}), 400
+    mesero = session["usuario"]["nombre"] if "usuario" in session else ""
+
+    items = []
+    for item in data["items"]:
+        entry = {
+            "producto": item["producto"],
+            "cantidad": int(item["cantidad"]),
+            "precio_unitario": float(item["precio"]),
+            "notas": item.get("notas", ""),
+        }
+        # Procesar modificaciones (adicionales/exclusiones)
+        if "modificaciones" in item:
+            entry["modificaciones"] = []
+            for mod in item["modificaciones"]:
+                descripcion = str(mod.get("descripcion", "") or "").strip()
+                tipo = mod.get("tipo", "adicional")
+                cantidad = int(mod.get("cantidad", 1) or 0)
+                if not descripcion:
+                    continue
+                if tipo == "adicional" and cantidad <= 0:
+                    continue
+                if tipo == "exclusion":
+                    cantidad = 1
+                entry["modificaciones"].append({
+                    "tipo": tipo,
+                    "descripcion": descripcion,
+                    "cantidad": cantidad,
+                    "precio_extra": float(mod.get("precio_extra", 0)),
+                })
+        items.append(entry)
 
     # Validar stock real: aplica a TODOS los productos con producción registrada hoy
     validacion = validar_stock_pedido(items)
@@ -2582,16 +1751,12 @@ def api_crear_pedido():
 
 
 @app.route("/api/pedido/<int:pedido_id>/estado", methods=["PUT"])
-@roles_required(*ROLES_OPERATIVOS)
+@login_required
 def api_cambiar_estado(pedido_id):
-    data = request.get_json(silent=True) or {}
+    data = request.json
     nuevo_estado = data.get("estado", "")
     if nuevo_estado not in ("pendiente", "en_preparacion", "listo", "pagado", "cancelado"):
         return jsonify({"ok": False, "error": "Estado invalido"}), 400
-
-    rol_actual = session.get("usuario", {}).get("rol")
-    if nuevo_estado == "pagado" and rol_actual not in ROLES_CAJA:
-        return jsonify({"ok": False, "error": "Sin permiso"}), 403
 
     if nuevo_estado == "pagado":
         pedido = obtener_pedido(pedido_id)
@@ -2640,7 +1805,7 @@ def api_cambiar_estado(pedido_id):
 
 
 @app.route("/api/pedido/<int:pedido_id>")
-@roles_required(*ROLES_OPERATIVOS)
+@login_required
 def api_obtener_pedido(pedido_id):
     pedido = obtener_pedido(pedido_id)
     if pedido:
@@ -2649,7 +1814,7 @@ def api_obtener_pedido(pedido_id):
 
 
 @app.route("/api/pedidos")
-@roles_required(*ROLES_OPERATIVOS)
+@login_required
 def api_obtener_pedidos():
     estado = request.args.get("estado")
     mesa_id = request.args.get("mesa_id", type=int)
@@ -2658,13 +1823,13 @@ def api_obtener_pedidos():
 
 
 @app.route("/api/adicionales")
-@roles_required(*ROLES_OPERATIVOS)
+@login_required
 def api_obtener_adicionales():
     return jsonify(_obtener_adicionales_operativos())
 
 
 @app.route("/api/adicional", methods=["POST"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_agregar_adicional():
     data = request.json
     nombre = data.get("nombre", "").strip()
@@ -2676,7 +1841,7 @@ def api_agregar_adicional():
 
 
 @app.route("/api/adicional/<int:aid>/precio", methods=["PUT"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_actualizar_adicional(aid):
     data = request.json
     precio = float(data.get("precio", 0))
@@ -2685,7 +1850,7 @@ def api_actualizar_adicional(aid):
 
 
 @app.route("/api/adicional/<int:aid>/configuracion", methods=["PUT"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_guardar_configuracion_adicional(aid):
     data = request.get_json(silent=True) or {}
     nombre = str(data.get("nombre", "") or "").strip()
@@ -2707,20 +1872,20 @@ def api_guardar_configuracion_adicional(aid):
 
 
 @app.route("/api/adicional/<int:aid>", methods=["DELETE"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_eliminar_adicional(aid):
     ok = eliminar_adicional(aid)
     return jsonify({"ok": ok})
 
 
 @app.route("/api/insumos")
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_obtener_insumos():
     return jsonify(obtener_insumos())
 
 
 @app.route("/api/insumo", methods=["POST"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_agregar_insumo():
     data = request.json
     nombre = data.get("nombre", "").strip()
@@ -2734,7 +1899,7 @@ def api_agregar_insumo():
 
 
 @app.route("/api/insumos/importar", methods=["POST"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_importar_insumos():
     archivo = request.files.get("archivo")
     if archivo is None:
@@ -2759,7 +1924,7 @@ def api_importar_insumos():
 
 
 @app.route("/api/insumo/<int:iid>/stock", methods=["PUT"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_actualizar_stock(iid):
     data = request.json
     stock_nuevo = float(data.get("stock", 0))
@@ -2781,20 +1946,20 @@ def api_actualizar_stock(iid):
 
 
 @app.route("/api/insumo/<int:iid>", methods=["DELETE"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_eliminar_insumo(iid):
     ok = eliminar_insumo(iid)
     return jsonify({"ok": ok})
 
 
 @app.route("/api/receta/<producto>")
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_obtener_receta(producto):
     return jsonify(obtener_receta(producto))
 
 
 @app.route("/api/receta/<producto>", methods=["PUT"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_guardar_receta(producto):
     data = request.get_json(silent=True) or {}
     ingredientes = data.get("ingredientes", [])
@@ -2805,7 +1970,7 @@ def api_guardar_receta(producto):
 
 
 @app.route("/api/mesa", methods=["POST"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_agregar_mesa():
     data = request.get_json(silent=True) or {}
     try:
@@ -2831,7 +1996,7 @@ def api_agregar_mesa():
 # ── API Backups ──
 
 @app.route("/api/backup", methods=["POST"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_crear_backup():
     data = request.json or {}
     nota = data.get("nota", "Backup manual")
@@ -2840,7 +2005,7 @@ def api_crear_backup():
 
 
 @app.route("/api/backup/restaurar", methods=["POST"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_restaurar_backup():
     data = request.json
     timestamp = data.get("timestamp", "")
@@ -2851,14 +2016,14 @@ def api_restaurar_backup():
 
 
 @app.route("/api/backup/<timestamp>", methods=["DELETE"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_eliminar_backup(timestamp):
     result = eliminar_backup(timestamp)
     return jsonify(result)
 
 
 @app.route("/api/backup/limpiar", methods=["POST"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_limpiar_backups():
     result = limpiar_backups_antiguos()
     return jsonify(result)
@@ -2871,7 +2036,7 @@ def api_limpiar_backups():
 # ── Top 3 productos del día ──────────────────────────────────────────────────
 
 @app.route("/api/top-productos")
-@roles_required(*ROLES_OPERATIVOS)
+@login_required
 def api_top_productos():
     fecha = request.args.get("fecha", datetime.now().strftime("%Y-%m-%d"))
     limite = int(request.args.get("limite", 3))
@@ -2882,7 +2047,7 @@ def api_top_productos():
 # ── Alertas de stock por producto ────────────────────────────────────────────
 
 @app.route("/api/alertas-stock")
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_alertas_stock():
     fecha = request.args.get("fecha", datetime.now().strftime("%Y-%m-%d"))
     alertas = obtener_alertas_stock_productos(fecha=fecha)
@@ -2890,7 +2055,7 @@ def api_alertas_stock():
 
 
 @app.route("/api/stock-disponible")
-@roles_required(*ROLES_OPERATIVOS)
+@login_required
 def api_stock_disponible():
     """Stock disponible real por producto (producido - ventas - pedidos activos)."""
     fecha = request.args.get("fecha", datetime.now().strftime("%Y-%m-%d"))
@@ -2899,7 +2064,7 @@ def api_stock_disponible():
 
 
 @app.route("/api/producto/<int:producto_id>/stock-minimo", methods=["PUT"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_actualizar_stock_minimo(producto_id):
     data = request.get_json(silent=True) or {}
     try:
@@ -2923,8 +2088,10 @@ def api_actualizar_stock_minimo(producto_id):
 # ── Audit Log ────────────────────────────────────────────────────────────────
 
 @app.route("/api/audit-log")
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_audit_log():
+    if session.get("usuario", {}).get("rol") != "panadero":
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
     dias = int(request.args.get("dias", 30))
     limite = int(request.args.get("limite", 200))
     log = obtener_audit_log(dias=dias, limite=limite)
@@ -2934,7 +2101,7 @@ def api_audit_log():
 # ── Ajuste manual de pronóstico ──────────────────────────────────────────────
 
 @app.route("/api/pronostico/ajuste", methods=["POST"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_guardar_ajuste_pronostico():
     data = request.get_json(silent=True) or {}
     fecha = data.get("fecha", datetime.now().strftime("%Y-%m-%d"))
@@ -2963,7 +2130,7 @@ def api_guardar_ajuste_pronostico():
 
 
 @app.route("/api/pronostico/ajuste")
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_obtener_ajuste_pronostico():
     fecha = request.args.get("fecha", datetime.now().strftime("%Y-%m-%d"))
     producto = request.args.get("producto", "")
@@ -2977,7 +2144,7 @@ def api_obtener_ajuste_pronostico():
 # ── Mermas ───────────────────────────────────────────────────────────────────
 
 @app.route("/api/merma", methods=["POST"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_registrar_merma():
     data = request.get_json(silent=True) or {}
     producto = str(data.get("producto", "")).strip()
@@ -2995,7 +2162,7 @@ def api_registrar_merma():
 
 
 @app.route("/api/mermas")
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_mermas_dia():
     fecha = request.args.get("fecha", datetime.now().strftime("%Y-%m-%d"))
     mermas = obtener_mermas_dia(fecha=fecha)
@@ -3006,15 +2173,17 @@ def api_mermas_dia():
 # ── Días especiales ───────────────────────────────────────────────────────────
 
 @app.route("/api/dias-especiales")
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_dias_especiales():
     dias = obtener_dias_especiales()
     return jsonify({"ok": True, "dias_especiales": dias})
 
 
 @app.route("/api/dia-especial", methods=["POST"])
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_guardar_dia_especial():
+    if session.get("usuario", {}).get("rol") != "panadero":
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
     data = request.get_json(silent=True) or {}
     fecha = str(data.get("fecha", "")).strip()
     descripcion = str(data.get("descripcion", "")).strip()
@@ -3032,16 +2201,13 @@ def api_guardar_dia_especial():
 # ── Dashboard de cierre diario ────────────────────────────────────────────────
 
 @app.route("/api/cierre-diario")
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_cierre_diario():
     fecha = request.args.get("fecha", datetime.now().strftime("%Y-%m-%d"))
     # Incluir pronóstico del día siguiente
     from logic.pronostico import calcular_pronostico
-    try:
-        fecha_base = datetime.strptime(fecha, "%Y-%m-%d")
-    except ValueError:
-        fecha_base = datetime.now()
-    manana = (fecha_base + timedelta(days=1)).strftime("%Y-%m-%d")
+    from datetime import date, timedelta
+    manana = (date.today() + timedelta(days=1)).strftime("%Y-%m-%d")
     productos_panaderia = obtener_productos(categoria="Panaderia")
 
     pronostico_manana = []
@@ -3064,8 +2230,10 @@ def api_cierre_diario():
 # ── Exportaciones CSV ─────────────────────────────────────────────────────────
 
 @app.route("/api/export/ventas")
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_export_ventas():
+    if session.get("usuario", {}).get("rol") != "panadero":
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
     dias = int(request.args.get("dias", 30))
     ventas = exportar_ventas_csv(dias=dias)
 
@@ -3086,8 +2254,10 @@ def api_export_ventas():
 
 
 @app.route("/api/export/inventario")
-@roles_required(*ROLES_PANADERO)
+@login_required
 def api_export_inventario():
+    if session.get("usuario", {}).get("rol") != "panadero":
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
     insumos = exportar_inventario_csv()
 
     output = io.StringIO()
@@ -3106,8 +2276,10 @@ def api_export_inventario():
 # ── Vista de cierre diario ───────────────────────────────────────────────────
 
 @app.route("/panadero/cierre")
-@roles_required(*ROLES_PANADERO)
+@login_required
 def panadero_cierre():
+    if session.get("usuario", {}).get("rol") != "panadero":
+        return redirect(url_for("index"))
     return render_template("panadero_cierre.html",
                            layout="panadero", active_page="cierre")
 
@@ -3115,8 +2287,10 @@ def panadero_cierre():
 # ── Vista de audit log ────────────────────────────────────────────────────────
 
 @app.route("/panadero/audit")
-@roles_required(*ROLES_PANADERO)
+@login_required
 def panadero_audit():
+    if session.get("usuario", {}).get("rol") != "panadero":
+        return redirect(url_for("index"))
     return render_template("panadero_audit.html",
                            layout="panadero", active_page="audit")
 
@@ -3124,6 +2298,17 @@ def panadero_audit():
 # ══════════════════════════════════════════════
 # UTILIDADES
 # ══════════════════════════════════════════════
+
+def _get_local_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
 
 @app.context_processor
 def utility_processor():
@@ -3145,33 +2330,25 @@ def _iniciar_scheduler():
         from apscheduler.schedulers.background import BackgroundScheduler
         backup_hour = int(os.environ.get("BACKUP_AUTO_HOUR", "23"))
         retention_days = int(os.environ.get("BACKUP_RETENTION_DAYS", "30"))
-        info_backup = obtener_info_backup()
-        if not info_backup.get("backup_en_app_disponible"):
-            print(
-                "  Backups automáticos de la app desactivados para "
-                f"{info_backup.get('motor_activo', 'postgresql')}. "
-                "Usa pg_dump o snapshots externos."
-            )
-            return None
 
         def _backup_diario():
             result = crear_backup(f"Backup automático diario - {datetime.now().strftime('%Y-%m-%d')}")
             if result["ok"]:
                 limpiar_backups_antiguos(dias_retencion=retention_days)
-                print(f"[BACKUP] Backup automático completado: {result['backup']['archivo']}")
+                app.logger.info(f"Backup automático completado: {result['backup']['archivo']}")
             else:
-                print(f"[BACKUP ERROR] {result.get('error', 'Error desconocido')}")
+                app.logger.error(f"Backup automático falló: {result.get('error', 'Error desconocido')}")
 
         scheduler = BackgroundScheduler(daemon=True)
         scheduler.add_job(_backup_diario, "cron", hour=backup_hour, minute=0)
         scheduler.start()
-        print(f"  Backup automático programado a las {backup_hour:02d}:00")
+        app.logger.info(f"Backup automático programado a las {backup_hour:02d}:00")
         return scheduler
     except ImportError:
-        print("  [AVISO] APScheduler no instalado. Backups automáticos desactivados.")
+        app.logger.debug("APScheduler no instalado. Backups automáticos desactivados.")
         return None
     except Exception as e:
-        print(f"  [AVISO] No se pudo iniciar scheduler de backups: {e}")
+        app.logger.error(f"No se pudo iniciar scheduler de backups: {e}")
         return None
 
 
@@ -3182,21 +2359,16 @@ _scheduler = _iniciar_scheduler()
 
 if __name__ == "__main__":
     # Backup automatico al iniciar en modo desarrollo
-    info_backup = obtener_info_backup()
-    if info_backup.get("backup_en_app_disponible"):
-        result = crear_backup("Backup automatico al iniciar")
-        if result["ok"]:
-            print("  Backup automatico creado")
-        limpiar_backups_antiguos()
-    else:
-        print("  Backups en app desactivados para PostgreSQL. Usa pg_dump o snapshots externos.")
-    print()
-    print("=" * 50)
-    print("  PANADERIA - Sistema de Ventas y Pronostico")
-    print("=" * 50)
-    print("  Abrir en navegador: http://127.0.0.1:5000")
-    print()
-    print("  ADVERTENCIA: Cambia los PINes por defecto en Configuracion > Usuarios")
-    print("=" * 50)
-    print()
+    result = crear_backup("Backup automatico al iniciar")
+    if result["ok"]:
+        app.logger.info("Backup automatico creado")
+    limpiar_backups_antiguos()
+    ip = _get_local_ip()
+    app.logger.info("=" * 50)
+    app.logger.info("  PANADERIA - Sistema de Ventas y Pronostico")
+    app.logger.info("=" * 50)
+    app.logger.info(f"  Abrir en navegador: http://{ip}:5000")
+    app.logger.info(f"  QR clientes:        http://{ip}:5000/cliente/pedido")
+    app.logger.info("  ADVERTENCIA: Cambia los PINes por defecto en Configuracion > Usuarios")
+    app.logger.info("=" * 50)
     app.run(host="0.0.0.0", port=5000, debug=os.environ.get("FLASK_ENV") == "development")
