@@ -21,15 +21,20 @@
 
         <div class="product-grid">
             {% for p in productos %}
-            <button class="product-card" onclick='addToCart({{ p.nombre|tojson }}, {{ p.precio }}, {{ p.icono|tojson }})'
+            <button type="button" class="product-card"
+                    onclick='addToCart({{ p.nombre|tojson }}, {{ p.precio }}, {{ p.icono|tojson }}, {{ p.id }}, {{ p.stock_minimo or 0 }})'
                     style="--prod-color: {{ p.color }}"
                     data-category="{{ p.categoria|lower }}"
-                    data-name="{{ p.nombre|lower }}">
+                    data-name="{{ p.nombre|lower }}"
+                    data-producto="{{ p.nombre }}"
+                    data-product-id="{{ p.id }}"
+                    data-stock-minimo="{{ p.stock_minimo or 0 }}">
                 <div class="product-color-bar" style="background: {{ p.color }}"></div>
                 <span class="material-symbols-outlined product-icon">{{ p.icono }}</span>
                 <span class="product-name">{{ p.nombre }}</span>
                 <span class="chip product-category-chip">{{ p.categoria }}</span>
                 <span class="product-price">${{ '%.2f'|format(p.precio) }}</span>
+                <span class="stock-badge" id="stock-{{ p.id }}" style="display:none"></span>
             </button>
             {% endfor %}
         </div>
@@ -103,6 +108,65 @@ const MESA_ID = {{ mesa.id }};
 const ADICIONALES = {{ adicionales | tojson }};
 const ADICIONALES_DISPONIBLES = ADICIONALES || [];
 
+// Stock disponible por producto (se carga al inicio y se actualiza)
+let stockDisponible = {};
+
+async function cargarStockDisponible() {
+    try {
+        const r = await fetch('/api/stock-disponible');
+        if (!r.ok) return;
+        const d = await r.json();
+        stockDisponible = d.stock || {};
+        actualizarBadgesStock();
+        renderCart();
+    } catch(e) {}
+}
+
+function getCartQtyForProduct(nombre, excluirItemId = null) {
+    return cart
+        .filter(i => i.nombre === nombre && i.id !== excluirItemId)
+        .reduce((s, i) => s + i.cantidad, 0);
+}
+
+function limpiarEstadoStockProducto(btn, badge) {
+    btn.classList.remove('product-card-stock-low', 'product-card-stock-out');
+    btn.disabled = false;
+    badge.style.display = 'none';
+    badge.className = 'stock-badge';
+}
+
+function actualizarBadgesStock() {
+    document.querySelectorAll('.product-card[data-producto]').forEach(btn => {
+        const nombre = btn.dataset.producto;
+        const badge = document.getElementById('stock-' + btn.dataset.productId);
+        if (!badge) return;
+
+        limpiarEstadoStockProducto(btn, badge);
+        if (!(nombre in stockDisponible)) {
+            return;
+        }
+
+        const disponible = Number(stockDisponible[nombre] || 0);
+        const stockMinimo = Number(btn.dataset.stockMinimo || 0);
+        const restante = Math.max(disponible - getCartQtyForProduct(nombre), 0);
+
+        badge.style.display = 'inline-flex';
+        if (restante <= 0) {
+            badge.textContent = 'Producto sin stock';
+            badge.classList.add('stock-badge-out');
+            btn.classList.add('product-card-stock-out');
+            btn.disabled = true;
+        } else if (stockMinimo > 0 && restante <= stockMinimo) {
+            badge.textContent = `Quedan pocas unidades (${restante})`;
+            badge.classList.add('stock-badge-low');
+            btn.classList.add('product-card-stock-low');
+        } else {
+            badge.textContent = `${restante} disponibles`;
+            badge.classList.add('stock-badge-ok');
+        }
+    });
+}
+
 function escapeHtml(texto) {
     return String(texto || '')
         .replace(/&/g, '&amp;')
@@ -138,10 +202,31 @@ function applyProductFilters() {
     });
 }
 
-function addToCart(nombre, precio, icono) {
+function getStockRestante(nombre, excluirItemId = null) {
+    if (!(nombre in stockDisponible)) return Infinity;
+    const enCarrito = getCartQtyForProduct(nombre, excluirItemId);
+    return stockDisponible[nombre] - enCarrito;
+}
+
+function addToCart(nombre, precio, icono, productId, stockMinimo) {
+    const restante = getStockRestante(nombre);
+    if (restante <= 0) {
+        alert(`${nombre} no tiene stock disponible en este momento.`);
+        return;
+    }
     const id = Date.now() + Math.random();
-    cart.push({id, nombre, precio, icono, cantidad: 1, modificaciones: []});
+    cart.push({
+        id,
+        productId,
+        nombre,
+        precio,
+        icono,
+        cantidad: 1,
+        stockMinimo: Number(stockMinimo || 0),
+        modificaciones: [],
+    });
     renderCart();
+    actualizarBadgesStock();
 }
 
 function updateQty(itemId, qty) {
@@ -152,14 +237,27 @@ function updateQty(itemId, qty) {
     if (qty === 0) {
         cart = cart.filter(i => i.id !== itemId);
     } else {
+        const restante = getStockRestante(item.nombre, itemId);
+        if (qty > item.cantidad && restante < (qty - item.cantidad)) {
+            alert(`Solo hay ${stockDisponible[item.nombre]} unidades disponibles de ${item.nombre}.`);
+            qty = item.cantidad + Math.max(restante, 0);
+            if (qty <= 0) {
+                cart = cart.filter(i => i.id !== itemId);
+                renderCart();
+                actualizarBadgesStock();
+                return;
+            }
+        }
         item.cantidad = qty;
     }
     renderCart();
+    actualizarBadgesStock();
 }
 
 function removeFromCart(itemId) {
     cart = cart.filter(i => i.id !== itemId);
     renderCart();
+    actualizarBadgesStock();
 }
 
 function calcItemTotal(item) {
@@ -168,6 +266,45 @@ function calcItemTotal(item) {
         if (m.tipo === 'adicional') extras += (m.cantidad || 1) * m.precio_extra;
     });
     return item.precio * item.cantidad + extras;
+}
+
+function obtenerAvisoStockItem(item) {
+    if (!(item.nombre in stockDisponible)) return null;
+
+    const disponible = Number(stockDisponible[item.nombre] || 0);
+    const totalEnCarrito = getCartQtyForProduct(item.nombre);
+    const restante = Math.max(disponible - totalEnCarrito, 0);
+
+    if (restante <= 0) {
+        return {
+            clase: 'cart-stock-note-out',
+            texto: 'Producto sin stock. Reduce la cantidad o elimina este item.',
+        };
+    }
+
+    if (Number(item.stockMinimo || 0) > 0 && restante <= Number(item.stockMinimo || 0)) {
+        return {
+            clase: 'cart-stock-note-low',
+            texto: `Quedan pocas unidades (${restante}).`,
+        };
+    }
+
+    return null;
+}
+
+function validarCarritoContraStock() {
+    const requeridos = {};
+    cart.forEach(item => {
+        requeridos[item.nombre] = (requeridos[item.nombre] || 0) + item.cantidad;
+    });
+
+    return Object.entries(requeridos)
+        .filter(([nombre, cantidad]) => nombre in stockDisponible && Number(stockDisponible[nombre] || 0) < cantidad)
+        .map(([nombre, cantidad]) => ({
+            producto: nombre,
+            disponible: Number(stockDisponible[nombre] || 0),
+            requerido: cantidad,
+        }));
 }
 
 function renderCart() {
@@ -214,6 +351,10 @@ function renderCart() {
             });
             modsHtml += '</div>';
         }
+        const avisoStock = obtenerAvisoStockItem(item);
+        const avisoStockHtml = avisoStock
+            ? `<div class="cart-stock-note ${avisoStock.clase}">${escapeHtml(avisoStock.texto)}</div>`
+            : '';
 
         html += `
         <div class="cart-item-block">
@@ -235,6 +376,7 @@ function renderCart() {
                 <button class="cart-item-remove" onclick="removeFromCart(${item.id})">&times;</button>
             </div>
             ${modsHtml}
+            ${avisoStockHtml}
             <button class="btn-mod-edit" onclick="abrirModal(${item.id})">${item.modificaciones.length ? 'Editar personalizacion' : 'Personalizar'}</button>
         </div>`;
     });
@@ -367,39 +509,57 @@ function guardarMods() {
     renderCart();
 }
 
-function enviarPedido() {
+async function enviarPedido() {
     if (cart.length === 0) {
         alert('Agrega productos al pedido primero.');
+        return;
+    }
+
+    await cargarStockDisponible();
+    const faltantes = validarCarritoContraStock();
+    if (faltantes.length) {
+        const detalle = faltantes
+            .map(item => `${item.producto}: disponibles ${item.disponible}, solicitadas ${item.requerido}`)
+            .join('\n');
+        alert('No puedes enviar el pedido porque hay productos sin stock suficiente:\n' + detalle);
+        actualizarBadgesStock();
         return;
     }
 
     const items = cart.map(item => ({
         producto: item.nombre,
         cantidad: item.cantidad,
-        precio: item.precio,
-        modificaciones: item.modificaciones,
+        modificaciones: (item.modificaciones || []).map(mod => ({
+            tipo: mod.tipo,
+            descripcion: mod.descripcion,
+            cantidad: mod.cantidad,
+        })),
     }));
 
     const notas = document.getElementById('notasPedido').value;
 
-    fetch('/api/pedido', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({mesa_id: MESA_ID, items, notas}),
-    })
-    .then(res => res.json())
-    .then(data => {
+    try {
+        const res = await fetch('/api/pedido', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({mesa_id: MESA_ID, items, notas}),
+        });
+        const data = await res.json();
         if (data.ok) {
             window.location.href = '/mesero/mesas';
-        } else {
-            alert('Error al enviar el pedido: ' + (data.error || 'Intenta de nuevo.'));
+            return;
         }
-    })
-    .catch(err => {
+        const detalle = (data.faltantes || [])
+            .map(item => `${item.producto}: disponibles ${item.disponible}, solicitadas ${item.requerido}`)
+            .join('\n');
+        alert('Error al enviar el pedido: ' + (data.error || 'Intenta de nuevo.') + (detalle ? '\n' + detalle : ''));
+    } catch (err) {
         alert('Error de conexion: ' + err.message);
-    });
+    }
 }
 
 applyProductFilters();
+cargarStockDisponible();
+setInterval(cargarStockDisponible, 60000);
 </script>
 {% endblock %}

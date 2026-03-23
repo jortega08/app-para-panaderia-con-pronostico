@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title_extra %} - Inventario{% endblock %}
 {% block content %}
-<div class="page-container">
+<div class="page-container inventory-page">
     <div class="page-header">
         <h1 class="page-title">Inventario de Insumos</h1>
     </div>
@@ -20,6 +20,69 @@
         </div>
     </div>
     {% endif %}
+
+    <div class="card inventory-plan-card">
+        <div class="card-header inventory-plan-header">
+            <div>
+                <strong>Planeacion de insumos por pronostico</strong>
+                <span>Calcula lo que vas a necesitar segun la meta operativa del dia y prorratea la receta por su rendimiento.</span>
+            </div>
+            <div class="inventory-plan-controls">
+                <input type="date" id="inventoryProjectionDate" class="form-input form-input-sm" value="{{ fecha_proyeccion_default }}">
+                <button class="btn btn-accent btn-sm" type="button" onclick="cargarProyeccionInsumos()">Actualizar</button>
+            </div>
+        </div>
+        <div class="card-body inventory-plan-body">
+            <div class="inventory-plan-note">
+                Si en la ficha tecnica escribes un rendimiento como <strong>12 panes</strong>, el sistema divide la receta entre 12 para estimar el consumo por unidad. Es una guia operativa, no una medicion exacta de laboratorio.
+            </div>
+
+            <div class="inventory-plan-kpis">
+                <div class="inventory-plan-kpi">
+                    <span>Unidades planeadas</span>
+                    <strong id="inventoryPlanUnits">0</strong>
+                </div>
+                <div class="inventory-plan-kpi">
+                    <span>Insumos comprometidos</span>
+                    <strong id="inventoryPlanInsumos">0</strong>
+                </div>
+                <div class="inventory-plan-kpi">
+                    <span>Riesgos criticos</span>
+                    <strong id="inventoryPlanCriticos">0</strong>
+                </div>
+                <div class="inventory-plan-kpi">
+                    <span>Alertas preventivas</span>
+                    <strong id="inventoryPlanAlertas">0</strong>
+                </div>
+            </div>
+
+            <div class="inventory-plan-products" id="inventoryProjectionProducts">
+                <span class="text-muted">Cargando metas planeadas...</span>
+            </div>
+
+            <div class="inventory-plan-alerts" id="inventoryProjectionAlerts"></div>
+
+            <div class="inventory-plan-table-wrap">
+                <table class="table table-compact inventory-plan-table">
+                    <thead>
+                        <tr>
+                            <th>Insumo</th>
+                            <th class="text-center">Stock actual</th>
+                            <th class="text-center">Requerido</th>
+                            <th class="text-center">Post-produccion</th>
+                            <th class="text-center">Minimo</th>
+                            <th class="text-center">Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody id="inventoryProjectionRows">
+                        <tr>
+                            <td colspan="6" class="text-center text-muted">Cargando proyeccion de insumos...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
 
     <div class="card">
         <div class="card-header">Stock Actual</div>
@@ -755,6 +818,123 @@ function formatearCantidad(valor) {
     return numero.toLocaleString('es-CO', { maximumFractionDigits: 3 });
 }
 
+function renderProyeccionProductos(productos) {
+    const container = document.getElementById('inventoryProjectionProducts');
+    if (!productos.length) {
+        container.innerHTML = '<span class="text-muted">No hay metas operativas cargadas para la fecha seleccionada.</span>';
+        return;
+    }
+
+    container.innerHTML = productos.map(item => `
+        <div class="inventory-plan-product-chip">
+            <strong>${escapeHtml(item.producto)}</strong>
+            <span>${formatearCantidad(item.cantidad)} unidades</span>
+            <small>${escapeHtml(item.modelo_label || '--')} · ${escapeHtml(item.confianza || '--')}</small>
+        </div>
+    `).join('');
+}
+
+function renderProyeccionAlertas(data) {
+    const container = document.getElementById('inventoryProjectionAlerts');
+    const bloques = [];
+
+    if (data.criticos && data.criticos.length) {
+        bloques.push(`
+            <div class="inventory-plan-warning is-critical">
+                <strong>Insumos insuficientes</strong>
+                <span>${data.criticos.slice(0, 5).map(item => `${escapeHtml(item.nombre)} (faltan ${formatearCantidad(item.deficit)} ${escapeHtml(item.unidad)})`).join(', ')}</span>
+            </div>
+        `);
+    }
+
+    if (data.alertas && data.alertas.length) {
+        bloques.push(`
+            <div class="inventory-plan-warning is-alert">
+                <strong>Quedarian en alerta o minimo</strong>
+                <span>${data.alertas.slice(0, 5).map(item => `${escapeHtml(item.nombre)} (${formatearCantidad(item.disponible_post)} ${escapeHtml(item.unidad)} despues de producir)`).join(', ')}</span>
+            </div>
+        `);
+    }
+
+    if (data.productos_sin_receta && data.productos_sin_receta.length) {
+        bloques.push(`
+            <div class="inventory-plan-warning">
+                <strong>Productos sin receta clara</strong>
+                <span>${data.productos_sin_receta.map(item => escapeHtml(item)).join(', ')}</span>
+            </div>
+        `);
+    }
+
+    if (data.productos_sin_rendimiento && data.productos_sin_rendimiento.length) {
+        bloques.push(`
+            <div class="inventory-plan-warning">
+                <strong>Rendimientos no interpretables</strong>
+                <span>${data.productos_sin_rendimiento.map(item => escapeHtml(item)).join(', ')}. Se asumio rendimiento 1 para la proyeccion.</span>
+            </div>
+        `);
+    }
+
+    container.innerHTML = bloques.join('');
+}
+
+function badgeEstadoProyeccion(estado) {
+    if (estado === 'critico') return '<span class="badge" style="background: var(--danger); color: #FFF;">CRITICO</span>';
+    if (estado === 'alerta') return '<span class="badge" style="background: var(--warning); color: #FFF;">ALERTA</span>';
+    return '<span class="badge" style="background: var(--success); color: #FFF;">OK</span>';
+}
+
+function renderProyeccionInsumos(data) {
+    const resumen = data.resumen || {};
+    const rows = data.insumos || [];
+    const body = document.getElementById('inventoryProjectionRows');
+
+    document.getElementById('inventoryPlanUnits').textContent = formatearCantidad(resumen.unidades_planeadas || 0);
+    document.getElementById('inventoryPlanInsumos').textContent = formatearCantidad(resumen.insumos_comprometidos || 0);
+    document.getElementById('inventoryPlanCriticos').textContent = formatearCantidad(resumen.insumos_criticos || 0);
+    document.getElementById('inventoryPlanAlertas').textContent = formatearCantidad(resumen.insumos_alerta || 0);
+
+    renderProyeccionProductos(data.productos || []);
+    renderProyeccionAlertas(data);
+
+    if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No hay insumos comprometidos para la fecha seleccionada.</td></tr>';
+        return;
+    }
+
+    body.innerHTML = rows.map(item => `
+        <tr class="${item.estado === 'critico' ? 'row-danger' : (item.estado === 'alerta' ? 'row-warning' : '')}">
+            <td>
+                <strong>${escapeHtml(item.nombre)}</strong>
+                <div class="text-muted" style="margin-top: 4px;">${(item.productos || []).slice(0, 3).map(p => `${escapeHtml(p.producto)} x ${formatearCantidad(p.cantidad)}`).join(' · ')}</div>
+            </td>
+            <td class="text-center">${formatearCantidad(item.stock_actual)} ${escapeHtml(item.unidad)}</td>
+            <td class="text-center">${formatearCantidad(item.requerido)} ${escapeHtml(item.unidad)}</td>
+            <td class="text-center">${formatearCantidad(item.disponible_post)} ${escapeHtml(item.unidad)}</td>
+            <td class="text-center">${formatearCantidad(item.stock_minimo)} ${escapeHtml(item.unidad)}</td>
+            <td class="text-center">${badgeEstadoProyeccion(item.estado)}</td>
+        </tr>
+    `).join('');
+}
+
+async function cargarProyeccionInsumos() {
+    const fecha = document.getElementById('inventoryProjectionDate').value;
+    const body = document.getElementById('inventoryProjectionRows');
+    body.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Calculando insumos necesarios...</td></tr>';
+
+    try {
+        const res = await fetch('/api/inventario/proyeccion-insumos?fecha=' + encodeURIComponent(fecha));
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+            throw new Error(data.error || 'No se pudo calcular la proyeccion de insumos.');
+        }
+        renderProyeccionInsumos(data);
+    } catch (error) {
+        document.getElementById('inventoryProjectionProducts').innerHTML = '<span class="text-muted">No se pudo cargar la planeacion.</span>';
+        document.getElementById('inventoryProjectionAlerts').innerHTML = `<div class="inventory-plan-warning is-critical"><strong>Error</strong><span>${escapeHtml(error.message || 'No se pudo calcular la proyeccion.')}</span></div>`;
+        body.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No se pudo cargar la proyeccion de insumos.</td></tr>';
+    }
+}
+
 function renderBloqueProceso(ficha) {
     const items = [];
     if (ficha.rendimiento_texto) items.push(`<div class="recipe-preview-row"><strong>Rendimiento</strong><span>${escapeHtml(ficha.rendimiento_texto)}</span></div>`);
@@ -1283,7 +1463,9 @@ function importInventory() {
     });
 }
 
+document.getElementById('inventoryProjectionDate')?.addEventListener('change', cargarProyeccionInsumos);
 cargarEditorReceta();
 cargarEditorAdicional();
+cargarProyeccionInsumos();
 </script>
 {% endblock %}

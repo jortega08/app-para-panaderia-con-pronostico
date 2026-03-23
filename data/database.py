@@ -7,6 +7,7 @@ Tablas:
   - usuarios: cajeros, panaderos y meseros con PIN
   - ventas: registro individual de cada venta (cajero)
   - registros_diarios: produccion diaria por producto (panadero)
+  - produccion_lotes: tandas individuales de horneado por producto
   - alertas: reservada para futuras alertas
   - mesas: catalogo de mesas del local
   - pedidos: pedidos con estado, mesa y mesero
@@ -21,12 +22,22 @@ Tablas:
 
 import sqlite3
 import os
+import re
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
+from data.db_adapter import get_connection as _get_connection, DB_TYPE
 
 DB_PATH = Path(__file__).parent / "panaderia.db"
+
+try:
+    import psycopg2  # type: ignore
+
+    _INTEGRITY_ERRORS = (sqlite3.IntegrityError, psycopg2.IntegrityError)
+except ImportError:
+    _INTEGRITY_ERRORS = (sqlite3.IntegrityError,)
 
 CATEGORIAS_PREDETERMINADAS = [
     "Panaderia",
@@ -117,6 +128,23 @@ def _ficha_receta_vacia(producto: str = "") -> dict:
     }
 
 
+def _parsear_rendimiento_unidades_texto(texto: str) -> tuple[float, bool]:
+    valor = str(texto or "").strip().lower()
+    if not valor:
+        return 1.0, True
+
+    match = re.search(r"(\d+(?:[.,]\d+)?)", valor)
+    if not match:
+        return 1.0, False
+
+    try:
+        unidades = float(match.group(1).replace(",", "."))
+    except ValueError:
+        return 1.0, False
+
+    return (unidades if unidades > 0 else 1.0), True
+
+
 def _obtener_configuracion_conn(conn, clave: str, valor_default: str = "") -> str:
     row = conn.execute(
         "SELECT valor FROM configuracion_sistema WHERE clave = ?",
@@ -125,12 +153,49 @@ def _obtener_configuracion_conn(conn, clave: str, valor_default: str = "") -> st
     return str(row["valor"]) if row and row["valor"] is not None else valor_default
 
 
-def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH, timeout=10)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
-    return conn
+def get_connection():
+    """Retorna conexión activa (SQLite o PostgreSQL según DATABASE_URL)."""
+    return _get_connection()
+
+
+def _obtener_columnas_tabla(conn, tabla: str) -> list[str]:
+    tabla = str(tabla or "").strip()
+    if not tabla:
+        return []
+
+    if DB_TYPE == "sqlite":
+        rows = conn.execute(f"PRAGMA table_info({tabla})").fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT column_name as name
+            FROM information_schema.columns
+            WHERE table_schema = current_schema() AND table_name = ?
+            ORDER BY ordinal_position
+        """, (tabla,)).fetchall()
+    return [str(row["name"]) for row in rows]
+
+
+def _marcadores_sql(cantidad: int) -> str:
+    if cantidad <= 0:
+        raise ValueError("Se requieren uno o mas marcadores SQL")
+    return ", ".join("?" for _ in range(cantidad))
+
+
+def _crear_indices_conn(conn) -> None:
+    consultas = [
+        "CREATE INDEX IF NOT EXISTS idx_ventas_fecha ON ventas(fecha)",
+        "CREATE INDEX IF NOT EXISTS idx_ventas_fecha_producto ON ventas(fecha, producto)",
+        "CREATE INDEX IF NOT EXISTS idx_registros_diarios_fecha_producto ON registros_diarios(fecha, producto)",
+        "CREATE INDEX IF NOT EXISTS idx_pedidos_fecha_estado ON pedidos(fecha, estado)",
+        "CREATE INDEX IF NOT EXISTS idx_pedidos_fecha_mesa ON pedidos(fecha, mesa_id)",
+        "CREATE INDEX IF NOT EXISTS idx_pedido_items_pedido_id ON pedido_items(pedido_id)",
+        "CREATE INDEX IF NOT EXISTS idx_pedido_item_modificaciones_item ON pedido_item_modificaciones(pedido_item_id)",
+        "CREATE INDEX IF NOT EXISTS idx_pedido_estado_historial_pedido ON pedido_estado_historial(pedido_id, cambiado_en)",
+        "CREATE INDEX IF NOT EXISTS idx_recetas_producto ON recetas(producto)",
+        "CREATE INDEX IF NOT EXISTS idx_producto_componentes_producto ON producto_componentes(producto)",
+    ]
+    for consulta in consultas:
+        conn.execute(consulta)
 
 
 # ──────────────────────────────────────────────
@@ -190,6 +255,18 @@ def inicializar_base_de_datos() -> None:
         """)
 
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS venta_item_modificaciones (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                venta_id         INTEGER NOT NULL,
+                tipo            TEXT NOT NULL CHECK(tipo IN ('adicional', 'exclusion')),
+                descripcion     TEXT NOT NULL,
+                cantidad        INTEGER NOT NULL DEFAULT 1,
+                precio_extra    REAL NOT NULL DEFAULT 0.0,
+                FOREIGN KEY (venta_id) REFERENCES ventas(id) ON DELETE CASCADE
+            )
+        """)
+
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS arqueos_caja (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 fecha           TEXT NOT NULL,
@@ -232,6 +309,19 @@ def inicializar_base_de_datos() -> None:
                 sobrante      INTEGER GENERATED ALWAYS AS (producido - vendido) VIRTUAL,
                 observaciones TEXT DEFAULT '',
                 UNIQUE(fecha, producto)
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS produccion_lotes (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                fecha         TEXT NOT NULL,
+                dia_semana    TEXT NOT NULL,
+                producto      TEXT NOT NULL,
+                cantidad      INTEGER NOT NULL DEFAULT 0,
+                observaciones TEXT DEFAULT '',
+                registrado_por TEXT DEFAULT '',
+                registrado_en TEXT NOT NULL
             )
         """)
 
@@ -396,6 +486,60 @@ def inicializar_base_de_datos() -> None:
             )
         """)
 
+        # ── Nuevas tablas (Fase 2) ─────────────────────────────────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                fecha        TEXT NOT NULL,
+                creado_en    TEXT NOT NULL,
+                usuario      TEXT NOT NULL DEFAULT '',
+                accion       TEXT NOT NULL,
+                entidad      TEXT NOT NULL DEFAULT '',
+                entidad_id   TEXT NOT NULL DEFAULT '',
+                detalle      TEXT NOT NULL DEFAULT '',
+                valor_antes  TEXT NOT NULL DEFAULT '',
+                valor_nuevo  TEXT NOT NULL DEFAULT ''
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS mermas (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                fecha        TEXT NOT NULL,
+                creado_en    TEXT NOT NULL,
+                producto     TEXT NOT NULL,
+                cantidad     REAL NOT NULL DEFAULT 0,
+                tipo         TEXT NOT NULL DEFAULT 'sobrante',
+                registrado_por TEXT NOT NULL DEFAULT '',
+                notas        TEXT NOT NULL DEFAULT ''
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dias_especiales (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                fecha        TEXT UNIQUE NOT NULL,
+                descripcion  TEXT NOT NULL DEFAULT '',
+                factor       REAL NOT NULL DEFAULT 1.0,
+                tipo         TEXT NOT NULL DEFAULT 'festivo',
+                activo       INTEGER NOT NULL DEFAULT 1
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ajustes_pronostico (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                fecha        TEXT NOT NULL,
+                creado_en    TEXT NOT NULL,
+                producto     TEXT NOT NULL,
+                sugerido     INTEGER NOT NULL DEFAULT 0,
+                ajustado     INTEGER NOT NULL DEFAULT 0,
+                motivo       TEXT NOT NULL DEFAULT '',
+                registrado_por TEXT NOT NULL DEFAULT '',
+                UNIQUE(fecha, producto)
+            )
+        """)
+
         # Migrar tabla productos existente: agregar columnas si faltan
         _migrar_productos(conn)
         # Migrar tabla usuarios: agregar rol mesero al CHECK
@@ -404,6 +548,7 @@ def inicializar_base_de_datos() -> None:
         _migrar_adicionales(conn)
         _migrar_ventas_pedidos_caja(conn)
         _sembrar_categorias_producto(conn)
+        _crear_indices_conn(conn)
         conn.execute("""
             INSERT OR IGNORE INTO configuracion_sistema (clave, valor)
             VALUES ('codigo_verificacion_caja', '2468')
@@ -551,8 +696,7 @@ def inicializar_base_de_datos() -> None:
 
 def _migrar_productos(conn):
     """Agrega columnas de soporte si la tabla productos ya existia."""
-    cursor = conn.execute("PRAGMA table_info(productos)")
-    columnas = [row["name"] for row in cursor.fetchall()]
+    columnas = _obtener_columnas_tabla(conn, "productos")
 
     if "precio" not in columnas:
         conn.execute("ALTER TABLE productos ADD COLUMN precio REAL NOT NULL DEFAULT 0.0")
@@ -562,6 +706,8 @@ def _migrar_productos(conn):
         conn.execute("ALTER TABLE productos ADD COLUMN activo INTEGER NOT NULL DEFAULT 1")
     if "es_adicional" not in columnas:
         conn.execute("ALTER TABLE productos ADD COLUMN es_adicional INTEGER NOT NULL DEFAULT 0")
+    if "stock_minimo" not in columnas:
+        conn.execute("ALTER TABLE productos ADD COLUMN stock_minimo INTEGER NOT NULL DEFAULT 0")
 
 
 def _sembrar_categorias_producto(conn):
@@ -579,7 +725,7 @@ def _migrar_usuarios(conn):
             "INSERT INTO usuarios (nombre, pin, rol) VALUES ('__test__', '9999', 'mesero')"
         )
         conn.execute("DELETE FROM usuarios WHERE nombre = '__test__'")
-    except sqlite3.IntegrityError:
+    except _INTEGRITY_ERRORS:
         # CHECK constraint fallo: necesitamos migrar
         rows = conn.execute("SELECT id, nombre, pin, rol FROM usuarios").fetchall()
         conn.execute("DROP TABLE usuarios")
@@ -600,7 +746,7 @@ def _migrar_usuarios(conn):
 
 def _migrar_recetas(conn):
     """Agrega soporte para unidades de receta y ficha tecnica por producto."""
-    columnas = [row["name"] for row in conn.execute("PRAGMA table_info(recetas)").fetchall()]
+    columnas = _obtener_columnas_tabla(conn, "recetas")
     if "unidad_receta" not in columnas:
         conn.execute("ALTER TABLE recetas ADD COLUMN unidad_receta TEXT")
 
@@ -628,7 +774,7 @@ def _migrar_recetas(conn):
 
 def _migrar_adicionales(conn):
     """Agrega soporte de unidades configurables y componentes en adicionales."""
-    columnas = [row["name"] for row in conn.execute("PRAGMA table_info(adicional_insumos)").fetchall()]
+    columnas = _obtener_columnas_tabla(conn, "adicional_insumos")
     if "unidad_config" not in columnas:
         conn.execute("ALTER TABLE adicional_insumos ADD COLUMN unidad_config TEXT")
 
@@ -652,7 +798,7 @@ def _migrar_adicionales(conn):
 
 def _migrar_ventas_pedidos_caja(conn):
     """Agrega campos de pago, agrupacion de ventas y arqueo de caja."""
-    ventas_cols = [row["name"] for row in conn.execute("PRAGMA table_info(ventas)").fetchall()]
+    ventas_cols = _obtener_columnas_tabla(conn, "ventas")
     if "venta_grupo" not in ventas_cols:
         conn.execute("ALTER TABLE ventas ADD COLUMN venta_grupo TEXT DEFAULT ''")
     if "metodo_pago" not in ventas_cols:
@@ -666,7 +812,7 @@ def _migrar_ventas_pedidos_caja(conn):
     if "referencia_id" not in ventas_cols:
         conn.execute("ALTER TABLE ventas ADD COLUMN referencia_id INTEGER")
 
-    pedidos_cols = [row["name"] for row in conn.execute("PRAGMA table_info(pedidos)").fetchall()]
+    pedidos_cols = _obtener_columnas_tabla(conn, "pedidos")
     if "creado_en" not in pedidos_cols:
         conn.execute("ALTER TABLE pedidos ADD COLUMN creado_en TEXT")
     if "pagado_en" not in pedidos_cols:
@@ -730,7 +876,7 @@ def _migrar_ventas_pedidos_caja(conn):
                     VALUES (?, 'pagado', ?, ?, ?)
                 """, (pedido["id"], pagado_en, pedido["pagado_por"] or "", "Migrado desde pedidos existentes"))
 
-    arqueos_cols = [row["name"] for row in conn.execute("PRAGMA table_info(arqueos_caja)").fetchall()]
+    arqueos_cols = _obtener_columnas_tabla(conn, "arqueos_caja")
     if "efectivo_esperado" not in arqueos_cols:
         conn.execute("ALTER TABLE arqueos_caja ADD COLUMN efectivo_esperado REAL DEFAULT NULL")
     if "diferencia_cierre" not in arqueos_cols:
@@ -780,7 +926,7 @@ def agregar_categoria_producto(nombre: str) -> bool:
             )
             conn.commit()
         return True
-    except sqlite3.IntegrityError:
+    except _INTEGRITY_ERRORS:
         return False
 
 
@@ -796,7 +942,7 @@ def obtener_productos(categoria: str = None) -> list[str]:
 def obtener_productos_con_precio(categoria: str = None) -> list[dict]:
     filtro = "AND categoria = ?" if categoria else ""
     query = f"""
-        SELECT id, nombre, precio, categoria, es_adicional
+        SELECT id, nombre, precio, categoria, es_adicional, stock_minimo
         FROM productos
         WHERE activo = 1 {filtro}
         ORDER BY categoria, nombre
@@ -859,7 +1005,7 @@ def agregar_producto(nombre: str, precio: float = 0.0, categoria: str = "Panader
             )
             conn.commit()
         return True
-    except sqlite3.IntegrityError:
+    except _INTEGRITY_ERRORS:
         return False
 
 
@@ -1017,7 +1163,7 @@ def actualizar_producto_completo(producto_id: int, nombre: str, precio: float,
             _renombrar_producto_referencias_conn(conn, nombre_anterior, nombre)
             conn.commit()
             return True
-    except sqlite3.IntegrityError:
+    except _INTEGRITY_ERRORS:
         return False
     except Exception:
         return False
@@ -1505,37 +1651,34 @@ def registrar_venta_lote(items: list[dict], registrado_por: str = "",
             "error": "Debes abrir el arqueo de caja antes de registrar ventas",
         }
 
-    total = round(sum(
-        float(item.get("total", item.get("cantidad", 0) * item.get("precio", 0)) or 0)
-        for item in items
-    ), 2)
-
-    if metodo_pago == "transferencia":
-        monto_recibido_final = total
-        cambio = 0.0
-    else:
-        monto_recibido_final = float(monto_recibido if monto_recibido is not None else total)
-        if monto_recibido_final + 1e-9 < total:
-            return {
-                "ok": False,
-                "error": "El monto recibido no alcanza para cubrir el total",
-            }
-        cambio = round(monto_recibido_final - total, 2)
-
-    venta_grupo = f"venta-{uuid4().hex[:12]}"
-
     try:
         with get_connection() as conn:
-            for item in items:
-                producto = str(item.get("producto", "") or "").strip()
-                cantidad = int(item.get("cantidad", 0) or 0)
-                if not producto or cantidad <= 0:
-                    continue
+            items_normalizados = _normalizar_items_persistencia_conn(conn, items)
+            if not items_normalizados:
+                return {"ok": False, "error": "No hay items validos para registrar"}
 
-                precio_unitario = float(item.get("precio", 0) or 0)
-                total_item = round(float(item.get("total", cantidad * precio_unitario) or 0), 2)
+            total = round(sum(float(item["total"] or 0) for item in items_normalizados), 2)
+            if metodo_pago == "transferencia":
+                monto_recibido_final = total
+                cambio = 0.0
+            else:
+                monto_recibido_final = float(monto_recibido if monto_recibido is not None else total)
+                if monto_recibido_final + 1e-9 < total:
+                    return {
+                        "ok": False,
+                        "error": "El monto recibido no alcanza para cubrir el total",
+                    }
+                cambio = round(monto_recibido_final - total, 2)
 
-                conn.execute("""
+            venta_grupo = f"venta-{uuid4().hex[:12]}"
+            productos_vendidos: set[str] = set()
+            for item in items_normalizados:
+                producto = item["producto"]
+                cantidad = int(item["cantidad"] or 0)
+                precio_unitario = float(item["precio_unitario"] or 0)
+                total_item = round(float(item["total"] or 0), 2)
+
+                cur = conn.execute("""
                     INSERT INTO ventas (
                         fecha, hora, producto, cantidad, precio_unitario, total,
                         registrado_por, venta_grupo, metodo_pago, monto_recibido,
@@ -1557,6 +1700,26 @@ def registrar_venta_lote(items: list[dict], registrado_por: str = "",
                     referencia_tipo,
                     referencia_id,
                 ))
+
+                venta_id = cur.lastrowid
+                for mod in item.get("modificaciones", []):
+                    descripcion = str(mod["descripcion"] or "").strip()
+                    tipo = str(mod["tipo"] or "adicional").strip()
+                    cantidad_mod = int(mod.get("cantidad", 1) or 0)
+                    conn.execute("""
+                        INSERT INTO venta_item_modificaciones
+                            (venta_id, tipo, descripcion, cantidad, precio_extra)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (
+                        venta_id,
+                        tipo,
+                        descripcion,
+                        cantidad_mod,
+                        float(mod.get("precio_extra", 0) or 0),
+                    ))
+                productos_vendidos.add(producto)
+            for producto in productos_vendidos:
+                _sincronizar_registro_vendido_conn(conn, fecha, producto)
             conn.commit()
         return {
             "ok": True,
@@ -1633,30 +1796,97 @@ def obtener_total_ventas_dia(fecha: str = None) -> dict:
     return dict(row)
 
 
+def _vendido_dia_producto_conn(conn, fecha: str, producto: str) -> int:
+    row = conn.execute("""
+        SELECT COALESCE(SUM(cantidad), 0) as vendido
+        FROM ventas
+        WHERE fecha = ? AND producto = ?
+    """, (fecha, producto)).fetchone()
+    return int(row["vendido"] or 0) if row else 0
+
+
 def obtener_vendido_dia_producto(fecha: str, producto: str) -> int:
     """Cantidad vendida de un producto en un dia (desde tabla ventas)."""
     with get_connection() as conn:
-        row = conn.execute("""
-            SELECT COALESCE(SUM(cantidad), 0) as vendido
-            FROM ventas
-            WHERE fecha = ? AND producto = ?
-        """, (fecha, producto)).fetchone()
-    return row["vendido"]
+        return _vendido_dia_producto_conn(conn, fecha, producto)
 
 
-def obtener_ventas_rango(dias: int = 30, producto: str | None = None) -> list[dict]:
-    """Ventas detalladas de los ultimos N dias."""
+def obtener_vendidos_rango_productos(
+    fecha_inicio: str,
+    fecha_fin: str,
+    productos: list[str] | None = None,
+) -> dict[tuple[str, str], int]:
+    if not fecha_inicio or not fecha_fin:
+        return {}
+
+    productos_filtrados = None
+    if productos is not None:
+        productos_filtrados = [
+            str(producto or "").strip()
+            for producto in productos
+            if str(producto or "").strip()
+        ]
+        productos_filtrados = list(dict.fromkeys(productos_filtrados))
+        if not productos_filtrados:
+            return {}
+
+    query = """
+        SELECT fecha, producto, COALESCE(SUM(cantidad), 0) as vendido
+        FROM ventas
+        WHERE fecha BETWEEN ? AND ?
+    """
+    params: list = [fecha_inicio, fecha_fin]
+    if productos_filtrados:
+        query += f" AND producto IN ({_marcadores_sql(len(productos_filtrados))})"
+        params.extend(productos_filtrados)
+    query += " GROUP BY fecha, producto"
+
+    with get_connection() as conn:
+        rows = conn.execute(query, tuple(params)).fetchall()
+    return {
+        (str(row["fecha"]), str(row["producto"])): int(row["vendido"] or 0)
+        for row in rows
+    }
+
+
+def _filtro_rango_fecha(
+    campo_fecha: str,
+    dias: int = 30,
+    fecha_inicio: str | None = None,
+    fecha_fin: str | None = None,
+) -> tuple[str, list]:
+    if fecha_inicio and fecha_fin:
+        return f"{campo_fecha} BETWEEN ? AND ?", [fecha_inicio, fecha_fin]
+    if fecha_inicio:
+        return f"{campo_fecha} >= ?", [fecha_inicio]
+    if fecha_fin:
+        return f"{campo_fecha} <= ?", [fecha_fin]
+    return f"{campo_fecha} >= date('now', ?)", [f"-{dias} days"]
+
+
+def obtener_ventas_rango(
+    dias: int = 30,
+    producto: str | None = None,
+    fecha_inicio: str | None = None,
+    fecha_fin: str | None = None,
+) -> list[dict]:
+    """Ventas detalladas de un rango por dias o por fechas."""
+    condicion_fecha, params = _filtro_rango_fecha(
+        "fecha",
+        dias=dias,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+    )
     query = """
         SELECT fecha, hora, producto, cantidad, precio_unitario, total, registrado_por,
                venta_grupo, metodo_pago, monto_recibido, cambio, referencia_tipo, referencia_id
         FROM ventas
-        WHERE fecha >= date('now', ?)
+        WHERE {condicion_fecha}
         {filtro}
         ORDER BY fecha DESC, hora DESC
     """
     filtro = "AND producto = ?" if producto else ""
-    query = query.format(filtro=filtro)
-    params = [f"-{dias} days"]
+    query = query.format(condicion_fecha=condicion_fecha, filtro=filtro)
     if producto:
         params.append(producto)
 
@@ -1665,19 +1895,29 @@ def obtener_ventas_rango(dias: int = 30, producto: str | None = None) -> list[di
     return [dict(r) for r in rows]
 
 
-def obtener_totales_ventas_rango(dias: int = 30, producto: str | None = None) -> dict:
-    """Totales agregados de ventas para los ultimos N dias."""
+def obtener_totales_ventas_rango(
+    dias: int = 30,
+    producto: str | None = None,
+    fecha_inicio: str | None = None,
+    fecha_fin: str | None = None,
+) -> dict:
+    """Totales agregados de ventas para un rango por dias o por fechas."""
+    condicion_fecha, params = _filtro_rango_fecha(
+        "fecha",
+        dias=dias,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+    )
     query = """
         SELECT COALESCE(SUM(cantidad), 0) as panes,
                COALESCE(SUM(total), 0.0) as dinero,
                COUNT(DISTINCT COALESCE(NULLIF(venta_grupo, ''), 'legacy-' || id)) as transacciones
         FROM ventas
-        WHERE fecha >= date('now', ?)
+        WHERE {condicion_fecha}
         {filtro}
     """
     filtro = "AND producto = ?" if producto else ""
-    query = query.format(filtro=filtro)
-    params = [f"-{dias} days"]
+    query = query.format(condicion_fecha=condicion_fecha, filtro=filtro)
     if producto:
         params.append(producto)
 
@@ -1686,22 +1926,32 @@ def obtener_totales_ventas_rango(dias: int = 30, producto: str | None = None) ->
     return dict(row) if row else {"panes": 0, "dinero": 0.0, "transacciones": 0}
 
 
-def obtener_serie_ventas_diarias(dias: int = 30, producto: str | None = None) -> list[dict]:
+def obtener_serie_ventas_diarias(
+    dias: int = 30,
+    producto: str | None = None,
+    fecha_inicio: str | None = None,
+    fecha_fin: str | None = None,
+) -> list[dict]:
     """Serie diaria de panes/ingresos/transacciones."""
+    condicion_fecha, params = _filtro_rango_fecha(
+        "fecha",
+        dias=dias,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+    )
     query = """
         SELECT fecha,
                COALESCE(SUM(cantidad), 0) as panes,
                COALESCE(SUM(total), 0.0) as dinero,
                COUNT(DISTINCT COALESCE(NULLIF(venta_grupo, ''), 'legacy-' || id)) as transacciones
         FROM ventas
-        WHERE fecha >= date('now', ?)
+        WHERE {condicion_fecha}
         {filtro}
         GROUP BY fecha
         ORDER BY fecha ASC
     """
     filtro = "AND producto = ?" if producto else ""
-    query = query.format(filtro=filtro)
-    params = [f"-{dias} days"]
+    query = query.format(condicion_fecha=condicion_fecha, filtro=filtro)
     if producto:
         params.append(producto)
 
@@ -1710,19 +1960,32 @@ def obtener_serie_ventas_diarias(dias: int = 30, producto: str | None = None) ->
     return [dict(r) for r in rows]
 
 
-def obtener_resumen_productos_rango(dias: int = 30) -> list[dict]:
-    """Ranking de productos por ingresos en los ultimos N dias."""
+def obtener_resumen_productos_rango(
+    dias: int = 30,
+    producto: str | None = None,
+    fecha_inicio: str | None = None,
+    fecha_fin: str | None = None,
+) -> list[dict]:
+    """Ranking de productos por ingresos en un rango por dias o por fechas."""
+    condicion_fecha, params = _filtro_rango_fecha(
+        "fecha",
+        dias=dias,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+    )
+    filtro = "AND producto = ?" if producto else ""
     with get_connection() as conn:
-        rows = conn.execute("""
+        rows = conn.execute(f"""
             SELECT producto,
                    COALESCE(SUM(cantidad), 0) as panes,
                    COALESCE(SUM(total), 0.0) as dinero,
                    COUNT(DISTINCT COALESCE(NULLIF(venta_grupo, ''), 'legacy-' || id)) as transacciones
             FROM ventas
-            WHERE fecha >= date('now', ?)
+            WHERE {condicion_fecha}
+            {filtro}
             GROUP BY producto
             ORDER BY dinero DESC
-        """, (f"-{dias} days",)).fetchall()
+        """, tuple(params + ([producto] if producto else []))).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -1730,21 +1993,31 @@ def obtener_resumen_productos_rango(dias: int = 30) -> list[dict]:
 # Registros diarios (produccion - panadero)
 # ──────────────────────────────────────────────
 
-def obtener_resumen_medios_pago_rango(dias: int = 30, producto: str | None = None) -> list[dict]:
-    """Totales por metodo de pago para los ultimos N dias."""
+def obtener_resumen_medios_pago_rango(
+    dias: int = 30,
+    producto: str | None = None,
+    fecha_inicio: str | None = None,
+    fecha_fin: str | None = None,
+) -> list[dict]:
+    """Totales por metodo de pago para un rango por dias o por fechas."""
+    condicion_fecha, params = _filtro_rango_fecha(
+        "fecha",
+        dias=dias,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+    )
     query = """
         SELECT COALESCE(NULLIF(metodo_pago, ''), 'efectivo') as metodo,
                COALESCE(SUM(total), 0.0) as total,
                COUNT(DISTINCT COALESCE(NULLIF(venta_grupo, ''), 'legacy-' || id)) as transacciones
         FROM ventas
-        WHERE fecha >= date('now', ?)
+        WHERE {condicion_fecha}
         {filtro}
         GROUP BY COALESCE(NULLIF(metodo_pago, ''), 'efectivo')
         ORDER BY total DESC
     """
     filtro = "AND producto = ?" if producto else ""
-    query = query.format(filtro=filtro)
-    params = [f"-{dias} days"]
+    query = query.format(condicion_fecha=condicion_fecha, filtro=filtro)
     if producto:
         params.append(producto)
 
@@ -1753,41 +2026,221 @@ def obtener_resumen_medios_pago_rango(dias: int = 30, producto: str | None = Non
     return [dict(r) for r in rows]
 
 
-def obtener_arqueos_rango(dias: int = 30) -> list[dict]:
+def obtener_arqueos_rango(
+    dias: int = 30,
+    fecha_inicio: str | None = None,
+    fecha_fin: str | None = None,
+) -> list[dict]:
+    condicion_fecha, params = _filtro_rango_fecha(
+        "fecha",
+        dias=dias,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+    )
     with get_connection() as conn:
-        rows = conn.execute("""
+        rows = conn.execute(f"""
             SELECT id, fecha, abierto_en, abierto_por, monto_apertura, estado,
                    notas, cerrado_en, cerrado_por, monto_cierre,
                    efectivo_esperado, diferencia_cierre, notas_cierre,
                    reabierto_en, reabierto_por, motivo_reapertura, reaperturas
             FROM arqueos_caja
-            WHERE fecha >= date('now', ?)
+            WHERE {condicion_fecha}
             ORDER BY fecha DESC, abierto_en DESC
-        """, (f"-{dias} days",)).fetchall()
+        """, tuple(params)).fetchall()
     return [dict(r) for r in rows]
 
 
-def obtener_movimientos_caja_rango(dias: int = 30) -> list[dict]:
+def obtener_movimientos_caja_rango(
+    dias: int = 30,
+    fecha_inicio: str | None = None,
+    fecha_fin: str | None = None,
+) -> list[dict]:
+    condicion_fecha, params = _filtro_rango_fecha(
+        "fecha",
+        dias=dias,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+    )
     with get_connection() as conn:
-        rows = conn.execute("""
+        rows = conn.execute(f"""
             SELECT id, arqueo_id, fecha, creado_en, tipo, concepto, monto, registrado_por, notas
             FROM movimientos_caja
-            WHERE fecha >= date('now', ?)
+            WHERE {condicion_fecha}
             ORDER BY fecha DESC, creado_en DESC, id DESC
-        """, (f"-{dias} days",)).fetchall()
+        """, tuple(params)).fetchall()
     return [dict(r) for r in rows]
 
 
-def guardar_registro(fecha: str, producto: str,
-                     producido: int, vendido: int,
-                     observaciones: str = "") -> bool:
+def _dia_semana_es(fecha: str) -> str:
     dia_semana = datetime.strptime(fecha, "%Y-%m-%d").strftime("%A")
     dias_es = {
         "Monday": "Lunes", "Tuesday": "Martes", "Wednesday": "Miercoles",
         "Thursday": "Jueves", "Friday": "Viernes",
         "Saturday": "Sabado", "Sunday": "Domingo"
     }
-    dia_semana = dias_es.get(dia_semana, dia_semana)
+    return dias_es.get(dia_semana, dia_semana)
+
+
+def _sincronizar_registro_vendido_conn(conn, fecha: str, producto: str) -> None:
+    registro = conn.execute(
+        "SELECT id FROM registros_diarios WHERE fecha = ? AND producto = ?",
+        (fecha, producto)
+    ).fetchone()
+    if not registro:
+        return
+
+    vendido_real = _vendido_dia_producto_conn(conn, fecha, producto)
+    conn.execute(
+        "UPDATE registros_diarios SET vendido = ? WHERE fecha = ? AND producto = ?",
+        (vendido_real, fecha, producto)
+    )
+
+
+def _registrar_lote_produccion_conn(
+    conn,
+    fecha: str,
+    producto: str,
+    cantidad: int,
+    observaciones: str = "",
+    registrado_por: str = "",
+) -> dict:
+    cantidad = int(cantidad or 0)
+    if cantidad <= 0:
+        raise ValueError("La cantidad del lote debe ser mayor a cero")
+
+    fecha = str(fecha or "").strip()
+    producto = str(producto or "").strip()
+    observaciones = str(observaciones or "").strip()
+    if not fecha:
+        raise ValueError("La fecha del lote es requerida")
+    if not producto:
+        raise ValueError("El producto del lote es requerido")
+
+    dia_semana = _dia_semana_es(fecha)
+    registrado_en = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    previo = conn.execute(
+        "SELECT producido, observaciones FROM registros_diarios WHERE fecha = ? AND producto = ?",
+        (fecha, producto)
+    ).fetchone()
+    producido_anterior = int(previo["producido"] or 0) if previo else 0
+    producido_total = producido_anterior + cantidad
+    vendido_real = _vendido_dia_producto_conn(conn, fecha, producto)
+
+    cur = conn.execute("""
+        INSERT INTO produccion_lotes
+            (fecha, dia_semana, producto, cantidad, observaciones, registrado_por, registrado_en)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (fecha, dia_semana, producto, cantidad, observaciones, registrado_por, registrado_en))
+
+    conn.execute("""
+        INSERT INTO registros_diarios
+            (fecha, dia_semana, producto, producido, vendido, observaciones)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(fecha, producto) DO UPDATE SET
+            producido = excluded.producido,
+            vendido = excluded.vendido,
+            observaciones = CASE
+                WHEN TRIM(excluded.observaciones) <> '' THEN excluded.observaciones
+                ELSE registros_diarios.observaciones
+            END
+    """, (
+        fecha,
+        dia_semana,
+        producto,
+        producido_total,
+        vendido_real,
+        observaciones,
+    ))
+
+    if _categoria_producto_conn(conn, producto) == "Panaderia":
+        consumo_producto = _consumo_producto(
+            conn, producto, cantidad, incluir_panaderia=True
+        )
+        for insumo_id, datos in consumo_producto.items():
+            conn.execute(
+                "UPDATE insumos SET stock = MAX(0, stock - ?) WHERE id = ?",
+                (datos["cantidad"], insumo_id)
+            )
+
+    return {
+        "ok": True,
+        "lote_id": cur.lastrowid if cur else None,
+        "fecha": fecha,
+        "producto": producto,
+        "cantidad": cantidad,
+        "producido_total": producido_total,
+        "vendido_total": vendido_real,
+        "restante": max(producido_total - vendido_real, 0),
+    }
+
+
+def registrar_lote_produccion(
+    fecha: str,
+    producto: str,
+    cantidad: int,
+    observaciones: str = "",
+    registrado_por: str = "",
+) -> dict:
+    try:
+        with get_connection() as conn:
+            resultado = _registrar_lote_produccion_conn(
+                conn,
+                fecha,
+                producto,
+                cantidad,
+                observaciones,
+                registrado_por=registrado_por,
+            )
+            conn.commit()
+        return resultado
+    except Exception as e:
+        print(f"[ERROR] registrar_lote_produccion: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+def registrar_lotes_produccion(lotes: list[dict], registrado_por: str = "") -> dict:
+    lotes = [dict(lote) for lote in (lotes or []) if lote]
+    if not lotes:
+        return {"ok": False, "error": "No hay lotes para registrar"}
+
+    resultados: list[dict] = []
+    try:
+        with get_connection() as conn:
+            for lote in lotes:
+                resultado = _registrar_lote_produccion_conn(
+                    conn,
+                    lote.get("fecha", ""),
+                    lote.get("producto", ""),
+                    lote.get("cantidad", 0),
+                    lote.get("observaciones", ""),
+                    registrado_por=lote.get("registrado_por", "") or registrado_por,
+                )
+                resultados.append(resultado)
+            conn.commit()
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        print(f"[ERROR] registrar_lotes_produccion: {e}")
+        return {"ok": False, "error": str(e)}
+
+    total_unidades = sum(int(resultado.get("cantidad", 0) or 0) for resultado in resultados)
+    productos = [resultado.get("producto", "") for resultado in resultados]
+    return {
+        "ok": True,
+        "guardados": len(resultados),
+        "total_unidades": total_unidades,
+        "productos": productos,
+        "resultados": resultados,
+    }
+
+
+def guardar_registro(fecha: str, producto: str,
+                     producido: int, vendido: int,
+                     observaciones: str = "") -> bool:
+    dia_semana = _dia_semana_es(fecha)
 
     try:
         with get_connection() as conn:
@@ -1830,23 +2283,67 @@ def guardar_registro(fecha: str, producto: str,
         return False
 
 
-def obtener_registros(producto: str = None, dias: int = 30) -> list[dict]:
+def obtener_registro_diario(fecha: str, producto: str) -> dict | None:
+    with get_connection() as conn:
+        row = conn.execute("""
+            SELECT fecha, dia_semana, producto, producido, vendido, sobrante, observaciones
+            FROM registros_diarios
+            WHERE fecha = ? AND producto = ?
+        """, (fecha, producto)).fetchone()
+    return dict(row) if row else None
+
+
+def obtener_lotes_produccion(
+    fecha: str,
+    producto: str | None = None,
+    limite: int = 20,
+) -> list[dict]:
+    filtro = "AND producto = ?" if producto else ""
+    params: list = [fecha]
+    if producto:
+        params.append(producto)
+    params.append(int(limite or 20))
+
+    with get_connection() as conn:
+        rows = conn.execute(f"""
+            SELECT id, fecha, dia_semana, producto, cantidad, observaciones,
+                   registrado_por, registrado_en
+            FROM produccion_lotes
+            WHERE fecha = ?
+            {filtro}
+            ORDER BY registrado_en DESC, id DESC
+            LIMIT ?
+        """, tuple(params)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def obtener_registros(
+    producto: str = None,
+    dias: int = 30,
+    fecha_inicio: str | None = None,
+    fecha_fin: str | None = None,
+) -> list[dict]:
+    condicion_fecha, params = _filtro_rango_fecha(
+        "fecha",
+        dias=dias,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+    )
     query = """
         SELECT fecha, dia_semana, producto, producido, vendido,
                sobrante, observaciones
         FROM registros_diarios
-        WHERE fecha >= date('now', ? )
+        WHERE {condicion_fecha}
         {filtro}
         ORDER BY fecha DESC, producto ASC
     """
     filtro = "AND producto = ?" if producto else ""
-    query = query.format(filtro=filtro)
-    params = (f"-{dias} days",)
+    query = query.format(condicion_fecha=condicion_fecha, filtro=filtro)
     if producto:
-        params += (producto,)
+        params.append(producto)
 
     with get_connection() as conn:
-        rows = conn.execute(query, params).fetchall()
+        rows = conn.execute(query, tuple(params)).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -1860,8 +2357,14 @@ def obtener_resumen_por_dia_semana(producto: str) -> dict:
             WHERE producto = ?
             GROUP BY dia_semana
         """, (producto,)).fetchall()
-    return {r["dia_semana"]: {"promedio": r["promedio_vendido"],
-                               "muestras": r["muestras"]} for r in rows}
+    return {
+        r["dia_semana"]: {
+            "promedio": float(r["promedio_vendido"] or 0),
+            "muestras": r["muestras"],
+            "registros": r["muestras"],
+        }
+        for r in rows
+    }
 
 
 def contar_registros(producto: str) -> int:
@@ -1908,7 +2411,7 @@ def agregar_mesa(numero: int, nombre: str = "") -> bool:
                 )
             conn.commit()
         return True
-    except sqlite3.IntegrityError:
+    except _INTEGRITY_ERRORS:
         return False
 
 
@@ -1928,30 +2431,22 @@ def eliminar_mesa(mesa_id: int) -> bool:
 
 def crear_pedido(mesa_id: int, mesero: str, items: list[dict],
                  notas: str = "") -> int | None:
-    """Crea un pedido con sus items y modificaciones. Retorna el id del pedido o None.
-
-    Cada item puede tener:
-      - producto, cantidad, precio_unitario, notas
-      - modificaciones: lista de {tipo, descripcion, cantidad, precio_extra}
-    """
+    """Crea un pedido usando precios/adicionales recalculados desde el servidor."""
     ahora = datetime.now()
     fecha = ahora.strftime("%Y-%m-%d")
     hora = ahora.strftime("%H:%M:%S")
     creado_en = ahora.strftime("%Y-%m-%d %H:%M:%S")
 
-    # Calcular total incluyendo modificaciones
-    total = 0.0
-    for item in items:
-        item_base = item["cantidad"] * item["precio_unitario"]
-        extras = sum(
-            m.get("cantidad", 1) * m.get("precio_extra", 0)
-            for m in item.get("modificaciones", [])
-            if m.get("tipo") == "adicional"
-        )
-        total += item_base + extras
-
     try:
         with get_connection() as conn:
+            items_normalizados = _normalizar_items_persistencia_conn(conn, items)
+            if not items_normalizados:
+                return None
+
+            total = round(
+                sum(float(item["total"] or 0) for item in items_normalizados),
+                2,
+            )
             cursor = conn.execute("""
                 INSERT INTO pedidos (mesa_id, mesero, estado, fecha, hora, creado_en, notas, total)
                 VALUES (?, ?, 'pendiente', ?, ?, ?, ?, ?)
@@ -1966,19 +2461,13 @@ def crear_pedido(mesa_id: int, mesero: str, items: list[dict],
                 cambiado_en=creado_en,
             )
 
-            for item in items:
-                extras = sum(
-                    m.get("cantidad", 1) * m.get("precio_extra", 0)
-                    for m in item.get("modificaciones", [])
-                    if m.get("tipo") == "adicional"
-                )
-                subtotal = item["cantidad"] * item["precio_unitario"] + extras
+            for item in items_normalizados:
                 cur_item = conn.execute("""
                     INSERT INTO pedido_items
                         (pedido_id, producto, cantidad, precio_unitario, subtotal, notas)
                     VALUES (?, ?, ?, ?, ?, ?)
                 """, (pedido_id, item["producto"], item["cantidad"],
-                      item["precio_unitario"], subtotal, item.get("notas", "")))
+                      item["precio_unitario"], item["subtotal"], item.get("notas", "")))
                 item_id = cur_item.lastrowid
 
                 # Insertar modificaciones
@@ -1997,9 +2486,8 @@ def crear_pedido(mesa_id: int, mesero: str, items: list[dict],
         return None
 
 
-def obtener_pedidos(estado: str = None, mesa_id: int = None,
-                    fecha: str = None) -> list[dict]:
-    """Obtiene pedidos filtrados por estado, mesa y/o fecha."""
+def _consultar_pedidos_conn(conn, estado: str = None, mesa_id: int = None,
+                            fecha: str = None) -> list[dict]:
     if fecha is None:
         fecha = datetime.now().strftime("%Y-%m-%d")
 
@@ -2023,9 +2511,86 @@ def obtener_pedidos(estado: str = None, mesa_id: int = None,
 
     query += " ORDER BY p.hora DESC"
 
-    with get_connection() as conn:
-        rows = conn.execute(query, params).fetchall()
+    rows = conn.execute(query, params).fetchall()
     return [dict(r) for r in rows]
+
+
+def _adjuntar_detalle_pedidos_conn(conn, pedidos: list[dict]) -> list[dict]:
+    if not pedidos:
+        return []
+
+    pedidos_base = [dict(pedido) for pedido in pedidos]
+    pedido_ids = [
+        int(pedido["id"])
+        for pedido in pedidos_base
+        if pedido.get("id") is not None
+    ]
+    if not pedido_ids:
+        return pedidos_base
+
+    marcadores_pedidos = _marcadores_sql(len(pedido_ids))
+    items_rows = conn.execute(f"""
+        SELECT id, pedido_id, producto, cantidad, precio_unitario, subtotal, notas
+        FROM pedido_items
+        WHERE pedido_id IN ({marcadores_pedidos})
+        ORDER BY pedido_id, id
+    """, tuple(pedido_ids)).fetchall()
+
+    item_ids = [int(item["id"]) for item in items_rows]
+    modificaciones_por_item: dict[int, list[dict]] = defaultdict(list)
+    if item_ids:
+        marcadores_items = _marcadores_sql(len(item_ids))
+        mods_rows = conn.execute(f"""
+            SELECT id, pedido_item_id, tipo, descripcion, cantidad, precio_extra
+            FROM pedido_item_modificaciones
+            WHERE pedido_item_id IN ({marcadores_items})
+            ORDER BY pedido_item_id, tipo, id
+        """, tuple(item_ids)).fetchall()
+        for mod in mods_rows:
+            modificaciones_por_item[int(mod["pedido_item_id"])].append(dict(mod))
+
+    items_por_pedido: dict[int, list[dict]] = defaultdict(list)
+    for item in items_rows:
+        item_dict = dict(item)
+        item_dict["modificaciones"] = modificaciones_por_item.get(int(item["id"]), [])
+        items_por_pedido[int(item["pedido_id"])].append(item_dict)
+
+    historial_rows = conn.execute(f"""
+        SELECT pedido_id, estado, cambiado_en, cambiado_por, detalle
+        FROM pedido_estado_historial
+        WHERE pedido_id IN ({marcadores_pedidos})
+        ORDER BY pedido_id, cambiado_en ASC, id ASC
+    """, tuple(pedido_ids)).fetchall()
+    historial_por_pedido: dict[int, list[dict]] = defaultdict(list)
+    for historial in historial_rows:
+        historial_por_pedido[int(historial["pedido_id"])].append({
+            "estado": historial["estado"],
+            "cambiado_en": historial["cambiado_en"],
+            "cambiado_por": historial["cambiado_por"],
+            "detalle": historial["detalle"],
+        })
+
+    for pedido in pedidos_base:
+        pedido_id = int(pedido["id"])
+        pedido["items"] = items_por_pedido.get(pedido_id, [])
+        pedido["historial_estados"] = historial_por_pedido.get(pedido_id, [])
+
+    return pedidos_base
+
+
+def obtener_pedidos(estado: str = None, mesa_id: int = None,
+                    fecha: str = None) -> list[dict]:
+    """Obtiene pedidos filtrados por estado, mesa y/o fecha."""
+    with get_connection() as conn:
+        return _consultar_pedidos_conn(conn, estado=estado, mesa_id=mesa_id, fecha=fecha)
+
+
+def obtener_pedidos_detallados(estado: str = None, mesa_id: int = None,
+                               fecha: str = None) -> list[dict]:
+    """Obtiene pedidos con items e historial en consultas por lote."""
+    with get_connection() as conn:
+        pedidos = _consultar_pedidos_conn(conn, estado=estado, mesa_id=mesa_id, fecha=fecha)
+        return _adjuntar_detalle_pedidos_conn(conn, pedidos)
 
 
 def obtener_pedido(pedido_id: int) -> dict | None:
@@ -2043,37 +2608,8 @@ def obtener_pedido(pedido_id: int) -> dict | None:
 
         if not pedido:
             return None
-
-        items = conn.execute("""
-            SELECT id, producto, cantidad, precio_unitario, subtotal, notas
-            FROM pedido_items
-            WHERE pedido_id = ?
-            ORDER BY id
-        """, (pedido_id,)).fetchall()
-
-        items_list = []
-        for item in items:
-            item_dict = dict(item)
-            mods = conn.execute("""
-                SELECT id, tipo, descripcion, cantidad, precio_extra
-                FROM pedido_item_modificaciones
-                WHERE pedido_item_id = ?
-                ORDER BY tipo, id
-            """, (item_dict["id"],)).fetchall()
-            item_dict["modificaciones"] = [dict(m) for m in mods]
-            items_list.append(item_dict)
-
-        historial = conn.execute("""
-            SELECT estado, cambiado_en, cambiado_por, detalle
-            FROM pedido_estado_historial
-            WHERE pedido_id = ?
-            ORDER BY cambiado_en ASC, id ASC
-        """, (pedido_id,)).fetchall()
-
-    result = dict(pedido)
-    result["items"] = items_list
-    result["historial_estados"] = [dict(h) for h in historial]
-    return result
+        pedidos = _adjuntar_detalle_pedidos_conn(conn, [dict(pedido)])
+    return pedidos[0] if pedidos else None
 
 
 def cambiar_estado_pedido(pedido_id: int, nuevo_estado: str,
@@ -2157,6 +2693,7 @@ def pagar_pedido(pedido_id: int, registrado_por: str = "",
 
         with get_connection() as conn:
             venta_grupo = f"pedido-{pedido_id}-{uuid4().hex[:10]}"
+            productos_vendidos: set[str] = set()
 
             for item in pedido["items"]:
                 subtotal = round(float(item["subtotal"] or 0), 2)
@@ -2184,6 +2721,7 @@ def pagar_pedido(pedido_id: int, registrado_por: str = "",
                     cambio,
                     pedido_id,
                 ))
+                productos_vendidos.add(item["producto"])
 
                 # Descontar inventario por composicion base del producto
                 consumo_producto = _consumo_producto(
@@ -2235,6 +2773,8 @@ def pagar_pedido(pedido_id: int, registrado_por: str = "",
                 detalle=f"Cobro registrado por {metodo_pago}",
                 cambiado_en=pagado_en,
             )
+            for producto in productos_vendidos:
+                _sincronizar_registro_vendido_conn(conn, fecha_cobro, producto)
             conn.commit()
         return {
             "ok": True,
@@ -2309,7 +2849,7 @@ def agregar_adicional(nombre: str, precio: float) -> bool:
             )
             conn.commit()
         return True
-    except sqlite3.IntegrityError:
+    except _INTEGRITY_ERRORS:
         return False
 
 
@@ -2333,7 +2873,7 @@ def actualizar_adicional_detalle(adicional_id: int, nombre: str, precio: float) 
             )
             conn.commit()
         return True
-    except sqlite3.IntegrityError:
+    except _INTEGRITY_ERRORS:
         return False
     except Exception:
         return False
@@ -2439,7 +2979,7 @@ def agregar_insumo(nombre: str, unidad: str, stock: float = 0,
             )
             conn.commit()
         return True
-    except sqlite3.IntegrityError:
+    except _INTEGRITY_ERRORS:
         return False
 
 
@@ -2490,6 +3030,26 @@ def _categoria_producto_conn(conn, producto: str) -> str:
     return row["categoria"] if row else ""
 
 
+def _resolver_producto_activo_conn(conn, producto: str) -> dict | None:
+    producto = str(producto or "").strip()
+    if not producto:
+        return None
+
+    row = conn.execute("""
+        SELECT id, nombre, precio, categoria
+        FROM productos
+        WHERE nombre = ? AND activo = 1
+    """, (producto,)).fetchone()
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "nombre": row["nombre"],
+        "precio": float(row["precio"] or 0),
+        "categoria": row["categoria"],
+    }
+
+
 def _resolver_adicional_conn(conn, descripcion: str) -> dict | None:
     descripcion = str(descripcion or "").strip()
     if not descripcion:
@@ -2522,6 +3082,140 @@ def _resolver_adicional_conn(conn, descripcion: str) -> dict | None:
             "precio": float(adicional["precio"] or 0),
         }
     return None
+
+
+def _catalogo_productos_activos_conn(conn) -> dict[str, dict]:
+    rows = conn.execute("""
+        SELECT id, nombre, precio, categoria
+        FROM productos
+        WHERE activo = 1
+    """).fetchall()
+    return {
+        str(row["nombre"]): {
+            "id": row["id"],
+            "nombre": row["nombre"],
+            "precio": float(row["precio"] or 0),
+            "categoria": row["categoria"],
+        }
+        for row in rows
+    }
+
+
+def _catalogo_adicionales_activos_conn(conn) -> dict[str, dict]:
+    catalogo: dict[str, dict] = {}
+    productos = conn.execute("""
+        SELECT id, nombre, precio, categoria
+        FROM productos
+        WHERE nombre != '' AND activo = 1 AND es_adicional = 1
+    """).fetchall()
+    for producto in productos:
+        catalogo[str(producto["nombre"])] = {
+            "tipo": "producto",
+            "id": producto["id"],
+            "nombre": producto["nombre"],
+            "precio": float(producto["precio"] or 0),
+            "categoria": producto["categoria"],
+        }
+
+    adicionales = conn.execute("""
+        SELECT id, nombre, precio
+        FROM adicionales
+        WHERE nombre != '' AND activo = 1
+    """).fetchall()
+    for adicional in adicionales:
+        catalogo.setdefault(str(adicional["nombre"]), {
+            "tipo": "catalogo",
+            "id": adicional["id"],
+            "nombre": adicional["nombre"],
+            "precio": float(adicional["precio"] or 0),
+        })
+    return catalogo
+
+
+def _normalizar_modificacion_persistencia_conn(
+    conn,
+    mod: dict,
+    catalogo_adicionales: dict[str, dict] | None = None,
+) -> dict | None:
+    descripcion = str((mod or {}).get("descripcion", "") or "").strip()
+    if not descripcion:
+        return None
+
+    tipo = str((mod or {}).get("tipo", "adicional") or "adicional").strip().lower()
+    if tipo == "exclusion":
+        return {
+            "tipo": "exclusion",
+            "descripcion": descripcion,
+            "cantidad": 1,
+            "precio_extra": 0.0,
+        }
+
+    cantidad = int((mod or {}).get("cantidad", 1) or 0)
+    if cantidad <= 0:
+        return None
+
+    adicional = (
+        dict(catalogo_adicionales.get(descripcion))
+        if catalogo_adicionales and descripcion in catalogo_adicionales
+        else _resolver_adicional_conn(conn, descripcion)
+    )
+    if not adicional:
+        raise ValueError(f"Adicional no configurado: {descripcion}")
+
+    return {
+        "tipo": "adicional",
+        "descripcion": adicional["nombre"],
+        "cantidad": cantidad,
+        "precio_extra": float(adicional["precio"] or 0),
+    }
+
+
+def _normalizar_items_persistencia_conn(conn, items: list[dict]) -> list[dict]:
+    normalizados: list[dict] = []
+    catalogo_productos = _catalogo_productos_activos_conn(conn)
+    catalogo_adicionales = _catalogo_adicionales_activos_conn(conn)
+
+    for item in items or []:
+        producto_nombre = str((item or {}).get("producto", "") or "").strip()
+        producto = dict(catalogo_productos.get(producto_nombre, {}))
+        if not producto:
+            raise ValueError(f"Producto no disponible: {producto_nombre}")
+
+        cantidad = int((item or {}).get("cantidad", 0) or 0)
+        if cantidad <= 0:
+            raise ValueError(f"Cantidad invalida para {producto['nombre']}")
+
+        modificaciones: list[dict] = []
+        extras_unitarios = 0.0
+        for mod in (item or {}).get("modificaciones", []) or []:
+            mod_normalizada = _normalizar_modificacion_persistencia_conn(
+                conn,
+                mod,
+                catalogo_adicionales=catalogo_adicionales,
+            )
+            if not mod_normalizada:
+                continue
+            modificaciones.append(mod_normalizada)
+            if mod_normalizada["tipo"] == "adicional":
+                extras_unitarios += (
+                    int(mod_normalizada["cantidad"] or 0) *
+                    float(mod_normalizada["precio_extra"] or 0)
+                )
+
+        precio_unitario = float(producto["precio"] or 0)
+        subtotal = round((precio_unitario + extras_unitarios) * cantidad, 2)
+        normalizados.append({
+            "producto": producto["nombre"],
+            "cantidad": cantidad,
+            "precio_unitario": precio_unitario,
+            "precio": precio_unitario,
+            "subtotal": subtotal,
+            "total": subtotal,
+            "notas": str((item or {}).get("notas", "") or "").strip(),
+            "modificaciones": modificaciones,
+        })
+
+    return normalizados
 
 
 def _acumular_requerimiento_panaderia_producto(conn, producto: str, cantidad: float,
@@ -2613,6 +3307,96 @@ def _requerimiento_panaderia_items_conn(conn, items: list[dict]) -> dict[str, fl
     return requeridos
 
 
+def _combinar_consumo_insumos(destino: dict[int, dict], origen: dict[int, dict]) -> None:
+    for insumo_id, datos in origen.items():
+        if insumo_id not in destino:
+            destino[insumo_id] = {
+                "nombre": datos["nombre"],
+                "unidad": datos["unidad"],
+                "cantidad": 0.0,
+            }
+        destino[insumo_id]["cantidad"] += float(datos["cantidad"] or 0)
+
+
+def _obtener_items_payload_pedido_conn(conn, pedido_id: int) -> list[dict]:
+    return _obtener_items_payload_pedidos_conn(conn, [pedido_id]).get(pedido_id, [])
+
+
+def _obtener_items_payload_pedidos_conn(conn, pedido_ids: list[int]) -> dict[int, list[dict]]:
+    pedido_ids_limpios = list(dict.fromkeys(
+        int(pedido_id)
+        for pedido_id in (pedido_ids or [])
+        if pedido_id is not None
+    ))
+    if not pedido_ids_limpios:
+        return {}
+
+    marcadores_pedidos = _marcadores_sql(len(pedido_ids_limpios))
+    items = conn.execute(f"""
+        SELECT id, pedido_id, producto, cantidad
+        FROM pedido_items
+        WHERE pedido_id IN ({marcadores_pedidos})
+        ORDER BY pedido_id, id
+    """, tuple(pedido_ids_limpios)).fetchall()
+
+    mods_por_item: dict[int, list[dict]] = defaultdict(list)
+    item_ids = [int(item["id"]) for item in items]
+    if item_ids:
+        marcadores_items = _marcadores_sql(len(item_ids))
+        mods = conn.execute(f"""
+            SELECT pedido_item_id, tipo, descripcion, cantidad
+            FROM pedido_item_modificaciones
+            WHERE pedido_item_id IN ({marcadores_items})
+            ORDER BY pedido_item_id, id
+        """, tuple(item_ids)).fetchall()
+        for mod in mods:
+            mods_por_item[int(mod["pedido_item_id"])].append(dict(mod))
+
+    payload_por_pedido: dict[int, list[dict]] = defaultdict(list)
+    for item in items:
+        item_id = int(item["id"])
+        pedido_id = int(item["pedido_id"])
+        payload_por_pedido[pedido_id].append({
+            "producto": item["producto"],
+            "cantidad": item["cantidad"],
+            "modificaciones": mods_por_item.get(item_id, []),
+        })
+
+    for pedido_id in pedido_ids_limpios:
+        payload_por_pedido.setdefault(pedido_id, [])
+    return dict(payload_por_pedido)
+
+
+def _consumo_insumos_items_conn(conn, items: list[dict]) -> dict[int, dict]:
+    consumo: dict[int, dict] = {}
+
+    for item in items:
+        producto = str(item.get("producto", "") or "").strip()
+        cantidad = float(item.get("cantidad", 0) or 0)
+        if producto and cantidad > 0:
+            _combinar_consumo_insumos(
+                consumo,
+                _consumo_producto(conn, producto, cantidad, incluir_panaderia=False),
+            )
+
+        for mod in item.get("modificaciones", []):
+            if mod.get("tipo") != "adicional":
+                continue
+            descripcion = str(mod.get("descripcion", "") or "").strip()
+            cantidad_mod = float(mod.get("cantidad", 0) or 0)
+            if not descripcion or cantidad_mod <= 0:
+                continue
+            _acumular_consumo_modificacion(
+                conn,
+                descripcion,
+                cantidad_mod,
+                consumo,
+                incluir_panaderia=False,
+            )
+
+    return consumo
+
+
 def _pedidos_comprometidos_panaderia_conn(conn, fecha: str,
                                           excluir_pedido_id: int | None = None) -> dict[str, float]:
     query = """
@@ -2627,34 +3411,134 @@ def _pedidos_comprometidos_panaderia_conn(conn, fecha: str,
 
     pedido_ids = [row["id"] for row in conn.execute(query, tuple(params)).fetchall()]
     comprometidos: dict[str, float] = {}
-
-    for pedido_id in pedido_ids:
-        items = conn.execute("""
-            SELECT id, producto, cantidad
-            FROM pedido_items
-            WHERE pedido_id = ?
-            ORDER BY id
-        """, (pedido_id,)).fetchall()
-
-        items_payload = []
-        for item in items:
-            mods = conn.execute("""
-                SELECT tipo, descripcion, cantidad
-                FROM pedido_item_modificaciones
-                WHERE pedido_item_id = ?
-                ORDER BY id
-            """, (item["id"],)).fetchall()
-            items_payload.append({
-                "producto": item["producto"],
-                "cantidad": item["cantidad"],
-                "modificaciones": [dict(mod) for mod in mods],
-            })
-
+    payloads_por_pedido = _obtener_items_payload_pedidos_conn(conn, pedido_ids)
+    for items_payload in payloads_por_pedido.values():
         requeridos = _requerimiento_panaderia_items_conn(conn, items_payload)
         for producto, cantidad in requeridos.items():
             comprometidos[producto] = comprometidos.get(producto, 0.0) + float(cantidad)
 
     return comprometidos
+
+
+def _consumo_insumos_pedidos_activos_conn(conn, fecha: str,
+                                          excluir_pedido_id: int | None = None) -> dict[int, dict]:
+    query = """
+        SELECT id
+        FROM pedidos
+        WHERE fecha = ? AND estado IN ('pendiente', 'en_preparacion', 'listo')
+    """
+    params: list = [fecha]
+    if excluir_pedido_id is not None:
+        query += " AND id != ?"
+        params.append(excluir_pedido_id)
+
+    consumo: dict[int, dict] = {}
+    pedido_ids = [row["id"] for row in conn.execute(query, tuple(params)).fetchall()]
+    payloads_por_pedido = _obtener_items_payload_pedidos_conn(conn, pedido_ids)
+    for pedido_id in pedido_ids:
+        _combinar_consumo_insumos(
+            consumo,
+            _consumo_insumos_items_conn(conn, payloads_por_pedido.get(pedido_id, [])),
+        )
+    return consumo
+
+
+def _stock_insumos_disponible_conn(conn, fecha: str,
+                                   excluir_pedido_id: int | None = None) -> dict[int, dict]:
+    comprometidos = _consumo_insumos_pedidos_activos_conn(
+        conn, fecha, excluir_pedido_id=excluir_pedido_id
+    )
+    rows = conn.execute("""
+        SELECT id, nombre, unidad, stock, stock_minimo
+        FROM insumos
+        WHERE activo = 1
+        ORDER BY nombre
+    """).fetchall()
+
+    disponibles: dict[int, dict] = {}
+    for row in rows:
+        comprometido = float(comprometidos.get(row["id"], {}).get("cantidad", 0) or 0)
+        stock_actual = float(row["stock"] or 0)
+        disponibles[row["id"]] = {
+            "id": row["id"],
+            "nombre": row["nombre"],
+            "unidad": row["unidad"],
+            "stock": stock_actual,
+            "stock_minimo": float(row["stock_minimo"] or 0),
+            "comprometido": comprometido,
+            "disponible": max(stock_actual - comprometido, 0.0),
+        }
+    return disponibles
+
+
+def _disponibilidad_catalogo_producto_conn(conn, producto: str, fecha: str,
+                                           stock_productos: dict[str, int],
+                                           stock_insumos: dict[int, dict]) -> int | None:
+    payload = [{"producto": producto, "cantidad": 1, "modificaciones": []}]
+    requeridos_panaderia = _requerimiento_panaderia_items_conn(conn, payload)
+    requeridos_insumos = _consumo_insumos_items_conn(conn, payload)
+
+    limites: list[int] = []
+    for producto_base, cantidad in requeridos_panaderia.items():
+        cantidad = float(cantidad or 0)
+        if cantidad <= 0:
+            continue
+        disponible = int(stock_productos.get(producto_base, 0) or 0)
+        limites.append(max(int((disponible + 1e-9) // cantidad), 0))
+
+    for insumo_id, datos in requeridos_insumos.items():
+        cantidad = float(datos["cantidad"] or 0)
+        if cantidad <= 0:
+            continue
+        disponible = float(stock_insumos.get(insumo_id, {}).get("disponible", 0) or 0)
+        limites.append(max(int((disponible + 1e-9) // cantidad), 0))
+
+    if not limites:
+        return None
+
+    return min(limites)
+
+
+def validar_stock_insumos_pedido(items: list[dict], fecha: str | None = None,
+                                 excluir_pedido_id: int | None = None) -> dict:
+    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+
+    with get_connection() as conn:
+        requeridos = _consumo_insumos_items_conn(conn, items)
+        if not requeridos:
+            return {"ok": True, "faltantes": []}
+
+        disponibles = _stock_insumos_disponible_conn(
+            conn, fecha, excluir_pedido_id=excluir_pedido_id
+        )
+
+    faltantes = []
+    for insumo_id, datos in requeridos.items():
+        disponible = float(disponibles.get(insumo_id, {}).get("disponible", 0) or 0)
+        requerido = float(datos["cantidad"] or 0)
+        if disponible + 1e-9 >= requerido:
+            continue
+        faltantes.append({
+            "tipo": "insumo",
+            "producto": datos["nombre"],
+            "requerido": round(requerido, 2),
+            "disponible": round(disponible, 2),
+            "faltante": round(requerido - disponible, 2),
+            "unidad": datos["unidad"],
+        })
+
+    if not faltantes:
+        return {"ok": True, "faltantes": []}
+
+    detalles = ", ".join(
+        f"{f['producto']} (disponible: {f['disponible']} {f['unidad']}, requerido: {f['requerido']} {f['unidad']})"
+        for f in faltantes
+    )
+    return {
+        "ok": False,
+        "faltantes": faltantes,
+        "error": f"Inventario insuficiente: {detalles}",
+    }
 
 
 def validar_items_contra_produccion_panaderia(items: list[dict], fecha: str | None = None,
@@ -2710,6 +3594,171 @@ def validar_items_contra_produccion_panaderia(items: list[dict], fecha: str | No
     }
 
 
+def obtener_stock_disponible_hoy(fecha: str | None = None) -> dict[str, int]:
+    """
+    Retorna el stock disponible REAL por producto para la fecha indicada.
+    Usa la produccion registrada por el panadero, descuenta las ventas reales
+    ya cobradas y además los pedidos activos aún no cobrados.
+
+    Fórmula: producido - vendido_real - comprometido_pedidos_activos
+    - vendido_real: ventas cobradas del día (POS + pedidos pagados)
+    - comprometido_activos: pedidos en estado pendiente/en_preparacion/listo
+
+    Regla de negocio:
+    - Los productos activos de Panaderia se controlan por producción diaria.
+      Si hoy no tienen registro, su disponible se considera 0.
+    - Otros productos solo se controlan si existe un registro diario para ellos.
+    """
+    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    with get_connection() as conn:
+        productos_panaderia = conn.execute("""
+            SELECT nombre
+            FROM productos
+            WHERE activo = 1 AND categoria = 'Panaderia'
+        """).fetchall()
+        disponibles: dict[str, int] = {
+            row["nombre"]: 0 for row in productos_panaderia
+        }
+
+        # 1. Producción y vendido manual del día (fuente única, igual al inventario)
+        prod_rows = conn.execute(
+            "SELECT producto, SUM(producido) as producido "
+            "FROM registros_diarios WHERE fecha = ? GROUP BY producto",
+            (fecha,)
+        ).fetchall()
+        vendidos_rows = conn.execute("""
+            SELECT producto, COALESCE(SUM(cantidad), 0) as vendido
+            FROM ventas
+            WHERE fecha = ?
+            GROUP BY producto
+        """, (fecha,)).fetchall()
+        vendidos_reales = {row["producto"]: int(row["vendido"] or 0) for row in vendidos_rows}
+
+        # 2. Pedidos activos (aún no cobrados): pendiente, en_preparacion, listo
+        comprometidos_rows = conn.execute("""
+            SELECT pi.producto, COALESCE(SUM(pi.cantidad), 0) as comprometido
+            FROM pedido_items pi
+            JOIN pedidos p ON p.id = pi.pedido_id
+            WHERE p.fecha = ? AND p.estado IN ('pendiente', 'en_preparacion', 'listo')
+            GROUP BY pi.producto
+        """, (fecha,)).fetchall()
+        comprometidos = {
+            row["producto"]: int(row["comprometido"] or 0)
+            for row in comprometidos_rows
+        }
+
+        # 3. Calcular disponible = producido - vendido_real - comprometido_activos
+        for r in prod_rows:
+            producto = r["producto"]
+            producido = int(r["producido"] or 0)
+            vendido = int(vendidos_reales.get(producto, 0) or 0)
+            comprometido = comprometidos.get(producto, 0)
+            disponibles[producto] = max(producido - vendido - comprometido, 0)
+
+        stock_insumos = _stock_insumos_disponible_conn(conn, fecha)
+        productos_catalogo = conn.execute("""
+            SELECT nombre
+            FROM productos
+            WHERE activo = 1
+            ORDER BY nombre
+        """).fetchall()
+        for row in productos_catalogo:
+            producto = row["nombre"]
+            disponible_catalogo = _disponibilidad_catalogo_producto_conn(
+                conn,
+                producto,
+                fecha,
+                disponibles,
+                stock_insumos,
+            )
+            if disponible_catalogo is None:
+                continue
+            if producto in disponibles:
+                disponibles[producto] = min(disponibles[producto], disponible_catalogo)
+            else:
+                disponibles[producto] = disponible_catalogo
+
+    return disponibles
+
+
+def validar_stock_pedido(items: list[dict], fecha: str | None = None,
+                         excluir_pedido_id: int | None = None) -> dict:
+    """
+    Valida que los items del pedido no superen el stock disponible real.
+    Los productos de Panaderia sin producción disponible hoy se consideran agotados.
+    Otros productos solo se validan si tienen control diario cargado.
+    """
+    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+
+    # Calcular requeridos del pedido (suma por producto)
+    requeridos: dict[str, float] = {}
+    for item in items:
+        producto = str(item.get("producto", "") or "").strip()
+        cantidad = float(item.get("cantidad", 0) or 0)
+        if producto and cantidad > 0:
+            requeridos[producto] = requeridos.get(producto, 0.0) + cantidad
+
+    if not requeridos:
+        return {"ok": True, "faltantes": []}
+
+    # Obtener stock disponible (incluye productos de todas las categorías)
+    disponibles = obtener_stock_disponible_hoy(fecha)
+
+    # Si excluimos un pedido (edición), devolver sus items al disponible
+    if excluir_pedido_id is not None:
+        with get_connection() as conn:
+            for row in conn.execute(
+                "SELECT producto, cantidad FROM pedido_items WHERE pedido_id = ?",
+                (excluir_pedido_id,)
+            ).fetchall():
+                p = row["producto"]
+                if p in disponibles:
+                    disponibles[p] = disponibles[p] + int(row["cantidad"] or 0)
+
+    faltantes = []
+    with get_connection() as conn:
+        for producto, requerido in requeridos.items():
+            categoria = _categoria_producto_conn(conn, producto)
+            if producto not in disponibles and categoria != "Panaderia":
+                continue
+
+            disponible = int(disponibles.get(producto, 0) or 0)
+            if disponible < requerido:
+                faltantes.append({
+                    "producto": producto,
+                    "requerido": int(requerido),
+                    "disponible": disponible,
+                    "faltante": int(requerido - disponible),
+                })
+
+    if not faltantes:
+        validacion_insumos = validar_stock_insumos_pedido(
+            items, fecha=fecha, excluir_pedido_id=excluir_pedido_id
+        )
+        if validacion_insumos["ok"]:
+            return {"ok": True, "faltantes": []}
+        return validacion_insumos
+
+    detalles = ", ".join(
+        f"{f['producto']} (disponible: {f['disponible']}, solicitado: {f['requerido']})"
+        for f in faltantes
+    )
+    validacion_insumos = validar_stock_insumos_pedido(
+        items, fecha=fecha, excluir_pedido_id=excluir_pedido_id
+    )
+    if not validacion_insumos["ok"]:
+        faltantes.extend(validacion_insumos["faltantes"])
+        detalles = detalles + "; " + ", ".join(
+            f"{f['producto']} (disponible: {f['disponible']} {f.get('unidad', '')}, requerido: {f['requerido']} {f.get('unidad', '')})".strip()
+            for f in validacion_insumos["faltantes"]
+        )
+    return {
+        "ok": False,
+        "faltantes": faltantes,
+        "error": f"Stock insuficiente: {detalles}",
+    }
+
+
 def _acumular_consumo_producto(conn, producto: str, cantidad: float,
                                consumo: dict, ruta: tuple[str, ...] = (),
                                incluir_panaderia: bool = False) -> None:
@@ -2720,6 +3769,7 @@ def _acumular_consumo_producto(conn, producto: str, cantidad: float,
     if categoria == "Panaderia" and not incluir_panaderia:
         return
 
+    rendimiento = _rendimiento_producto_detalle_conn(conn, producto)["unidades"]
     receta = conn.execute("""
         SELECT r.insumo_id, i.nombre, i.unidad, r.cantidad, r.unidad_receta
         FROM recetas r
@@ -2732,7 +3782,7 @@ def _acumular_consumo_producto(conn, producto: str, cantidad: float,
         if key not in consumo:
             consumo[key] = {"nombre": r["nombre"], "unidad": r["unidad"], "cantidad": 0.0}
         consumo_base = convertir_cantidad(r["cantidad"], r["unidad_receta"], r["unidad"])
-        consumo[key]["cantidad"] += consumo_base * cantidad
+        consumo[key]["cantidad"] += (consumo_base / max(rendimiento, 1.0)) * cantidad
 
     componentes = conn.execute("""
         SELECT componente_producto, cantidad
@@ -2759,6 +3809,142 @@ def _consumo_producto(conn, producto: str, cantidad: float,
         conn, producto, cantidad, consumo, incluir_panaderia=incluir_panaderia
     )
     return consumo
+
+
+def _rendimiento_producto_detalle_conn(conn, producto: str) -> dict:
+    row = conn.execute(
+        "SELECT rendimiento_texto FROM receta_fichas WHERE producto = ?",
+        (producto,)
+    ).fetchone()
+    texto = str(row["rendimiento_texto"] or "").strip() if row else ""
+    unidades, interpretable = _parsear_rendimiento_unidades_texto(texto)
+    return {
+        "texto": texto,
+        "unidades": unidades if unidades > 0 else 1.0,
+        "interpretable": interpretable,
+    }
+
+
+def obtener_proyeccion_insumos_lotes(lotes: list[dict]) -> dict:
+    lotes = [dict(lote) for lote in (lotes or []) if lote]
+    if not lotes:
+        return {
+            "insumos": [],
+            "criticos": [],
+            "alertas": [],
+            "productos_sin_receta": [],
+            "productos_sin_rendimiento": [],
+            "resumen": {
+                "insumos_comprometidos": 0,
+                "insumos_criticos": 0,
+                "insumos_alerta": 0,
+                "unidades_planeadas": 0,
+            },
+        }
+
+    with get_connection() as conn:
+        inventario_rows = conn.execute("""
+            SELECT id, nombre, unidad, stock, stock_minimo
+            FROM insumos
+            WHERE activo = 1
+            ORDER BY nombre
+        """).fetchall()
+        inventario = {
+            int(row["id"]): {
+                "id": int(row["id"]),
+                "nombre": row["nombre"],
+                "unidad": row["unidad"],
+                "stock_actual": float(row["stock"] or 0),
+                "stock_minimo": float(row["stock_minimo"] or 0),
+                "requerido": 0.0,
+                "productos": [],
+            }
+            for row in inventario_rows
+        }
+
+        productos_sin_receta: list[str] = []
+        productos_sin_rendimiento: list[str] = []
+        unidades_planeadas = 0
+
+        for lote in lotes:
+            producto = str(lote.get("producto", "") or "").strip()
+            cantidad = float(lote.get("cantidad", 0) or 0)
+            if not producto or cantidad <= 0:
+                continue
+
+            unidades_planeadas += int(cantidad)
+            consumo_producto = _consumo_producto(conn, producto, cantidad, incluir_panaderia=True)
+            if not consumo_producto and _categoria_producto_conn(conn, producto) == "Panaderia":
+                productos_sin_receta.append(producto)
+
+            rendimiento = _rendimiento_producto_detalle_conn(conn, producto)
+            if rendimiento["texto"] and not rendimiento["interpretable"]:
+                productos_sin_rendimiento.append(producto)
+
+            for insumo_id, datos in consumo_producto.items():
+                if insumo_id not in inventario:
+                    continue
+                inventario[insumo_id]["requerido"] += float(datos["cantidad"] or 0)
+                inventario[insumo_id]["productos"].append({
+                    "producto": producto,
+                    "cantidad": cantidad,
+                })
+
+    insumos: list[dict] = []
+    criticos: list[dict] = []
+    alertas: list[dict] = []
+
+    for info in inventario.values():
+        requerido = float(info["requerido"] or 0)
+        if requerido <= 0:
+            continue
+
+        stock_actual = float(info["stock_actual"] or 0)
+        stock_minimo = float(info["stock_minimo"] or 0)
+        disponible_post = stock_actual - requerido
+        deficit = max(requerido - stock_actual, 0.0)
+        estado = "ok"
+        if deficit > 0:
+            estado = "critico"
+        elif disponible_post <= stock_minimo:
+            estado = "alerta"
+
+        row = {
+            "id": info["id"],
+            "nombre": info["nombre"],
+            "unidad": info["unidad"],
+            "stock_actual": stock_actual,
+            "stock_minimo": stock_minimo,
+            "requerido": requerido,
+            "disponible_post": disponible_post,
+            "deficit": deficit,
+            "estado": estado,
+            "productos": info["productos"],
+        }
+        insumos.append(row)
+        if estado == "critico":
+            criticos.append(row)
+        elif estado == "alerta":
+            alertas.append(row)
+
+    orden_estado = {"critico": 0, "alerta": 1, "ok": 2}
+    insumos.sort(key=lambda row: (orden_estado.get(row["estado"], 9), row["nombre"].lower()))
+    criticos.sort(key=lambda row: row["nombre"].lower())
+    alertas.sort(key=lambda row: row["nombre"].lower())
+
+    return {
+        "insumos": insumos,
+        "criticos": criticos,
+        "alertas": alertas,
+        "productos_sin_receta": sorted(set(productos_sin_receta)),
+        "productos_sin_rendimiento": sorted(set(productos_sin_rendimiento)),
+        "resumen": {
+            "insumos_comprometidos": len(insumos),
+            "insumos_criticos": len(criticos),
+            "insumos_alerta": len(alertas),
+            "unidades_planeadas": unidades_planeadas,
+        },
+    }
 
 
 def _acumular_consumo_adicional(conn, adicional_id: int, cantidad: float,
@@ -2831,39 +4017,82 @@ def _consumo_adicional(conn, adicional_id: int, cantidad: float,
     )
     return consumo
 
-def obtener_receta(producto: str) -> dict:
+
+def obtener_recetas_productos(productos: list[str]) -> dict[str, dict]:
+    productos_limpios = list(dict.fromkeys(
+        str(producto or "").strip()
+        for producto in (productos or [])
+        if str(producto or "").strip()
+    ))
+    if not productos_limpios:
+        return {}
+
+    resultado = {
+        producto: {
+            "ingredientes": [],
+            "componentes": [],
+            "ficha": _ficha_receta_vacia(producto),
+        }
+        for producto in productos_limpios
+    }
+    marcadores = _marcadores_sql(len(productos_limpios))
+
     with get_connection() as conn:
-        rows = conn.execute("""
-            SELECT r.id, r.insumo_id, i.nombre as insumo_nombre,
+        ingredientes = conn.execute(f"""
+            SELECT r.producto, r.id, r.insumo_id, i.nombre as insumo_nombre,
                    i.unidad as unidad_inventario,
                    r.unidad_receta, r.cantidad
             FROM recetas r
             JOIN insumos i ON r.insumo_id = i.id
-            WHERE r.producto = ?
-            ORDER BY i.nombre
-        """, (producto,)).fetchall()
-        ficha = conn.execute("""
+            WHERE r.producto IN ({marcadores})
+            ORDER BY r.producto, i.nombre
+        """, tuple(productos_limpios)).fetchall()
+        fichas = conn.execute(f"""
             SELECT producto, rendimiento_texto, tiempo_preparacion_min,
                    tiempo_amasado_min, tiempo_fermentacion_min,
                    tiempo_horneado_min, temperatura_horneado,
                    pasos, observaciones
             FROM receta_fichas
-            WHERE producto = ?
-        """, (producto,)).fetchone()
-        componentes = conn.execute("""
-            SELECT pc.id, pc.componente_producto, pc.cantidad,
+            WHERE producto IN ({marcadores})
+        """, tuple(productos_limpios)).fetchall()
+        componentes = conn.execute(f"""
+            SELECT pc.producto, pc.id, pc.componente_producto, pc.cantidad,
                    p.categoria as componente_categoria
             FROM producto_componentes pc
             LEFT JOIN productos p ON p.nombre = pc.componente_producto
-            WHERE pc.producto = ?
-            ORDER BY pc.componente_producto
-        """, (producto,)).fetchall()
+            WHERE pc.producto IN ({marcadores})
+            ORDER BY pc.producto, pc.componente_producto
+        """, tuple(productos_limpios)).fetchall()
 
-    return {
-        "ingredientes": [dict(r) for r in rows],
-        "componentes": [dict(r) for r in componentes],
-        "ficha": dict(ficha) if ficha else _ficha_receta_vacia(producto),
-    }
+    for ingrediente in ingredientes:
+        resultado[str(ingrediente["producto"])]["ingredientes"].append({
+            "id": ingrediente["id"],
+            "insumo_id": ingrediente["insumo_id"],
+            "insumo_nombre": ingrediente["insumo_nombre"],
+            "unidad_inventario": ingrediente["unidad_inventario"],
+            "unidad_receta": ingrediente["unidad_receta"],
+            "cantidad": ingrediente["cantidad"],
+        })
+
+    for ficha in fichas:
+        resultado[str(ficha["producto"])]["ficha"] = dict(ficha)
+
+    for componente in componentes:
+        resultado[str(componente["producto"])]["componentes"].append({
+            "id": componente["id"],
+            "componente_producto": componente["componente_producto"],
+            "cantidad": componente["cantidad"],
+            "componente_categoria": componente["componente_categoria"],
+        })
+
+    return resultado
+
+def obtener_receta(producto: str) -> dict:
+    return obtener_recetas_productos([producto]).get(producto, {
+        "ingredientes": [],
+        "componentes": [],
+        "ficha": _ficha_receta_vacia(producto),
+    })
 
 
 def guardar_receta(producto: str, ingredientes: list[dict], ficha: dict | None = None,
@@ -3043,3 +4272,431 @@ def obtener_resumen_mesas() -> list[dict]:
             mesa["estado_mesa"] = ultimo["estado"] if ultimo else "libre"
             resultado.append(mesa)
     return resultado
+
+
+# ──────────────────────────────────────────────
+# Audit Log
+# ──────────────────────────────────────────────
+
+def registrar_audit(
+    usuario: str,
+    accion: str,
+    entidad: str = "",
+    entidad_id: str = "",
+    detalle: str = "",
+    valor_antes: str = "",
+    valor_nuevo: str = "",
+) -> None:
+    """Registra una acción crítica en el audit log."""
+    ahora = datetime.now()
+    fecha = ahora.strftime("%Y-%m-%d")
+    creado_en = ahora.strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with get_connection() as conn:
+            conn.execute("""
+                INSERT INTO audit_log
+                    (fecha, creado_en, usuario, accion, entidad, entidad_id, detalle, valor_antes, valor_nuevo)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (fecha, creado_en, str(usuario or ""), str(accion or ""),
+                  str(entidad or ""), str(entidad_id or ""),
+                  str(detalle or ""), str(valor_antes or ""), str(valor_nuevo or "")))
+            conn.commit()
+    except Exception as e:
+        print(f"[AUDIT ERROR] {e}")
+
+
+def obtener_audit_log(dias: int = 30, limite: int = 200) -> list[dict]:
+    """Devuelve entradas recientes del audit log."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT id, fecha, creado_en, usuario, accion, entidad, entidad_id,
+                   detalle, valor_antes, valor_nuevo
+            FROM audit_log
+            WHERE fecha >= date('now', ?)
+            ORDER BY creado_en DESC, id DESC
+            LIMIT ?
+        """, (f"-{dias} days", limite)).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ──────────────────────────────────────────────
+# Top Productos del Día
+# ──────────────────────────────────────────────
+
+def obtener_top_productos_dia(fecha: str | None = None, limite: int = 3) -> list[dict]:
+    """Top N productos más vendidos hoy (unidades vendidas)."""
+    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    with get_connection() as conn:
+        # Ventas del cajero
+        rows_ventas = conn.execute("""
+            SELECT producto,
+                   COALESCE(SUM(cantidad), 0) as unidades,
+                   COALESCE(SUM(total), 0.0) as ingresos
+            FROM ventas
+            WHERE fecha = ?
+            GROUP BY producto
+        """, (fecha,)).fetchall()
+
+        # Ventas via pedidos de mesa (estado pagado)
+        rows_pedidos = conn.execute("""
+            SELECT pi.producto,
+                   COALESCE(SUM(pi.cantidad), 0) as unidades,
+                   COALESCE(SUM(pi.subtotal), 0.0) as ingresos
+            FROM pedido_items pi
+            JOIN pedidos p ON p.id = pi.pedido_id
+            WHERE p.fecha = ? AND p.estado = 'pagado'
+            GROUP BY pi.producto
+        """, (fecha,)).fetchall()
+
+    # Combinar ambas fuentes
+    combinado: dict[str, dict] = {}
+    for r in list(rows_ventas) + list(rows_pedidos):
+        nombre = r["producto"]
+        if nombre not in combinado:
+            combinado[nombre] = {"producto": nombre, "unidades": 0, "ingresos": 0.0}
+        combinado[nombre]["unidades"] += int(r["unidades"] or 0)
+        combinado[nombre]["ingresos"] += float(r["ingresos"] or 0)
+
+    resultado = sorted(combinado.values(), key=lambda x: x["unidades"], reverse=True)
+    return resultado[:limite]
+
+
+# ──────────────────────────────────────────────
+# Alertas de Stock por Producto
+# ──────────────────────────────────────────────
+
+def obtener_alertas_stock_productos(fecha: str | None = None) -> list[dict]:
+    """
+    Devuelve estado de stock de productos de panadería del día.
+    Estado: 'verde' (ok), 'amarillo' (pocas unidades), 'rojo' (agotado).
+    """
+    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    disponibles = obtener_stock_disponible_hoy(fecha)
+    with get_connection() as conn:
+        productos = conn.execute("""
+            SELECT id, nombre, stock_minimo
+            FROM productos
+            WHERE activo = 1 AND categoria = 'Panaderia'
+        """).fetchall()
+
+    resultado = []
+    for p in productos:
+        nombre = p["nombre"]
+        stock_minimo = int(p["stock_minimo"] or 0)
+        disponible = int(disponibles.get(nombre, 0) or 0)
+        if disponible <= 0:
+            estado = "rojo"
+        elif stock_minimo > 0 and disponible <= stock_minimo:
+            estado = "amarillo"
+        else:
+            estado = "verde"
+
+        resultado.append({
+            "producto": nombre,
+            "disponible": disponible,
+            "stock_minimo": stock_minimo,
+            "estado": estado,
+        })
+
+    return resultado
+
+
+def actualizar_stock_minimo_producto(producto_id: int, stock_minimo: int) -> bool:
+    """Actualiza el stock mínimo de alerta de un producto."""
+    try:
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE productos SET stock_minimo = ? WHERE id = ?",
+                (max(0, int(stock_minimo)), producto_id)
+            )
+            conn.commit()
+        return True
+    except Exception:
+        return False
+
+
+# ──────────────────────────────────────────────
+# Ajustes de Pronóstico (ajuste manual del panadero)
+# ──────────────────────────────────────────────
+
+def guardar_ajuste_pronostico(
+    fecha: str,
+    producto: str,
+    sugerido: int,
+    ajustado: int,
+    motivo: str = "",
+    registrado_por: str = "",
+) -> bool:
+    """Guarda el ajuste manual del panadero al pronóstico del sistema."""
+    creado_en = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with get_connection() as conn:
+            conn.execute("""
+                INSERT INTO ajustes_pronostico
+                    (fecha, creado_en, producto, sugerido, ajustado, motivo, registrado_por)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(fecha, producto) DO UPDATE SET
+                    ajustado = excluded.ajustado,
+                    motivo = excluded.motivo,
+                    registrado_por = excluded.registrado_por,
+                    creado_en = excluded.creado_en
+            """, (fecha, creado_en, producto, sugerido, ajustado, motivo, registrado_por))
+            conn.commit()
+        return True
+    except Exception as e:
+        print(f"[ERROR] guardar_ajuste_pronostico: {e}")
+        return False
+
+
+def obtener_ajuste_pronostico(fecha: str, producto: str) -> dict | None:
+    """Devuelve el ajuste manual del panadero para un producto y fecha, si existe."""
+    with get_connection() as conn:
+        row = conn.execute("""
+            SELECT fecha, producto, sugerido, ajustado, motivo, registrado_por, creado_en
+            FROM ajustes_pronostico
+            WHERE fecha = ? AND producto = ?
+        """, (fecha, producto)).fetchone()
+    return dict(row) if row else None
+
+
+def obtener_historial_ajustes(producto: str, dias: int = 30) -> list[dict]:
+    """Historial de ajustes manuales de un producto."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT fecha, producto, sugerido, ajustado, motivo, registrado_por, creado_en
+            FROM ajustes_pronostico
+            WHERE producto = ? AND fecha >= date('now', ?)
+            ORDER BY fecha DESC
+        """, (producto, f"-{dias} days")).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ──────────────────────────────────────────────
+# Merma / Desperdicio
+# ──────────────────────────────────────────────
+
+def registrar_merma(
+    producto: str,
+    cantidad: float,
+    tipo: str = "sobrante",
+    registrado_por: str = "",
+    notas: str = "",
+    fecha: str | None = None,
+) -> bool:
+    """Registra una merma/desperdicio de un producto."""
+    ahora = datetime.now()
+    fecha = fecha or ahora.strftime("%Y-%m-%d")
+    creado_en = ahora.strftime("%Y-%m-%d %H:%M:%S")
+    tipos_validos = {"sobrante", "vencido", "danado", "consumo_interno", "cortesia", "otro"}
+    tipo = tipo if tipo in tipos_validos else "otro"
+    try:
+        with get_connection() as conn:
+            conn.execute("""
+                INSERT INTO mermas (fecha, creado_en, producto, cantidad, tipo, registrado_por, notas)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (fecha, creado_en, producto, float(cantidad), tipo, registrado_por, notas))
+            conn.commit()
+        return True
+    except Exception as e:
+        print(f"[ERROR] registrar_merma: {e}")
+        return False
+
+
+def obtener_mermas_dia(fecha: str | None = None) -> list[dict]:
+    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT id, fecha, creado_en, producto, cantidad, tipo, registrado_por, notas
+            FROM mermas WHERE fecha = ?
+            ORDER BY creado_en DESC
+        """, (fecha,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def obtener_resumen_mermas(dias: int = 30) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT producto, tipo,
+                   COALESCE(SUM(cantidad), 0) as total_unidades,
+                   COUNT(*) as registros
+            FROM mermas
+            WHERE fecha >= date('now', ?)
+            GROUP BY producto, tipo
+            ORDER BY total_unidades DESC
+        """, (f"-{dias} days",)).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ──────────────────────────────────────────────
+# Días Especiales / Festivos
+# ──────────────────────────────────────────────
+
+def obtener_dias_especiales(fecha_inicio: str | None = None, fecha_fin: str | None = None) -> list[dict]:
+    """Devuelve días especiales en un rango de fechas."""
+    with get_connection() as conn:
+        if fecha_inicio and fecha_fin:
+            rows = conn.execute("""
+                SELECT id, fecha, descripcion, factor, tipo, activo
+                FROM dias_especiales
+                WHERE activo = 1 AND fecha BETWEEN ? AND ?
+                ORDER BY fecha ASC
+            """, (fecha_inicio, fecha_fin)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT id, fecha, descripcion, factor, tipo, activo
+                FROM dias_especiales
+                WHERE activo = 1
+                ORDER BY fecha ASC
+            """).fetchall()
+    return [dict(r) for r in rows]
+
+
+def obtener_factor_dia_especial(fecha: str) -> float:
+    """Devuelve el factor multiplicador para una fecha especial (1.0 si no es especial)."""
+    with get_connection() as conn:
+        row = conn.execute("""
+            SELECT factor FROM dias_especiales WHERE fecha = ? AND activo = 1
+        """, (fecha,)).fetchone()
+    return float(row["factor"]) if row else 1.0
+
+
+def guardar_dia_especial(
+    fecha: str,
+    descripcion: str,
+    factor: float = 1.0,
+    tipo: str = "festivo",
+) -> bool:
+    try:
+        with get_connection() as conn:
+            conn.execute("""
+                INSERT INTO dias_especiales (fecha, descripcion, factor, tipo)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(fecha) DO UPDATE SET
+                    descripcion = excluded.descripcion,
+                    factor = excluded.factor,
+                    tipo = excluded.tipo,
+                    activo = 1
+            """, (fecha, descripcion, round(float(factor), 2), tipo))
+            conn.commit()
+        return True
+    except Exception as e:
+        print(f"[ERROR] guardar_dia_especial: {e}")
+        return False
+
+
+# ──────────────────────────────────────────────
+# Dashboard de Cierre Diario
+# ──────────────────────────────────────────────
+
+def obtener_resumen_cierre_diario(fecha: str | None = None) -> dict:
+    """
+    Genera el resumen completo del cierre del día:
+    ventas, ticket promedio, top producto, caja, merma, pronóstico mañana.
+    """
+    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+
+    with get_connection() as conn:
+        # ── Ventas del día ───────────────────────────────────────────────────
+        ventas_row = conn.execute("""
+            SELECT
+                COUNT(DISTINCT COALESCE(NULLIF(venta_grupo, ''), CAST(id AS TEXT))) as transacciones,
+                COALESCE(SUM(total), 0.0) as total_ventas,
+                COALESCE(SUM(cantidad), 0) as unidades_vendidas
+            FROM ventas WHERE fecha = ?
+        """, (fecha,)).fetchone()
+
+        # Ventas de pedidos de mesa (pagados)
+        pedidos_row = conn.execute("""
+            SELECT
+                COUNT(*) as pedidos_pagados,
+                COALESCE(SUM(total), 0.0) as total_pedidos
+            FROM pedidos WHERE fecha = ? AND estado = 'pagado'
+        """, (fecha,)).fetchone()
+
+        # ── Caja ─────────────────────────────────────────────────────────────
+        caja_row = conn.execute("""
+            SELECT monto_apertura, monto_cierre, efectivo_esperado,
+                   diferencia_cierre, estado, cerrado_por, cerrado_en,
+                   abierto_por, abierto_en
+            FROM arqueos_caja WHERE fecha = ?
+            ORDER BY CASE estado WHEN 'cerrado' THEN 0 ELSE 1 END,
+                     abierto_en DESC
+            LIMIT 1
+        """, (fecha,)).fetchone()
+
+        # ── Top producto del día ──────────────────────────────────────────────
+        top_row = conn.execute("""
+            SELECT producto, COALESCE(SUM(cantidad), 0) as unidades
+            FROM ventas WHERE fecha = ?
+            GROUP BY producto ORDER BY unidades DESC LIMIT 1
+        """, (fecha,)).fetchone()
+
+        # ── Producto sin rotación ─────────────────────────────────────────────
+        sin_rotacion = conn.execute("""
+            SELECT rd.producto
+            FROM registros_diarios rd
+            WHERE rd.fecha = ? AND COALESCE(rd.vendido, 0) = 0
+              AND COALESCE(rd.producido, 0) > 0
+        """, (fecha,)).fetchall()
+
+        # ── Merma del día ─────────────────────────────────────────────────────
+        merma_row = conn.execute("""
+            SELECT COALESCE(SUM(cantidad), 0) as total_merma
+            FROM mermas WHERE fecha = ?
+        """, (fecha,)).fetchone()
+
+        # ── Producción del día ────────────────────────────────────────────────
+        prod_row = conn.execute("""
+            SELECT COALESCE(SUM(producido), 0) as total_producido,
+                   COALESCE(SUM(vendido), 0) as total_vendido,
+                   COALESCE(SUM(CASE WHEN producido > vendido THEN producido - vendido ELSE 0 END), 0) as sobrante
+            FROM registros_diarios WHERE fecha = ?
+        """, (fecha,)).fetchone()
+
+    total_ventas = float((ventas_row["total_ventas"] or 0)) + float((pedidos_row["total_pedidos"] or 0))
+    transacciones = int(ventas_row["transacciones"] or 0) + int(pedidos_row["pedidos_pagados"] or 0)
+    ticket_promedio = round(total_ventas / transacciones, 2) if transacciones > 0 else 0.0
+
+    return {
+        "fecha": fecha,
+        "total_ventas": round(total_ventas, 2),
+        "transacciones": transacciones,
+        "ticket_promedio": ticket_promedio,
+        "top_producto": dict(top_row) if top_row else None,
+        "productos_sin_rotacion": [r["producto"] for r in sin_rotacion],
+        "caja": dict(caja_row) if caja_row else None,
+        "total_merma": float(merma_row["total_merma"] or 0) if merma_row else 0.0,
+        "produccion": {
+            "total_producido": int(prod_row["total_producido"] or 0),
+            "total_vendido": int(prod_row["total_vendido"] or 0),
+            "sobrante": int(prod_row["sobrante"] or 0),
+        } if prod_row else {},
+    }
+
+
+# ──────────────────────────────────────────────
+# Exportación CSV
+# ──────────────────────────────────────────────
+
+def exportar_ventas_csv(dias: int = 30) -> list[dict]:
+    """Retorna ventas del período listas para exportar a CSV."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT fecha, hora, producto, cantidad, precio_unitario, total,
+                   COALESCE(metodo_pago, 'efectivo') as metodo_pago,
+                   registrado_por
+            FROM ventas
+            WHERE fecha >= date('now', ?)
+            ORDER BY fecha DESC, hora DESC
+        """, (f"-{dias} days",)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def exportar_inventario_csv() -> list[dict]:
+    """Retorna inventario de insumos listo para exportar a CSV."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT nombre, unidad, stock, stock_minimo, activo
+            FROM insumos ORDER BY nombre ASC
+        """).fetchall()
+    return [dict(r) for r in rows]

@@ -1,0 +1,85 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      FLASK_ENV: production
+      PYTHONUNBUFFERED: "1"
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
+      GUNICORN_LOG_LEVEL: ${GUNICORN_LOG_LEVEL:-info}
+      DATABASE_URL: ${DATABASE_URL:-}
+      FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:-}
+    expose:
+      - "5000"
+    command:
+      - /bin/sh
+      - -c
+      - |
+        if [ -z "$$DATABASE_URL" ]; then
+          echo "DATABASE_URL is required for the production stack." >&2
+          exit 1
+        fi
+        case "$$DATABASE_URL" in
+          postgresql://*|postgres://*) ;;
+          *)
+            echo "DATABASE_URL must point to PostgreSQL for the production stack." >&2
+            exit 1
+            ;;
+        esac
+        if [ -z "$$FLASK_SECRET_KEY" ] || [ "$$FLASK_SECRET_KEY" = "cambia-esto-por-una-clave-aleatoria-segura" ]; then
+          echo "FLASK_SECRET_KEY is required for the production stack." >&2
+          exit 1
+        fi
+        exec gunicorn -c gunicorn.conf.py app:app
+    volumes:
+      - backups:/app/backups
+    init: true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=5).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - panaderia_net
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      web:
+        condition: service_healthy
+    environment:
+      NGINX_SERVER_NAME: ${NGINX_SERVER_NAME:-_}
+    volumes:
+      - ./nginx.conf:/etc/nginx/templates/default.conf.template:ro
+    init: true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - panaderia_net
+
+volumes:
+  backups:
+
+networks:
+  panaderia_net:
+    driver: bridge

@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Registro de Movimientos{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div class="page-header-info">
+    <h1 class="page-title">Registro de Movimientos Críticos</h1>
+    <p class="page-subtitle">Trazabilidad de acciones importantes del sistema</p>
+  </div>
+  <div class="page-header-actions">
+    <select id="diasFiltro" class="input" style="max-width:160px" onchange="cargarAudit()">
+      <option value="7">Últimos 7 días</option>
+      <option value="30" selected>Últimos 30 días</option>
+      <option value="90">Últimos 90 días</option>
+    </select>
+    <input type="text" id="busqueda" class="input" placeholder="Buscar…" style="max-width:200px" oninput="filtrarTabla()">
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body" style="padding:0">
+    <div style="overflow-x:auto">
+      <table class="table" id="auditTable">
+        <thead>
+          <tr>
+            <th>Fecha/Hora</th>
+            <th>Usuario</th>
+            <th>Acción</th>
+            <th>Entidad</th>
+            <th>Detalle</th>
+            <th>Valor anterior</th>
+            <th>Valor nuevo</th>
+          </tr>
+        </thead>
+        <tbody id="auditBody">
+          <tr><td colspan="7" class="text-center text-muted">Cargando…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const ACCION_LABELS = {
+  login: 'Login',
+  cambio_precio: 'Cambio de precio',
+  eliminar_producto: 'Eliminar producto',
+  cancelar_pedido: 'Cancelar pedido',
+  ajuste_inventario: 'Ajuste inventario',
+  cierre_caja: 'Cierre de caja',
+  ajuste_pronostico: 'Ajuste pronóstico',
+  cambio_stock_minimo: 'Stock mínimo',
+};
+const ACCION_BADGE = {
+  login: 'badge-info',
+  cambio_precio: 'badge-warning',
+  eliminar_producto: 'badge-danger',
+  cancelar_pedido: 'badge-danger',
+  ajuste_inventario: 'badge-warning',
+  cierre_caja: 'badge-success',
+  ajuste_pronostico: 'badge-info',
+  cambio_stock_minimo: 'badge-info',
+};
+
+let _allRows = [];
+
+async function cargarAudit() {
+  const dias = document.getElementById('diasFiltro').value;
+  const r = await fetch(`/api/audit-log?dias=${dias}&limite=500`);
+  if (!r.ok) {
+    document.getElementById('auditBody').innerHTML = '<tr><td colspan="7" class="text-center text-danger">Error al cargar</td></tr>';
+    return;
+  }
+  const d = await r.json();
+  _allRows = d.log || [];
+  renderTabla(_allRows);
+}
+
+function renderTabla(rows) {
+  if (rows.length === 0) {
+    document.getElementById('auditBody').innerHTML = '<tr><td colspan="7" class="text-center text-muted">Sin registros</td></tr>';
+    return;
+  }
+  document.getElementById('auditBody').innerHTML = rows.map(r => `
+    <tr>
+      <td style="white-space:nowrap;font-size:.85rem">${r.creado_en || r.fecha}</td>
+      <td><strong>${r.usuario || '—'}</strong></td>
+      <td><span class="badge ${ACCION_BADGE[r.accion] || 'badge-info'}">${ACCION_LABELS[r.accion] || r.accion}</span></td>
+      <td style="font-size:.85rem">${r.entidad || ''}${r.entidad_id ? ' #' + r.entidad_id : ''}</td>
+      <td style="font-size:.85rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.detalle}">${r.detalle || '—'}</td>
+      <td style="font-size:.8rem;opacity:.7">${r.valor_antes || '—'}</td>
+      <td style="font-size:.8rem">${r.valor_nuevo || '—'}</td>
+    </tr>
+  `).join('');
+}
+
+function filtrarTabla() {
+  const q = document.getElementById('busqueda').value.toLowerCase();
+  if (!q) { renderTabla(_allRows); return; }
+  const filtrados = _allRows.filter(r =>
+    [r.usuario, r.accion, r.entidad, r.detalle, r.valor_antes, r.valor_nuevo]
+      .some(v => (v || '').toLowerCase().includes(q))
+  );
+  renderTabla(filtrados);
+}
+
+cargarAudit();
+</script>
+{% endblock %}

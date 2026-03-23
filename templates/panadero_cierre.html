@@ -1,0 +1,362 @@
+{% extends "base.html" %}
+{% block title_extra %} - Cierre Diario{% endblock %}
+{% block content %}
+<div class="page-container cierre-page">
+  <section class="cierre-hero">
+    <div class="cierre-hero-copy">
+      <div class="cierre-hero-chip">
+        <span class="material-symbols-outlined">summarize</span>
+        Resumen administrativo
+      </div>
+      <h1 class="page-title cierre-hero-title">Cierre diario</h1>
+      <p class="cierre-hero-subtitle">
+        Revisa ventas, caja, produccion y el pronostico del siguiente dia desde una sola vista.
+      </p>
+    </div>
+    <div class="cierre-hero-actions">
+      <label class="cierre-control">
+        <span class="cierre-control-label">Fecha del cierre</span>
+        <input type="date" id="fechaCierre" class="form-input">
+      </label>
+      <button class="btn btn-primary" type="button" onclick="cargarCierre()">
+        <span class="material-symbols-outlined">refresh</span>
+        Actualizar
+      </button>
+      <a href="/api/export/ventas?dias=1" class="btn btn-accent">
+        <span class="material-symbols-outlined">download</span>
+        Exportar CSV
+      </a>
+    </div>
+  </section>
+
+  <section class="cierre-kpi-grid">
+    <article class="cierre-kpi-card cierre-kpi-card-primary">
+      <div class="cierre-kpi-icon">
+        <span class="material-symbols-outlined">payments</span>
+      </div>
+      <div class="cierre-kpi-label">Ventas del dia</div>
+      <div class="cierre-kpi-value" id="totalVentas">$0</div>
+      <div class="cierre-kpi-foot">Ingreso total consolidado del dia</div>
+    </article>
+
+    <article class="cierre-kpi-card">
+      <div class="cierre-kpi-icon">
+        <span class="material-symbols-outlined">receipt_long</span>
+      </div>
+      <div class="cierre-kpi-label">Transacciones</div>
+      <div class="cierre-kpi-value" id="totalTrans">0</div>
+      <div class="cierre-kpi-foot">Ventas y pedidos pagados</div>
+    </article>
+
+    <article class="cierre-kpi-card">
+      <div class="cierre-kpi-icon">
+        <span class="material-symbols-outlined">local_atm</span>
+      </div>
+      <div class="cierre-kpi-label">Ticket promedio</div>
+      <div class="cierre-kpi-value" id="ticketProm">$0</div>
+      <div class="cierre-kpi-foot">Valor medio por transaccion</div>
+    </article>
+
+    <article class="cierre-kpi-card">
+      <div class="cierre-kpi-icon">
+        <span class="material-symbols-outlined">delete_sweep</span>
+      </div>
+      <div class="cierre-kpi-label">Merma del dia</div>
+      <div class="cierre-kpi-value" id="totalMerma">0 u</div>
+      <div class="cierre-kpi-foot">Unidades registradas como merma</div>
+    </article>
+  </section>
+
+  <section class="cierre-main-grid">
+    <article class="card cierre-panel cierre-panel-finanzas">
+      <div class="cierre-panel-header">
+        <div>
+          <div class="cierre-panel-eyebrow">Caja</div>
+          <h2 class="cierre-panel-title">Estado financiero del turno</h2>
+        </div>
+        <div id="cajaEstadoBadge" class="cierre-status-badge cierre-status-neutral">Sin datos</div>
+      </div>
+      <div id="cajaCierre" class="cierre-panel-body cierre-finance-shell">
+        <p class="text-muted">Cargando informacion de caja...</p>
+      </div>
+    </article>
+
+    <article class="card cierre-panel">
+      <div class="cierre-panel-header">
+        <div>
+          <div class="cierre-panel-eyebrow">Produccion</div>
+          <h2 class="cierre-panel-title">Balance operativo del dia</h2>
+        </div>
+      </div>
+      <div id="produccionCierre" class="cierre-panel-body cierre-mini-grid">
+        <p class="text-muted">Cargando produccion...</p>
+      </div>
+    </article>
+  </section>
+
+  <section class="cierre-secondary-grid">
+    <article class="card cierre-panel">
+      <div class="cierre-panel-header">
+        <div>
+          <div class="cierre-panel-eyebrow">Destacados</div>
+          <h2 class="cierre-panel-title">Lectura rapida del comportamiento del dia</h2>
+        </div>
+      </div>
+      <div id="destacadosCierre" class="cierre-panel-body">
+        <p class="text-muted">Cargando destacados...</p>
+      </div>
+    </article>
+
+    <article class="card cierre-panel">
+      <div class="cierre-panel-header">
+        <div>
+          <div class="cierre-panel-eyebrow">Pronostico</div>
+          <h2 class="cierre-panel-title">Sugerencia para el siguiente dia</h2>
+        </div>
+        <div class="badge badge-primary" id="fechaManana">Manana</div>
+      </div>
+      <div id="pronosticoManana" class="cierre-panel-body">
+        <p class="text-muted">Cargando pronostico...</p>
+      </div>
+    </article>
+  </section>
+</div>
+
+<script>
+const hoy = new Date().toISOString().slice(0, 10);
+document.getElementById('fechaCierre').value = hoy;
+
+function fmtMoney(value) {
+  return '$' + Number(value || 0).toLocaleString('es-CO', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
+}
+
+function fmtUnits(value) {
+  return `${Number(value || 0).toLocaleString('es-CO')} u`;
+}
+
+function safeText(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function safeDateLabel(value) {
+  if (!value) return '--';
+  const asDate = new Date(value);
+  if (Number.isNaN(asDate.getTime())) return safeText(value);
+  return asDate.toLocaleString('es-CO', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function formatDiaLabel(value) {
+  if (!value) return '--';
+  const asDate = new Date(value + 'T00:00:00');
+  if (Number.isNaN(asDate.getTime())) return safeText(value);
+  return asDate.toLocaleDateString('es-CO', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+}
+
+function getDiffTone(diff) {
+  if (diff < 0) return 'danger';
+  if (diff > 0) return 'success';
+  return 'neutral';
+}
+
+function renderMetricStat(icon, label, value, tone, helper) {
+  return `
+    <div class="cierre-mini-card cierre-mini-card-${tone}">
+      <div class="cierre-mini-icon">
+        <span class="material-symbols-outlined">${icon}</span>
+      </div>
+      <div class="cierre-mini-body">
+        <div class="cierre-mini-label">${label}</div>
+        <div class="cierre-mini-value">${value}</div>
+        <div class="cierre-mini-help">${helper}</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderDataPair(label, value, valueClass = '') {
+  return `
+    <div class="cierre-data-row">
+      <span>${label}</span>
+      <strong class="${valueClass}">${value}</strong>
+    </div>
+  `;
+}
+
+function renderTagList(items, emptyText, toneClass = '') {
+  if (!items.length) {
+    return `<div class="cierre-empty-note">${emptyText}</div>`;
+  }
+  return `
+    <div class="cierre-tag-list">
+      ${items.map(item => `<span class="cierre-tag ${toneClass}">${safeText(item)}</span>`).join('')}
+    </div>
+  `;
+}
+
+function renderCajaPanel(caja, fecha) {
+  const badge = document.getElementById('cajaEstadoBadge');
+  if (!caja) {
+    badge.textContent = 'Sin arqueo';
+    badge.className = 'cierre-status-badge cierre-status-neutral';
+    return `
+      <div class="cierre-empty-state">
+        <span class="material-symbols-outlined">inventory</span>
+        <div>
+          <strong>No hay arqueo registrado para ${safeText(formatDiaLabel(fecha))}</strong>
+          <p>Cuando se abra y cierre caja, aqui aparecera el resumen contable del turno.</p>
+        </div>
+      </div>
+    `;
+  }
+
+  const estado = String(caja.estado || 'sin_registro').toLowerCase();
+  const diff = Number(caja.diferencia_cierre || 0);
+  const diffTone = getDiffTone(diff);
+  const statusLabel = estado === 'cerrado' ? 'Caja cerrada' : 'Caja abierta';
+  badge.textContent = statusLabel;
+  badge.className = `cierre-status-badge cierre-status-${estado === 'cerrado' ? 'closed' : 'open'}`;
+
+  return `
+    <div class="cierre-finance-overview">
+      <div class="cierre-finance-summary">
+        <div class="cierre-finance-topline">${statusLabel}</div>
+        <div class="cierre-finance-amount ${diffTone === 'danger' ? 'text-danger' : diffTone === 'success' ? 'text-success' : ''}">
+          ${fmtMoney(diff)}
+        </div>
+        <div class="cierre-finance-caption">
+          Diferencia entre efectivo esperado y efectivo contado al cierre.
+        </div>
+      </div>
+      <div class="cierre-finance-detail">
+        ${renderDataPair('Apertura', fmtMoney(caja.monto_apertura))}
+        ${renderDataPair('Esperado en caja', fmtMoney(caja.efectivo_esperado))}
+        ${renderDataPair('Contado al cierre', fmtMoney(caja.monto_cierre))}
+        ${renderDataPair('Abierto por', safeText(caja.abierto_por || '--'))}
+        ${renderDataPair('Hora de apertura', safeDateLabel(caja.abierto_en))}
+        ${renderDataPair('Cerrado por', safeText(caja.cerrado_por || '--'))}
+        ${renderDataPair('Hora de cierre', safeDateLabel(caja.cerrado_en))}
+      </div>
+    </div>
+  `;
+}
+
+function renderProduccionPanel(prod) {
+  return [
+    renderMetricStat('bakery_dining', 'Producido', fmtUnits(prod.total_producido || 0), 'primary', 'Total reportado por panaderia'),
+    renderMetricStat('shopping_bag', 'Vendido', fmtUnits(prod.total_vendido || 0), 'success', 'Salida registrada durante el dia'),
+    renderMetricStat('shelves', 'Sobrante', fmtUnits(prod.sobrante || 0), 'warning', 'Produccion que quedo disponible'),
+  ].join('');
+}
+
+function renderDestacadosPanel(top, sinRotacion) {
+  const topHtml = top ? `
+    <div class="cierre-highlight-feature">
+      <div class="cierre-highlight-icon">
+        <span class="material-symbols-outlined">workspace_premium</span>
+      </div>
+      <div>
+        <div class="cierre-highlight-label">Producto mas vendido</div>
+        <div class="cierre-highlight-name">${safeText(top.producto)}</div>
+        <div class="cierre-highlight-meta">${Number(top.unidades || 0)} unidades en el dia</div>
+      </div>
+    </div>
+  ` : `
+    <div class="cierre-empty-note">No hubo ventas registradas para destacar un producto.</div>
+  `;
+
+  return `
+    <div class="cierre-highlight-stack">
+      <div class="cierre-highlight-block">
+        ${topHtml}
+      </div>
+      <div class="cierre-highlight-block">
+        <div class="cierre-highlight-label">Productos sin rotacion</div>
+        ${renderTagList(sinRotacion, 'Todos los productos producidos tuvieron movimiento.', 'cierre-tag-warning')}
+      </div>
+    </div>
+  `;
+}
+
+function renderPronosticoPanel(pronosticos) {
+  if (!pronosticos.length) {
+    return '<div class="cierre-empty-note">No hay productos de panaderia para pronosticar.</div>';
+  }
+
+  const confidenceTone = {
+    buena: 'success',
+    media: 'warning',
+    poca: 'danger',
+  };
+
+  return `
+    <div class="cierre-forecast-list">
+      ${pronosticos.map(item => `
+        <div class="cierre-forecast-item">
+          <div>
+            <div class="cierre-forecast-name">${safeText(item.producto)}</div>
+            <div class="cierre-forecast-note">Produccion sugerida para el siguiente dia</div>
+          </div>
+          <div class="cierre-forecast-meta">
+            <strong>${Number(item.sugerido || 0)} u</strong>
+            <span class="cierre-confidence-badge cierre-confidence-${confidenceTone[item.confianza] || 'neutral'}">
+              ${safeText(item.confianza || 'sin dato')}
+            </span>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+async function cargarCierre() {
+  const fecha = document.getElementById('fechaCierre').value || hoy;
+  const response = await fetch(`/api/cierre-diario?fecha=${fecha}`);
+  if (!response.ok) return;
+
+  const data = await response.json();
+
+  document.getElementById('totalVentas').textContent = fmtMoney(data.total_ventas);
+  document.getElementById('totalTrans').textContent = Number(data.transacciones || 0).toLocaleString('es-CO');
+  document.getElementById('ticketProm').textContent = fmtMoney(data.ticket_promedio);
+  document.getElementById('totalMerma').textContent = fmtUnits(data.total_merma || 0);
+
+  document.getElementById('cajaCierre').innerHTML = renderCajaPanel(data.caja || null, fecha);
+  document.getElementById('produccionCierre').innerHTML = renderProduccionPanel(data.produccion || {});
+  document.getElementById('destacadosCierre').innerHTML = renderDestacadosPanel(
+    data.top_producto || null,
+    data.productos_sin_rotacion || []
+  );
+  document.getElementById('pronosticoManana').innerHTML = renderPronosticoPanel(data.pronostico_manana || []);
+
+  const manana = new Date(`${fecha}T00:00:00`);
+  manana.setDate(manana.getDate() + 1);
+  document.getElementById('fechaManana').textContent = manana.toLocaleDateString('es-CO', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+document.getElementById('fechaCierre').addEventListener('change', cargarCierre);
+cargarCierre();
+</script>
+{% endblock %}

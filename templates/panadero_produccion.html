@@ -1,222 +1,979 @@
 {% extends "base.html" %}
-{% block title_extra %} - Registrar Produccion{% endblock %}
+{% block title_extra %} - Produccion por Tandas{% endblock %}
 {% block content %}
-<div class="page-container">
-    <div class="page-header">
-        <h2 class="page-title">Registrar Produccion</h2>
-    </div>
-    <p class="text-muted">Registra lo producido y vendido para controlar sobrantes, faltantes y trazabilidad.</p>
+<div class="page-container production-page">
+    <section class="card production-hero-card">
+        <div class="production-hero-copy">
+            <div class="production-eyebrow">Produccion por tandas</div>
+            <h2 class="production-title">Registrar Produccion</h2>
+            <p class="production-summary" id="productionHeroSummary">
+                El sistema calcula una meta diaria para cada pan, pero aqui puedes registrar una tanda puntual o cargar varias tandas de una vez. Las ventas se leen automaticamente desde caja.
+            </p>
+            <div class="production-hero-tags">
+                <span class="production-pill" id="productionDatePill">Fecha: {{ hoy }}</span>
+                <span class="production-pill production-pill-soft" id="productionProductPill">Producto: {{ producto_default or '--' }}</span>
+                <span class="production-pill production-pill-soft" id="productionModelPill">Modelo: --</span>
+            </div>
+        </div>
+        <div class="production-hero-stats">
+            <div class="production-mini-stat">
+                <small>Meta del dia</small>
+                <strong id="statMetaOperativa">0</strong>
+                <span id="statMetaOrigen">Sin sugerencia</span>
+            </div>
+            <div class="production-mini-stat">
+                <small>Ya producido</small>
+                <strong id="statProducidoHoy">0</strong>
+                <span id="statCoberturaHoy">0% completado</span>
+            </div>
+            <div class="production-mini-stat">
+                <small>Falta por hornear</small>
+                <strong id="statRestanteMeta">0</strong>
+                <span id="statVendidosHoy">0 vendidos</span>
+            </div>
+        </div>
+    </section>
 
-    <div class="card">
-        <div class="card-body">
-            <form method="POST" action="{{ url_for('panadero_produccion') }}">
-                <div class="two-col-form">
-                    <div class="form-group">
-                        <label for="fecha">Fecha</label>
-                        <input type="date" name="fecha" id="fecha" value="{{ hoy }}" class="form-input" required
-                               onchange="autoVendido(); cargarSugerenciaProduccion();">
-                    </div>
-
-                    <div class="form-group">
-                        <label for="producto">Producto</label>
-                        <select name="producto" id="producto" class="form-input" required
-                                onchange="autoVendido(); cargarSugerenciaProduccion();">
-                            {% for p in productos %}
-                            <option value="{{ p }}">{{ p }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="producido">Cantidad horneada</label>
-                        <input type="number" name="producido" id="producido" class="form-input"
-                               min="0" placeholder="Ingrese cantidad horneada" required oninput="calcBalance()">
-                        <div class="production-suggestion" id="sugerenciaProduccionBox">
-                            <div class="production-suggestion-top">
-                                <div>
-                                    <div class="production-suggestion-label">Sugerencia del sistema</div>
-                                    <div class="production-suggestion-value">
-                                        <span id="sugerenciaCantidad">--</span> panes
-                                    </div>
-                                </div>
-                                <button type="button" class="btn btn-outline btn-sm" id="btnUsarSugerencia"
-                                        onclick="usarSugerencia()" disabled>
-                                    Usar sugerencia
-                                </button>
-                            </div>
-                            <div class="forecast-chips production-suggestion-meta">
-                                <span class="chip" id="sugerenciaDia">Dia: --</span>
-                                <span class="chip" id="sugerenciaModelo">Modelo: --</span>
-                                <span class="chip" id="sugerenciaConfianza">Confianza: --</span>
-                                <span class="chip" id="sugerenciaPromedio">Promedio: --</span>
-                            </div>
-                            <div class="production-suggestion-message text-muted" id="sugerenciaMensaje">
-                                Consultando sugerencia para este producto...
-                            </div>
+    <section class="production-dashboard-grid">
+        <div class="production-main-column">
+            <article class="card production-focus-card">
+                <div class="card-header production-section-header">
+                    <div><strong>Meta y avance del dia</strong><span>El pronostico define la meta diaria. Tus registros van sumando tandas hasta alcanzarla.</span></div>
+                </div>
+                <div class="card-body production-focus-body">
+                    <div class="production-kpi-strip">
+                        <div class="production-kpi-tile">
+                            <span class="production-kpi-label">Sugerido del sistema</span>
+                            <strong id="kpiSugeridoDia">0</strong>
+                            <span id="kpiPromedioDia">Promedio --</span>
+                        </div>
+                        <div class="production-kpi-tile">
+                            <span class="production-kpi-label">Meta operativa</span>
+                            <strong id="kpiMetaOperativa">0</strong>
+                            <span id="kpiMetaOrigen">Sin ajuste</span>
+                        </div>
+                        <div class="production-kpi-tile">
+                            <span class="production-kpi-label">Vendido real</span>
+                            <strong id="kpiVendidoReal">0</strong>
+                            <span id="kpiEstadoStock">Sin movimiento</span>
+                        </div>
+                        <div class="production-kpi-tile">
+                            <span class="production-kpi-label">Disponible actual</span>
+                            <strong id="kpiDisponibleActual">0</strong>
+                            <span id="kpiDisponibleMeta">Despues de ventas</span>
                         </div>
                     </div>
 
-                    <div class="form-group">
-                        <label for="vendido">
-                            Cantidad vendida
-                            <span class="form-hint" id="autoHint"></span>
-                        </label>
-                        <input type="number" name="vendido" id="vendido" class="form-input"
-                               min="0" placeholder="Ingrese 0" required oninput="calcBalance()">
+                    <div class="production-progress-panel">
+                        <div class="production-progress-head">
+                            <div>
+                                <strong>Progreso hacia la meta del dia</strong>
+                                <span id="productionProgressText">Sin meta cargada</span>
+                            </div>
+                            <div class="production-progress-amount" id="productionProgressPct">0%</div>
+                        </div>
+                        <div class="production-progress-track">
+                            <span id="productionProgressBar"></span>
+                        </div>
+                    </div>
+
+                    <div class="production-insight-box" id="productionMessageBox">
+                        Calculando sugerencia para este producto...
+                    </div>
+
+                    <div class="forecast-chips production-meta-chips">
+                        <span class="chip" id="chipProductionModel">Modelo: --</span>
+                        <span class="chip" id="chipProductionConf">Confianza: --</span>
+                        <span class="chip" id="chipProductionTrend">Tendencia: --</span>
+                        <span class="chip" id="chipProductionTargetDay">Dia objetivo: --</span>
                     </div>
                 </div>
+            </article>
 
-                <div class="form-group">
-                    <label>Balance</label>
-                    <div class="sobrante-display" id="sobranteDisplay">--</div>
+            <article class="card production-quick-card">
+                <div class="card-header production-section-header">
+                    <div><strong>Registro rapido de produccion</strong><span>Selecciona varios panes, escribe solo la tanda que vas a hornear ahora y guarda todo junto sin hacerlo uno por uno.</span></div>
                 </div>
+                <div class="card-body production-quick-body">
+                    <div class="production-quick-toolbar">
+                        <div class="form-group">
+                            <label for="quickSearch">Buscar pan</label>
+                            <input type="text" id="quickSearch" class="form-input" placeholder="Ej: croissant, pan frances">
+                        </div>
+                        <div class="form-group">
+                            <label for="quickTurno">Momento de horneado</label>
+                            <select id="quickTurno" class="form-input">
+                                <option value="">Selecciona una franja</option>
+                                <option value="Manana">Manana</option>
+                                <option value="Mediodia">Mediodia</option>
+                                <option value="Tarde">Tarde</option>
+                                <option value="Noche">Noche</option>
+                                <option value="Otra tanda">Otra tanda</option>
+                            </select>
+                        </div>
+                        <div class="form-group production-quick-note-group">
+                            <label for="quickNote">Nota general</label>
+                            <input type="text" id="quickNote" class="form-input" placeholder="Ej: primera hornada para abrir vitrina">
+                        </div>
+                    </div>
 
-                <div class="form-group">
-                    <label for="observaciones">Notas (opcional)</label>
-                    <input type="text" name="observaciones" id="observaciones" class="form-input"
-                           placeholder="Ej: Fin de semana, evento especial...">
+                    <div class="production-quick-controls">
+                        <div class="production-quick-filters">
+                            <label class="production-toggle">
+                                <input type="checkbox" id="quickOnlyPending" checked>
+                                <span>Solo panes pendientes</span>
+                            </label>
+                            <label class="production-toggle">
+                                <input type="checkbox" id="quickOnlySelected">
+                                <span>Solo seleccionados</span>
+                            </label>
+                        </div>
+                        <div class="production-inline-actions">
+                            <button type="button" class="btn btn-outline btn-sm" onclick="seleccionarFilasVisibles()">Seleccionar visibles</button>
+                            <button type="button" class="btn btn-light btn-sm" onclick="cargarRestanteVisible()">Cargar restante</button>
+                            <button type="button" class="btn btn-light btn-sm" onclick="cargarMitadVisible()">Cargar mitad</button>
+                            <button type="button" class="btn btn-outline btn-sm" onclick="limpiarRegistroRapido()">Limpiar</button>
+                        </div>
+                    </div>
+
+                    <div class="production-quick-summary" id="productionQuickSummary">
+                        <div class="production-quick-metric">
+                            <span>Visibles</span>
+                            <strong id="quickVisibleCount">0</strong>
+                        </div>
+                        <div class="production-quick-metric">
+                            <span>Seleccionados</span>
+                            <strong id="quickSelectedCount">0</strong>
+                        </div>
+                        <div class="production-quick-metric">
+                            <span>Unidades a guardar</span>
+                            <strong id="quickUnitsCount">0</strong>
+                        </div>
+                        <div class="production-quick-metric">
+                            <span>Restante visible</span>
+                            <strong id="quickRemainingCount">0</strong>
+                        </div>
+                    </div>
+
+                    <div class="production-table-wrap production-quick-table-wrap">
+                        <table class="table table-compact production-quick-table">
+                            <thead>
+                                <tr>
+                                    <th class="text-center">Sel</th>
+                                    <th>Producto</th>
+                                    <th class="text-center">Sugerido</th>
+                                    <th class="text-center">Meta</th>
+                                    <th class="text-center">Producido</th>
+                                    <th class="text-center">Vendido</th>
+                                    <th class="text-center">Falta</th>
+                                    <th class="text-center">Tanda ahora</th>
+                                    <th class="text-center">Atajos</th>
+                                </tr>
+                            </thead>
+                            <tbody id="productionQuickRows">
+                                <tr>
+                                    <td colspan="9" class="text-center text-muted">Cargando registro rapido...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="production-quick-footer">
+                        <div class="production-quick-feedback" id="productionQuickFeedback"></div>
+                        <div class="production-adjust-note" id="productionQuickHint">
+                            Selecciona los productos de esta hornada, pon la cantidad puntual de cada uno y guarda todo junto.
+                        </div>
+                        <button type="button" class="btn btn-accent btn-lg" id="productionQuickSubmit" onclick="guardarRegistroRapido()">
+                            Guardar seleccionados
+                        </button>
+                    </div>
                 </div>
+            </article>
 
-                <button type="submit" class="btn btn-accent btn-lg btn-full">
-                    Guardar Registro
-                </button>
-            </form>
-        </div>
-    </div>
+            <article class="card production-form-card">
+                <div class="card-header production-section-header">
+                    <div><strong>Registro individual por producto</strong><span>Si quieres trabajar un pan puntual, aqui sigues teniendo el formulario detallado de una sola tanda.</span></div>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('panadero_produccion') }}" id="productionBatchForm">
+                        <div class="two-col-form">
+                            <div class="form-group">
+                                <label for="fecha">Fecha</label>
+                                <input type="date" name="fecha" id="fecha" value="{{ hoy }}" class="form-input" required>
+                            </div>
 
-    <div class="card">
-        <div class="card-header">Registros recientes de produccion (30 dias)</div>
-        <div class="card-body">
-            <table class="table table-compact">
-                <thead>
-                    <tr>
-                        <th>Fecha</th>
-                        <th>Producto</th>
-                        <th class="text-center">Producido</th>
-                        <th class="text-center">Vendido</th>
-                        <th class="text-center">Sobrante</th>
-                        <th class="text-center">Faltante</th>
-                        <th>Registrado por</th>
-                        <th>Registro</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% if registros_recientes %}
-                        {% for r in registros_recientes[:40] %}
-                        <tr class="{% if r.faltante > 0 %}row-danger{% elif r.sobrante > 0 %}row-warning{% endif %}">
-                            <td>{{ r.fecha }}</td>
-                            <td>{{ r.producto }}</td>
-                            <td class="text-center">{{ r.producido }}</td>
-                            <td class="text-center">{{ r.vendido }}</td>
-                            <td class="text-center">{{ r.sobrante if r.sobrante > 0 else 0 }}</td>
-                            <td class="text-center">{{ r.faltante if r.faltante > 0 else 0 }}</td>
-                            <td>{{ r.registrado_por or '-' }}</td>
-                            <td>{{ r.registrado_en or '-' }}</td>
-                        </tr>
-                        {% endfor %}
-                    {% else %}
-                        <tr>
-                            <td colspan="8" class="text-center text-muted">No hay registros recientes.</td>
-                        </tr>
-                    {% endif %}
-                </tbody>
-            </table>
+                            <div class="form-group">
+                                <label for="producto">Producto</label>
+                                <select name="producto" id="producto" class="form-input" required>
+                                    {% for p in productos %}
+                                    <option value="{{ p }}" {% if p == producto_default %}selected{% endif %}>{{ p }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="cantidad_lote">Cantidad de esta tanda</label>
+                                <input type="number" name="cantidad_lote" id="cantidad_lote" class="form-input"
+                                       min="1" placeholder="Ej: 15" required>
+                                <div class="production-inline-actions">
+                                    <button type="button" class="btn btn-outline btn-sm" onclick="usarRestanteMeta()">Usar restante</button>
+                                    <button type="button" class="btn btn-light btn-sm" onclick="usarMitadRestante()">Mitad restante</button>
+                                </div>
+                                <div class="form-help" id="productionBatchHint">Registra la tanda puntual, no toda la meta diaria.</div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="turnoProduccion">Momento de horneado</label>
+                                <select id="turnoProduccion" class="form-input">
+                                    <option value="">Selecciona una franja</option>
+                                    <option value="Manana">Manana</option>
+                                    <option value="Mediodia">Mediodia</option>
+                                    <option value="Tarde">Tarde</option>
+                                    <option value="Noche">Noche</option>
+                                    <option value="Otra tanda">Otra tanda</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="notaProduccion">Notas de esta tanda</label>
+                            <input type="text" id="notaProduccion" class="form-input"
+                                   placeholder="Ej: segunda hornada para mantener pan fresco">
+                            <input type="hidden" name="observaciones" id="observaciones">
+                        </div>
+
+                        <div class="production-readonly-box">
+                            <div>
+                                <strong>Ventas del dia</strong>
+                                <span>El panadero ya no escribe el vendido manualmente.</span>
+                            </div>
+                            <div class="production-readonly-value" id="readonlyVendido">0 vendidos</div>
+                        </div>
+
+                        <button type="submit" class="btn btn-accent btn-lg btn-full">
+                            Guardar tanda
+                        </button>
+                    </form>
+                </div>
+            </article>
+
+            <article class="card production-lotes-card">
+                <div class="card-header production-section-header">
+                    <div><strong>Tandas registradas del dia</strong><span>Bitacora de hornadas para saber cuanto ya hiciste y a que hora.</span></div>
+                </div>
+                <div class="card-body">
+                    <div class="production-lotes-list" id="productionLotesList">
+                        <div class="production-empty">Cargando tandas registradas...</div>
+                    </div>
+                </div>
+            </article>
         </div>
-    </div>
+
+        <div class="production-side-column">
+            <article class="card production-adjust-card">
+                <div class="card-header production-section-header">
+                    <div><strong>Meta operativa</strong><span>Si quieres seguir el sistema a tu ritmo, ajusta aqui la meta total del dia. No necesitas tocar esto para cada tanda.</span></div>
+                </div>
+                <div class="card-body production-adjust-body">
+                    <div class="production-adjust-current">
+                        <span class="production-adjust-label">Meta activa</span>
+                        <strong id="adjustMetaActual">0</strong>
+                        <span id="adjustMetaCopy">Usando sugerencia del sistema</span>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="metaOperativaInput">Meta diaria del producto</label>
+                        <input type="number" id="metaOperativaInput" class="form-input" min="0" placeholder="Meta del dia">
+                    </div>
+                    <div class="form-group">
+                        <label for="motivoAjuste">Motivo del ajuste</label>
+                        <input type="text" id="motivoAjuste" class="form-input" placeholder="Ej: voy a hornear por tandas mas pequenas hoy">
+                    </div>
+                    <div class="production-inline-actions">
+                        <button type="button" class="btn btn-accent btn-sm" onclick="guardarMetaOperativa()">Guardar meta</button>
+                        <button type="button" class="btn btn-outline btn-sm" onclick="restaurarMetaSugerida()">Volver al sugerido</button>
+                    </div>
+                    <div class="production-adjust-note">
+                        El ajuste cambia la meta del dia. Luego registras tus tandas normales contra esa meta.
+                    </div>
+                </div>
+            </article>
+
+            <article class="card production-history-card">
+                <div class="card-header production-section-header">
+                    <div><strong>Resumen reciente</strong><span>Vista diaria para revisar producido contra vendido real en los ultimos 30 dias.</span></div>
+                </div>
+                <div class="card-body production-table-wrap">
+                    <table class="table table-compact production-table">
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Producto</th>
+                                <th class="text-center">Producido</th>
+                                <th class="text-center">Vendido real</th>
+                                <th class="text-center">Sobrante</th>
+                                <th class="text-center">Faltante</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% if registros_recientes %}
+                                {% for r in registros_recientes[:40] %}
+                                <tr class="{% if r.faltante > 0 %}row-danger{% elif r.sobrante > 0 %}row-warning{% endif %}">
+                                    <td>{{ r.fecha }}</td>
+                                    <td>{{ r.producto }}</td>
+                                    <td class="text-center">{{ r.producido }}</td>
+                                    <td class="text-center">{{ r.vendido }}</td>
+                                    <td class="text-center">{{ r.sobrante if r.sobrante > 0 else 0 }}</td>
+                                    <td class="text-center">{{ r.faltante if r.faltante > 0 else 0 }}</td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr>
+                                    <td colspan="6" class="text-center text-muted">No hay registros recientes.</td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </article>
+        </div>
+    </section>
 </div>
 
 <script>
-let sugerenciaActual = null;
+let productionContext = null;
+let productionQuickRowsData = [];
+let bypassProductionBatchSubmit = false;
 
-function autoVendido() {
-    const fecha = document.getElementById('fecha').value;
-    const producto = document.getElementById('producto').value;
-    if (!fecha || !producto) return;
-
-    fetch('/api/ventas/vendido?fecha=' + fecha + '&producto=' + encodeURIComponent(producto))
-    .then(r => r.json())
-    .then(data => {
-        if (data.vendido > 0) {
-            document.getElementById('vendido').value = data.vendido;
-            document.getElementById('autoHint').textContent = '(dato del cajero)';
-            calcBalance();
-        } else {
-            document.getElementById('autoHint').textContent = '';
-        }
-    })
-    .catch(() => {});
-}
-
-function resetSugerencia(message = 'Selecciona un producto para consultar la sugerencia.') {
-    sugerenciaActual = null;
-    document.getElementById('sugerenciaCantidad').textContent = '--';
-    document.getElementById('sugerenciaDia').textContent = 'Dia: --';
-    document.getElementById('sugerenciaModelo').textContent = 'Modelo: --';
-    document.getElementById('sugerenciaConfianza').textContent = 'Confianza: --';
-    document.getElementById('sugerenciaPromedio').textContent = 'Promedio: --';
-    document.getElementById('sugerenciaMensaje').textContent = message;
-    document.getElementById('btnUsarSugerencia').disabled = true;
-}
-
-function cargarSugerenciaProduccion() {
-    const fecha = document.getElementById('fecha').value;
-    const producto = document.getElementById('producto').value;
-
-    if (!fecha || !producto) {
-        resetSugerencia();
-        return;
-    }
-
-    document.getElementById('sugerenciaMensaje').textContent = 'Calculando sugerencia recomendada...';
-
-    fetch('/api/pronostico/sugerencia?fecha=' + fecha + '&producto=' + encodeURIComponent(producto))
-    .then(r => r.json())
-    .then(data => {
-        if (!data.ok) {
-            throw new Error(data.error || 'No se pudo calcular la sugerencia');
-        }
-
-        sugerenciaActual = data;
-        document.getElementById('sugerenciaCantidad').textContent = data.sugerido ?? '--';
-        document.getElementById('sugerenciaDia').textContent = 'Dia: ' + (data.dia_objetivo || '--');
-        document.getElementById('sugerenciaModelo').textContent = 'Modelo: ' + (data.modelo_label || '--');
-        document.getElementById('sugerenciaConfianza').textContent = 'Confianza: ' + (data.confianza || '--');
-        document.getElementById('sugerenciaPromedio').textContent = 'Promedio: ' + (data.promedio ?? '--');
-        document.getElementById('sugerenciaMensaje').textContent = data.mensaje || 'Sugerencia generada correctamente.';
-        document.getElementById('btnUsarSugerencia').disabled = false;
-    })
-    .catch(() => {
-        resetSugerencia('No se pudo obtener la sugerencia en este momento.');
+function number(value, decimals = 0) {
+    return Number(value || 0).toLocaleString('es-CO', {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
     });
 }
 
-function usarSugerencia() {
-    if (!sugerenciaActual) return;
-    document.getElementById('producido').value = sugerenciaActual.sugerido ?? '';
-    calcBalance();
+function percent(value) {
+    return `${number(value || 0, 1)}%`;
 }
 
-function calcBalance() {
-    const p = parseInt(document.getElementById('producido').value) || 0;
-    const v = parseInt(document.getElementById('vendido').value) || 0;
-    const el = document.getElementById('sobranteDisplay');
+function escapeHtml(value) {
+    return `${value == null ? '' : value}`.replace(/[&<>\"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+    }[char]));
+}
 
-    if (p > 0 || v > 0) {
-        const diff = p - v;
-        if (diff >= 0) {
-            el.textContent = 'Sobrante: ' + diff + ' panes';
-            el.className = 'sobrante-display sobrante-ok';
-        } else {
-            el.textContent = 'Faltante: ' + Math.abs(diff) + ' panes';
-            el.className = 'sobrante-display sobrante-bad';
+function shortDateTime(value) {
+    if (!value) return '--';
+    return `${value}`.replace('T', ' ').slice(0, 16);
+}
+
+function composeObservaciones() {
+    const turno = document.getElementById('turnoProduccion').value.trim();
+    const nota = document.getElementById('notaProduccion').value.trim();
+    const parts = [];
+    if (turno) parts.push(`Tanda: ${turno}`);
+    if (nota) parts.push(nota);
+    document.getElementById('observaciones').value = parts.join(' | ');
+}
+
+function actualizarHeroBasico() {
+    document.getElementById('productionDatePill').textContent = `Fecha: ${document.getElementById('fecha').value || '--'}`;
+    document.getElementById('productionProductPill').textContent = `Producto: ${document.getElementById('producto').value || '--'}`;
+}
+
+function setProgress(value) {
+    const raw = Number(value || 0);
+    const width = Math.max(0, Math.min(raw, 100));
+    document.getElementById('productionProgressBar').style.width = `${width}%`;
+    document.getElementById('productionProgressPct').textContent = percent(raw);
+}
+
+function renderLotes(lotes) {
+    const container = document.getElementById('productionLotesList');
+    if (!lotes.length) {
+        container.innerHTML = '<div class="production-empty">Aun no hay tandas registradas para este producto en la fecha seleccionada.</div>';
+        return;
+    }
+
+    container.innerHTML = lotes.map(lote => `
+        <div class="production-lote-item">
+            <div class="production-lote-qty">${number(lote.cantidad || 0)}</div>
+            <div class="production-lote-copy">
+                <strong>${escapeHtml(lote.producto || '-')}</strong>
+                <span>${escapeHtml(lote.observaciones || 'Sin observaciones')}</span>
+            </div>
+            <div class="production-lote-meta">
+                <span>${shortDateTime(lote.registrado_en)}</span>
+                <small>${escapeHtml(lote.registrado_por || 'Panadero')}</small>
+            </div>
+        </div>
+    `).join('');
+}
+
+function renderProductionContext(data) {
+    productionContext = data;
+    const sugerencia = data.sugerencia || {};
+    const meta = data.meta || {};
+    const avance = data.avance || {};
+    const disponibleActual = Math.max(Number(avance.producido_actual || 0) - Number(avance.vendido_actual || 0), 0);
+
+    actualizarHeroBasico();
+    document.getElementById('productionModelPill').textContent = `Modelo: ${sugerencia.modelo_label || '--'}`;
+    document.getElementById('productionHeroSummary').textContent =
+        `La meta diaria de ${data.producto} se basa en el modelo ${sugerencia.modelo_label || 'sin modelo'} y la confianza ${sugerencia.confianza || 'sin dato'}. ` +
+        `Puedes registrar una tanda puntual abajo o usar la tabla rapida para guardar varias tandas al mismo tiempo.`;
+
+    document.getElementById('statMetaOperativa').textContent = number(meta.operativa || 0);
+    document.getElementById('statMetaOrigen').textContent = meta.origen === 'ajuste_manual'
+        ? 'Meta ajustada manualmente'
+        : 'Usando sugerido del sistema';
+    document.getElementById('statProducidoHoy').textContent = number(avance.producido_actual || 0);
+    document.getElementById('statCoberturaHoy').textContent = `${percent(avance.cumplimiento_pct || 0)} completado`;
+    document.getElementById('statRestanteMeta').textContent = number(avance.restante_meta || 0);
+    document.getElementById('statVendidosHoy').textContent = `${number(avance.vendido_actual || 0)} vendidos`;
+
+    document.getElementById('kpiSugeridoDia').textContent = number(meta.sugerido || 0);
+    document.getElementById('kpiPromedioDia').textContent = `Promedio historico ${number(sugerencia.promedio || 0, 1)}`;
+    document.getElementById('kpiMetaOperativa').textContent = number(meta.operativa || 0);
+    document.getElementById('kpiMetaOrigen').textContent = meta.origen === 'ajuste_manual'
+        ? `Meta ajustada${meta.motivo ? ': ' + meta.motivo : ''}`
+        : 'Meta igual al sugerido';
+    document.getElementById('kpiVendidoReal').textContent = number(avance.vendido_actual || 0);
+    document.getElementById('kpiEstadoStock').textContent = avance.faltante_actual > 0
+        ? `Faltan ${number(avance.faltante_actual)} para cubrir ventas`
+        : `Sobrante operativo ${number(avance.sobrante_actual || 0)}`;
+    document.getElementById('kpiDisponibleActual').textContent = number(disponibleActual);
+    document.getElementById('kpiDisponibleMeta').textContent = avance.restante_meta > 0
+        ? `Faltan ${number(avance.restante_meta)} para meta`
+        : 'Meta del dia cumplida';
+
+    document.getElementById('productionProgressText').textContent =
+        `Has producido ${number(avance.producido_actual || 0)} de ${number(meta.operativa || 0)} panes para esta meta diaria.`;
+    setProgress(avance.cumplimiento_pct || 0);
+
+    document.getElementById('productionMessageBox').textContent = sugerencia.mensaje || 'Sin mensaje del sistema.';
+    document.getElementById('chipProductionModel').textContent = `Modelo: ${sugerencia.modelo_label || '--'}`;
+    document.getElementById('chipProductionConf').textContent = `Confianza: ${sugerencia.confianza || '--'}`;
+    document.getElementById('chipProductionTrend').textContent = `Tendencia: ${sugerencia.tendencia || '--'}`;
+    document.getElementById('chipProductionTargetDay').textContent = `Dia objetivo: ${sugerencia.dia_objetivo || '--'}`;
+    document.getElementById('readonlyVendido').textContent = `${number(avance.vendido_actual || 0)} vendidos`;
+
+    document.getElementById('adjustMetaActual').textContent = number(meta.operativa || 0);
+    document.getElementById('adjustMetaCopy').textContent = meta.origen === 'ajuste_manual'
+        ? `Meta ajustada${meta.registrado_por ? ' por ' + meta.registrado_por : ''}`
+        : 'Usando sugerencia del sistema';
+    document.getElementById('metaOperativaInput').value = meta.operativa || 0;
+    document.getElementById('productionBatchHint').textContent = avance.restante_meta > 0
+        ? `Segun la meta actual, faltan ${number(avance.restante_meta)} panes por hornear.`
+        : 'La meta actual ya fue cubierta; puedes registrar otra tanda si quieres reponer pan fresco.';
+
+    renderLotes(data.lotes || []);
+}
+
+function resetProductionContext(message = 'No se pudo cargar el contexto de produccion.') {
+    productionContext = null;
+    actualizarHeroBasico();
+    document.getElementById('productionModelPill').textContent = 'Modelo: --';
+    document.getElementById('productionHeroSummary').textContent = message;
+    ['statMetaOperativa', 'statProducidoHoy', 'statRestanteMeta', 'kpiSugeridoDia', 'kpiMetaOperativa', 'kpiVendidoReal', 'kpiDisponibleActual', 'adjustMetaActual']
+        .forEach(id => { document.getElementById(id).textContent = '0'; });
+    ['statMetaOrigen', 'statCoberturaHoy', 'statVendidosHoy', 'kpiPromedioDia', 'kpiMetaOrigen', 'kpiEstadoStock', 'kpiDisponibleMeta', 'adjustMetaCopy']
+        .forEach(id => { document.getElementById(id).textContent = '--'; });
+    document.getElementById('productionProgressText').textContent = 'Sin meta cargada';
+    document.getElementById('productionMessageBox').textContent = message;
+    document.getElementById('chipProductionModel').textContent = 'Modelo: --';
+    document.getElementById('chipProductionConf').textContent = 'Confianza: --';
+    document.getElementById('chipProductionTrend').textContent = 'Tendencia: --';
+    document.getElementById('chipProductionTargetDay').textContent = 'Dia objetivo: --';
+    document.getElementById('readonlyVendido').textContent = '0 vendidos';
+    document.getElementById('productionBatchHint').textContent = 'Registra la tanda puntual, no toda la meta diaria.';
+    document.getElementById('productionLotesList').innerHTML = '<div class="production-empty">Sin tandas cargadas.</div>';
+    setProgress(0);
+}
+
+async function cargarContextoProduccion() {
+    const fecha = document.getElementById('fecha').value;
+    const producto = document.getElementById('producto').value;
+    if (!fecha || !producto) {
+        resetProductionContext('Selecciona fecha y producto para ver la meta del dia.');
+        return;
+    }
+
+    actualizarHeroBasico();
+    document.getElementById('productionMessageBox').textContent = 'Cargando contexto de produccion...';
+
+    try {
+        const res = await fetch(`/api/produccion/contexto?fecha=${encodeURIComponent(fecha)}&producto=${encodeURIComponent(producto)}`);
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+            throw new Error(data.error || 'No se pudo cargar el contexto');
         }
-    } else {
-        el.textContent = '--';
-        el.className = 'sobrante-display';
+        renderProductionContext(data);
+    } catch (error) {
+        resetProductionContext(error.message || 'No se pudo cargar el contexto de produccion.');
     }
 }
 
-autoVendido();
-cargarSugerenciaProduccion();
+function usarRestanteMeta() {
+    if (!productionContext) return;
+    const restante = Number(productionContext.avance?.restante_meta || 0);
+    document.getElementById('cantidad_lote').value = restante > 0 ? restante : '';
+}
+
+function usarMitadRestante() {
+    if (!productionContext) return;
+    const restante = Number(productionContext.avance?.restante_meta || 0);
+    if (restante <= 0) {
+        document.getElementById('cantidad_lote').value = '';
+        return;
+    }
+    document.getElementById('cantidad_lote').value = Math.max(1, Math.ceil(restante / 2));
+}
+
+async function guardarMetaOperativa(usarSugerido = false) {
+    if (!productionContext) return;
+    const metaInput = document.getElementById('metaOperativaInput');
+    const motivoInput = document.getElementById('motivoAjuste');
+    const fecha = document.getElementById('fecha').value;
+    const producto = document.getElementById('producto').value;
+    const sugerido = Number(productionContext.meta?.sugerido || 0);
+    const metaOperativa = usarSugerido ? sugerido : Math.max(0, Number(metaInput.value || 0));
+    const motivo = usarSugerido
+        ? 'Volver a la meta sugerida por el sistema'
+        : (motivoInput.value.trim() || 'Meta operativa ajustada por el panadero');
+
+    try {
+        const res = await fetch('/api/pronostico/ajuste', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                fecha,
+                producto,
+                sugerido,
+                ajustado: metaOperativa,
+                motivo,
+            }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+            throw new Error(data.error || 'No se pudo guardar la meta');
+        }
+        motivoInput.value = '';
+        await Promise.all([cargarContextoProduccion(), cargarContextoProduccionMasivo()]);
+    } catch (error) {
+        alert(error.message || 'No se pudo guardar la meta operativa.');
+    }
+}
+
+function restaurarMetaSugerida() {
+    guardarMetaOperativa(true);
+}
+
+function getQuickRow(producto) {
+    return productionQuickRowsData.find((row) => row.producto === producto) || null;
+}
+
+function getQuickVisibleRows() {
+    const search = document.getElementById('quickSearch').value.trim().toLowerCase();
+    const onlyPending = document.getElementById('quickOnlyPending').checked;
+    const onlySelected = document.getElementById('quickOnlySelected').checked;
+
+    return productionQuickRowsData.filter((row) => {
+        if (search && !`${row.producto || ''}`.toLowerCase().includes(search)) return false;
+        if (onlyPending && Number(row.restante_meta || 0) <= 0) return false;
+        if (onlySelected && !row.selected) return false;
+        return true;
+    });
+}
+
+function quickQuantity(row) {
+    const value = Number(row?.cantidad_input || 0);
+    return value > 0 ? Math.floor(value) : 0;
+}
+
+function setQuickFeedback(message = '', tone = 'neutral') {
+    const el = document.getElementById('productionQuickFeedback');
+    if (!message) {
+        el.textContent = '';
+        el.className = 'production-quick-feedback';
+        return;
+    }
+    el.textContent = message;
+    el.className = `production-quick-feedback is-${tone}`;
+}
+
+async function validarInsumosProduccion(lotes) {
+    const res = await fetch('/api/produccion/validar-insumos', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ lotes }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'No se pudo validar el stock de insumos.');
+    }
+    return data;
+}
+
+function construirMensajeValidacionInsumos(data) {
+    const lines = ['Advertencia de insumos para esta tanda:'];
+
+    if (data.criticos && data.criticos.length) {
+        lines.push('');
+        lines.push('No alcanza stock para:');
+        data.criticos.slice(0, 5).forEach((item) => {
+            lines.push(`- ${item.nombre}: faltan ${number(item.deficit || 0, 2)} ${item.unidad}`);
+        });
+    }
+
+    if (data.alertas && data.alertas.length) {
+        lines.push('');
+        lines.push('Quedarian en minimo o alerta:');
+        data.alertas.slice(0, 5).forEach((item) => {
+            lines.push(`- ${item.nombre}: quedarian ${number(item.disponible_post || 0, 2)} ${item.unidad}`);
+        });
+    }
+
+    if (data.productos_sin_receta && data.productos_sin_receta.length) {
+        lines.push('');
+        lines.push(`Sin receta clara: ${data.productos_sin_receta.join(', ')}`);
+    }
+
+    if (data.productos_sin_rendimiento && data.productos_sin_rendimiento.length) {
+        lines.push('');
+        lines.push(`Rendimiento no interpretable: ${data.productos_sin_rendimiento.join(', ')}. Se asumio rendimiento 1.`);
+    }
+
+    lines.push('');
+    lines.push('El calculo es aproximado segun la receta y su rendimiento.');
+    lines.push('Quieres registrar de todos modos?');
+    return lines.join('\n');
+}
+
+function debeContinuarConValidacionInsumos(data, feedbackSetter = null) {
+    if (!data.hay_riesgo) return true;
+
+    if (typeof feedbackSetter === 'function') {
+        feedbackSetter('Hay riesgo de insumos para esta tanda. Revisa el detalle antes de confirmar.', 'error');
+    }
+
+    return window.confirm(construirMensajeValidacionInsumos(data));
+}
+
+function updateQuickSummary(visibleRows = getQuickVisibleRows()) {
+    const selectedRows = productionQuickRowsData.filter((row) => row.selected);
+    const invalidSelected = selectedRows.filter((row) => quickQuantity(row) <= 0);
+    const selectedUnits = selectedRows.reduce((sum, row) => sum + quickQuantity(row), 0);
+    const visibleRemaining = visibleRows.reduce((sum, row) => sum + Number(row.restante_meta || 0), 0);
+    const hint = document.getElementById('productionQuickHint');
+
+    document.getElementById('quickVisibleCount').textContent = number(visibleRows.length);
+    document.getElementById('quickSelectedCount').textContent = number(selectedRows.length);
+    document.getElementById('quickUnitsCount').textContent = number(selectedUnits);
+    document.getElementById('quickRemainingCount').textContent = number(visibleRemaining);
+
+    if (!productionQuickRowsData.length) {
+        hint.textContent = 'No hay panes de Panaderia disponibles para mostrar en el registro rapido.';
+        return;
+    }
+    if (!visibleRows.length) {
+        hint.textContent = 'No hay panes visibles con los filtros actuales. Ajusta la busqueda o desactiva los filtros para ver mas productos.';
+        return;
+    }
+    if (invalidSelected.length) {
+        hint.textContent = `Hay ${number(invalidSelected.length)} fila(s) seleccionadas sin cantidad. Escribe la tanda antes de guardar.`;
+        return;
+    }
+    if (selectedRows.length) {
+        hint.textContent = `Vas a guardar ${number(selectedUnits)} unidades repartidas en ${number(selectedRows.length)} productos.`;
+        return;
+    }
+    hint.textContent = 'Selecciona los panes de esta hornada y escribe solo la cantidad puntual que vas a sacar ahora.';
+}
+
+function quickBadgeClass(row) {
+    if (Number(row.restante_meta || 0) <= 0) return 'production-row-badge is-done';
+    if (Number(row.producido_actual || 0) > 0) return 'production-row-badge is-progress';
+    if (Number(row.faltante_actual || 0) > 0) return 'production-row-badge is-alert';
+    return 'production-row-badge is-pending';
+}
+
+function renderProductionQuickRows() {
+    const body = document.getElementById('productionQuickRows');
+    const visibleRows = getQuickVisibleRows();
+
+    if (!productionQuickRowsData.length) {
+        body.innerHTML = '<tr><td colspan="9" class="text-center text-muted">No hay productos de Panaderia disponibles.</td></tr>';
+        updateQuickSummary([]);
+        return;
+    }
+
+    if (!visibleRows.length) {
+        body.innerHTML = '<tr><td colspan="9" class="text-center text-muted">No hay filas que coincidan con los filtros actuales.</td></tr>';
+        updateQuickSummary([]);
+        return;
+    }
+
+    body.innerHTML = visibleRows.map((row) => `
+        <tr class="production-quick-row ${Number(row.restante_meta || 0) <= 0 ? 'is-complete' : 'is-pending'}">
+            <td class="text-center">
+                <input type="checkbox" class="production-quick-check" data-producto="${escapeHtml(row.producto)}" ${row.selected ? 'checked' : ''}>
+            </td>
+            <td>
+                <div class="production-quick-product">
+                    <strong>${escapeHtml(row.producto || '-')}</strong>
+                    <div class="production-quick-subline">
+                        <span>${escapeHtml(row.modelo_label || '--')}</span>
+                        <span>Confianza ${escapeHtml(row.confianza || '--')}</span>
+                        <span>Disponible ${number(row.disponible_actual || 0)}</span>
+                    </div>
+                </div>
+            </td>
+            <td class="text-center">${number(row.sugerido || 0)}</td>
+            <td class="text-center">${number(row.meta_operativa || 0)}</td>
+            <td class="text-center">${number(row.producido_actual || 0)}</td>
+            <td class="text-center">${number(row.vendido_actual || 0)}</td>
+            <td class="text-center"><span class="${quickBadgeClass(row)}">${number(row.restante_meta || 0)}</span></td>
+            <td class="text-center">
+                <input type="number" min="0" step="1" class="form-input production-quick-qty-input" data-producto="${escapeHtml(row.producto)}" value="${row.cantidad_input !== '' ? escapeHtml(row.cantidad_input) : ''}" placeholder="0">
+            </td>
+            <td class="text-center">
+                <div class="production-quick-row-actions">
+                    <button type="button" class="btn btn-light btn-sm" data-action="restante" data-producto="${escapeHtml(row.producto)}">Restante</button>
+                    <button type="button" class="btn btn-light btn-sm" data-action="mitad" data-producto="${escapeHtml(row.producto)}">1/2</button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+
+    updateQuickSummary(visibleRows);
+}
+
+async function cargarContextoProduccionMasivo() {
+    const fecha = document.getElementById('fecha').value;
+    const body = document.getElementById('productionQuickRows');
+    if (!fecha) {
+        productionQuickRowsData = [];
+        renderProductionQuickRows();
+        return;
+    }
+
+    body.innerHTML = '<tr><td colspan="9" class="text-center text-muted">Cargando registro rapido...</td></tr>';
+
+    try {
+        const res = await fetch(`/api/produccion/contexto-masivo?fecha=${encodeURIComponent(fecha)}`);
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+            throw new Error(data.error || 'No se pudo cargar el registro rapido');
+        }
+
+        productionQuickRowsData = (data.items || []).map((item) => ({
+            ...item,
+            selected: false,
+            cantidad_input: '',
+        }));
+        renderProductionQuickRows();
+
+        const resumen = data.resumen || {};
+        const pendientes = productionQuickRowsData.filter((item) => Number(item.restante_meta || 0) > 0).length;
+        if (Number(resumen.restante_total || 0) > 0) {
+            document.getElementById('productionQuickHint').textContent =
+                `Hoy quedan ${number(resumen.restante_total || 0)} unidades por cubrir en ${number(pendientes)} panes. Usa la tabla para registrar solo la tanda de esta franja.`;
+        }
+        setQuickFeedback('', 'neutral');
+    } catch (error) {
+        productionQuickRowsData = [];
+        body.innerHTML = `<tr><td colspan="9" class="text-center text-muted">${escapeHtml(error.message || 'No se pudo cargar el registro rapido.')}</td></tr>`;
+        updateQuickSummary([]);
+        setQuickFeedback(error.message || 'No se pudo cargar el registro rapido.', 'error');
+    }
+}
+
+function setQuickRowQuantity(producto, cantidad) {
+    const row = getQuickRow(producto);
+    if (!row) return;
+    const normalized = Math.max(0, Math.floor(Number(cantidad || 0)));
+    row.cantidad_input = normalized > 0 ? `${normalized}` : '';
+    if (normalized > 0) row.selected = true;
+    renderProductionQuickRows();
+}
+
+function seleccionarFilasVisibles() {
+    getQuickVisibleRows().forEach((row) => {
+        row.selected = true;
+    });
+    renderProductionQuickRows();
+}
+
+function cargarRestanteVisible() {
+    getQuickVisibleRows().forEach((row) => {
+        const restante = Number(row.restante_meta || 0);
+        if (restante > 0) {
+            row.selected = true;
+            row.cantidad_input = `${restante}`;
+        }
+    });
+    renderProductionQuickRows();
+}
+
+function cargarMitadVisible() {
+    getQuickVisibleRows().forEach((row) => {
+        const restante = Number(row.restante_meta || 0);
+        if (restante > 0) {
+            row.selected = true;
+            row.cantidad_input = `${Math.max(1, Math.ceil(restante / 2))}`;
+        }
+    });
+    renderProductionQuickRows();
+}
+
+function limpiarRegistroRapido() {
+    productionQuickRowsData.forEach((row) => {
+        row.selected = false;
+        row.cantidad_input = '';
+    });
+    setQuickFeedback('', 'neutral');
+    renderProductionQuickRows();
+}
+
+async function guardarRegistroRapido() {
+    const fecha = document.getElementById('fecha').value;
+    const turno = document.getElementById('quickTurno').value.trim();
+    const nota = document.getElementById('quickNote').value.trim();
+    const boton = document.getElementById('productionQuickSubmit');
+    const seleccionados = productionQuickRowsData.filter((row) => row.selected);
+
+    if (!seleccionados.length) {
+        setQuickFeedback('Selecciona al menos un producto antes de guardar.', 'error');
+        return;
+    }
+
+    const invalidos = seleccionados.filter((row) => quickQuantity(row) <= 0);
+    if (invalidos.length) {
+        const muestra = invalidos.slice(0, 3).map((row) => row.producto).join(', ');
+        setQuickFeedback(`Hay filas seleccionadas sin cantidad: ${muestra}.`, 'error');
+        return;
+    }
+
+    const lotes = seleccionados.map((row) => ({
+        producto: row.producto,
+        cantidad: quickQuantity(row),
+    }));
+
+    const originalText = boton.textContent;
+    boton.disabled = true;
+    boton.textContent = 'Guardando...';
+    setQuickFeedback('Validando insumos para las tandas seleccionadas...', 'neutral');
+
+    try {
+        const validacion = await validarInsumosProduccion(lotes);
+        if (!debeContinuarConValidacionInsumos(validacion, setQuickFeedback)) {
+            setQuickFeedback('Guardado cancelado para que revises el inventario de insumos.', 'error');
+            return;
+        }
+
+        setQuickFeedback('Guardando tandas seleccionadas...', 'neutral');
+        const res = await fetch('/api/produccion/lotes-masivos', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({fecha, turno, nota, lotes}),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+            throw new Error(data.error || 'No se pudo guardar el registro rapido');
+        }
+
+        document.getElementById('quickNote').value = '';
+        await Promise.all([cargarContextoProduccionMasivo(), cargarContextoProduccion()]);
+        setQuickFeedback(
+            `Guardaste ${number(data.total_unidades || 0)} unidades en ${number(data.guardados || 0)} productos.`,
+            'success'
+        );
+    } catch (error) {
+        setQuickFeedback(error.message || 'No se pudo guardar el registro rapido.', 'error');
+    } finally {
+        boton.disabled = false;
+        boton.textContent = originalText;
+    }
+}
+
+document.getElementById('productionQuickRows').addEventListener('change', function (event) {
+    const check = event.target.closest('.production-quick-check');
+    if (!check) return;
+    const row = getQuickRow(check.dataset.producto);
+    if (!row) return;
+    row.selected = check.checked;
+    updateQuickSummary();
+});
+
+document.getElementById('productionQuickRows').addEventListener('input', function (event) {
+    const input = event.target.closest('.production-quick-qty-input');
+    if (!input) return;
+    const row = getQuickRow(input.dataset.producto);
+    if (!row) return;
+    const value = Math.max(0, Math.floor(Number(input.value || 0)));
+    row.cantidad_input = value > 0 ? `${value}` : '';
+    if (value > 0) {
+        row.selected = true;
+        const checkbox = input.closest('tr')?.querySelector('.production-quick-check');
+        if (checkbox) checkbox.checked = true;
+    }
+    updateQuickSummary();
+});
+
+document.getElementById('productionQuickRows').addEventListener('click', function (event) {
+    const button = event.target.closest('button[data-action]');
+    if (!button) return;
+    const row = getQuickRow(button.dataset.producto);
+    if (!row) return;
+    if (button.dataset.action === 'restante') {
+        setQuickRowQuantity(row.producto, row.restante_meta || 0);
+    }
+    if (button.dataset.action === 'mitad') {
+        const restante = Number(row.restante_meta || 0);
+        setQuickRowQuantity(row.producto, restante > 0 ? Math.max(1, Math.ceil(restante / 2)) : 0);
+    }
+});
+
+document.getElementById('quickSearch').addEventListener('input', renderProductionQuickRows);
+document.getElementById('quickOnlyPending').addEventListener('change', renderProductionQuickRows);
+document.getElementById('quickOnlySelected').addEventListener('change', renderProductionQuickRows);
+document.getElementById('fecha').addEventListener('change', function () {
+    cargarContextoProduccion();
+    cargarContextoProduccionMasivo();
+});
+document.getElementById('producto').addEventListener('change', cargarContextoProduccion);
+document.getElementById('productionBatchForm').addEventListener('submit', async function (event) {
+    if (bypassProductionBatchSubmit) {
+        bypassProductionBatchSubmit = false;
+        return;
+    }
+
+    event.preventDefault();
+    composeObservaciones();
+    const producto = document.getElementById('producto').value;
+    const cantidad = Math.max(0, Math.floor(Number(document.getElementById('cantidad_lote').value || 0)));
+    if (!producto || cantidad <= 0) {
+        return;
+    }
+
+    try {
+        const validacion = await validarInsumosProduccion([{ producto, cantidad }]);
+        if (!debeContinuarConValidacionInsumos(validacion)) {
+            return;
+        }
+        bypassProductionBatchSubmit = true;
+        this.submit();
+    } catch (error) {
+        alert(error.message || 'No se pudo validar el stock de insumos.');
+    }
+});
+
+cargarContextoProduccion();
+cargarContextoProduccionMasivo();
 </script>
 {% endblock %}

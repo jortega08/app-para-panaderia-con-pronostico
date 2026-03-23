@@ -3,15 +3,14 @@
 
 <head>
     <meta charset="UTF-8">
-    {% set disable_mobile_zoom = layout in ['panadero', 'cajero', 'mesero'] or request.endpoint == 'login' %}
-    <meta name="viewport" content="{% if disable_mobile_zoom %}width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no{% else %}width=device-width, initial-scale=1.0{% endif %}">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panaderia{% block title_extra %}{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
 </head>
 
-<body class="{{ layout|default('') }}-layout {% if disable_mobile_zoom %}app-no-zoom{% endif %}">
+<body class="{{ layout|default('') }}-layout">
 
     {% if layout == 'panadero' %}
     <header class="mobile-shell-header">
@@ -55,6 +54,12 @@
             </a>
             <a href="{{ url_for('panadero_config') }}" class="{% if active_page == 'config' %}active{% endif %}">
                 <span class="material-symbols-outlined">settings</span> Configuración
+            </a>
+            <a href="{{ url_for('panadero_cierre') }}" class="{% if active_page == 'cierre' %}active{% endif %}">
+                <span class="material-symbols-outlined">summarize</span> Cierre Diario
+            </a>
+            <a href="{{ url_for('panadero_audit') }}" class="{% if active_page == 'audit' %}active{% endif %}">
+                <span class="material-symbols-outlined">policy</span> Movimientos
             </a>
         </nav>
         <div class="sidebar-footer">
@@ -125,30 +130,6 @@
     </script>
     {% endif %}
     {% endwith %}
-
-    {% if disable_mobile_zoom %}
-    <script>
-        (function () {
-            let lastTouchEnd = 0;
-
-            document.addEventListener('touchend', function (event) {
-                const now = Date.now();
-                if (now - lastTouchEnd <= 300) {
-                    event.preventDefault();
-                }
-                lastTouchEnd = now;
-            }, { passive: false });
-
-            document.addEventListener('dblclick', function (event) {
-                event.preventDefault();
-            }, { passive: false });
-
-            document.addEventListener('gesturestart', function (event) {
-                event.preventDefault();
-            }, { passive: false });
-        })();
-    </script>
-    {% endif %}
 
     {% if layout == 'panadero' %}
     <script>

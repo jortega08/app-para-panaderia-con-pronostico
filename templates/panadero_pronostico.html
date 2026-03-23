@@ -1,16 +1,40 @@
 {% extends "base.html" %}
-{% block title_extra %} - Centro de Pronostico{% endblock %}
+{% block title_extra %} - Dashboard de Pronostico{% endblock %}
 {% block content %}
-<div class="page-container analytics-page">
-    <div class="page-header">
-        <h2 class="page-title">Centro de Pronostico Semanal</h2>
-        <span class="text-muted">{{ ahora.strftime('%A %d/%m/%Y')|capitalize }}</span>
-    </div>
+<div class="page-container analytics-page forecast-page">
+    <section class="card forecast-hero-card">
+        <div class="forecast-hero-copy">
+            <div class="forecast-eyebrow">Planeacion inteligente de produccion</div>
+            <h2 class="forecast-title">Dashboard de Pronostico</h2>
+            <p class="forecast-summary" id="forecastHeroSummary">
+                Visualiza picos, brechas y comportamiento semanal para convertir el pronostico en decisiones mas claras.
+            </p>
+            <div class="forecast-hero-tags">
+                <span class="forecast-pill" id="forecastPeriodoPill">30 dias historicos</span>
+                <span class="forecast-pill forecast-pill-soft" id="forecastModeloPill">Modelo principal: -</span>
+                <span class="forecast-pill forecast-pill-soft" id="forecastVentanaPill">Ventana: -</span>
+            </div>
+        </div>
+        <div class="forecast-hero-stats">
+            <div class="forecast-mini-stat">
+                <span class="material-symbols-outlined">inventory_2</span>
+                <div><small>Semana sugerida</small><strong id="heroSemanaSugerida">0</strong></div>
+            </div>
+            <div class="forecast-mini-stat">
+                <span class="material-symbols-outlined">show_chart</span>
+                <div><small>Brecha vs base</small><strong id="heroBrechaSemana">0</strong></div>
+            </div>
+            <div class="forecast-mini-stat">
+                <span class="material-symbols-outlined">calendar_month</span>
+                <div><small>Dia pico</small><strong id="heroDiaPico">-</strong></div>
+            </div>
+        </div>
+    </section>
 
-    <div class="card filters-card">
+    <div class="card filters-card forecast-filters-card">
         <div class="card-body">
-            <form class="filters-form" onsubmit="event.preventDefault(); cargarPronosticoDashboard();">
-                <div class="filter-group">
+            <form class="filters-form forecast-filters-form" onsubmit="event.preventDefault(); cargarPronosticoDashboard();">
+                <div class="filter-group forecast-filter-group">
                     <label for="filtroProductoPronostico">Producto</label>
                     <select id="filtroProductoPronostico" class="form-input form-input-sm">
                         {% for p in productos %}
@@ -18,8 +42,8 @@
                         {% endfor %}
                     </select>
                 </div>
-                <div class="filter-group">
-                    <label for="filtroDiasPronostico">Periodo historico</label>
+                <div class="filter-group forecast-filter-group">
+                    <label for="filtroDiasPronostico">Ventana historica</label>
                     <select id="filtroDiasPronostico" class="form-input form-input-sm">
                         <option value="14">14 dias</option>
                         <option value="30" selected>30 dias</option>
@@ -27,89 +51,351 @@
                         <option value="90">90 dias</option>
                     </select>
                 </div>
-                <button class="btn btn-accent" type="submit" id="btnRefrescarPronostico">Actualizar Analitica</button>
+                <button class="btn btn-accent" type="submit" id="btnRefrescarPronostico">Actualizar dashboard</button>
             </form>
         </div>
     </div>
 
-    <div class="kpi-grid">
-        <div class="kpi-card">
-            <div class="kpi-label">Total sugerido semana</div>
-            <div class="kpi-value" id="kpiSugeridoSemana">0</div>
-        </div>
-        <div class="kpi-card">
-            <div class="kpi-label">Promedio sugerido diario</div>
-            <div class="kpi-value" id="kpiPromedioSugerido">0</div>
-        </div>
-        <div class="kpi-card">
-            <div class="kpi-label">Aprovechamiento historico</div>
-            <div class="kpi-value" id="kpiAprovechamiento">0%</div>
-        </div>
-        <div class="kpi-card">
-            <div class="kpi-label">Tendencia del producto</div>
-            <div class="kpi-value" id="kpiTendencia">-</div>
-        </div>
-    </div>
+    <section class="forecast-kpi-grid">
+        <article class="forecast-kpi-card">
+            <div class="forecast-kpi-header"><span class="material-symbols-outlined">shopping_basket</span><span>Produccion sugerida</span></div>
+            <div class="forecast-kpi-value" id="kpiSugeridoSemana">0</div>
+            <div class="forecast-kpi-meta" id="kpiSugeridoMeta">0 por dia</div>
+        </article>
+        <article class="forecast-kpi-card">
+            <div class="forecast-kpi-header"><span class="material-symbols-outlined">track_changes</span><span>Aprovechamiento</span></div>
+            <div class="forecast-kpi-value" id="kpiAprovechamiento">0%</div>
+            <div class="forecast-kpi-meta" id="kpiAprovechamientoMeta">Sin lectura</div>
+        </article>
+        <article class="forecast-kpi-card">
+            <div class="forecast-kpi-header"><span class="material-symbols-outlined">compare_arrows</span><span>Brecha promedio</span></div>
+            <div class="forecast-kpi-value" id="kpiBrechaPromedio">0</div>
+            <div class="forecast-kpi-meta" id="kpiBrechaMeta">Comparado con base</div>
+        </article>
+        <article class="forecast-kpi-card">
+            <div class="forecast-kpi-header"><span class="material-symbols-outlined">local_fire_department</span><span>Dia mas exigente</span></div>
+            <div class="forecast-kpi-value" id="kpiDiaPico">-</div>
+            <div class="forecast-kpi-meta" id="kpiDiaPicoMeta">Sin dia pico</div>
+        </article>
+        <article class="forecast-kpi-card">
+            <div class="forecast-kpi-header"><span class="material-symbols-outlined">signal_cellular_alt</span><span>Confianza semanal</span></div>
+            <div class="forecast-kpi-value" id="kpiConfianza">0/7</div>
+            <div class="forecast-kpi-meta" id="kpiConfianzaMeta">Dias con buena confianza</div>
+        </article>
+        <article class="forecast-kpi-card">
+            <div class="forecast-kpi-header"><span class="material-symbols-outlined">insights</span><span>Tendencia actual</span></div>
+            <div class="forecast-kpi-value" id="kpiTendencia">-</div>
+            <div class="forecast-kpi-meta" id="kpiTendenciaMeta">Promedio del periodo</div>
+        </article>
+    </section>
 
-    <div class="analytics-grid">
-        <div class="card analytics-card">
-            <div class="card-header">Prediccion semanal por dia</div>
-            <div class="card-body chart-wrap">
-                <canvas id="chartPrediccionSemanal"></canvas>
-            </div>
+    <section class="card forecast-strip-card">
+        <div class="card-header forecast-section-header">
+            <div><strong>Semana operativa recomendada</strong><span>Lectura rapida por dia con nivel de confianza, brecha y mensaje del modelo.</span></div>
         </div>
-        <div class="card analytics-card">
-            <div class="card-header">Control: producido vs vendido</div>
-            <div class="card-body chart-wrap">
-                <canvas id="chartControlProduccion"></canvas>
-            </div>
-        </div>
-        <div class="card analytics-card">
-            <div class="card-header">Ventas del producto (ingresos diarios)</div>
-            <div class="card-body chart-wrap">
-                <canvas id="chartVentasProducto"></canvas>
-            </div>
-        </div>
-        <div class="card analytics-card">
-            <div class="card-header">Participacion por producto (ventas)</div>
-            <div class="card-body chart-wrap">
-                <canvas id="chartRankingProductos"></canvas>
-            </div>
-        </div>
-    </div>
-
-    <div class="card">
-        <div class="card-header">Plan semanal recomendado</div>
         <div class="card-body">
-            <table class="table table-compact">
+            <div class="forecast-week-strip" id="forecastWeekCards">
+                <div class="forecast-week-empty">Cargando semana recomendada...</div>
+            </div>
+        </div>
+    </section>
+
+    <section class="forecast-dashboard-grid">
+        <article class="card analytics-card forecast-card forecast-card-wide">
+            <div class="card-header forecast-section-header">
+                <div><strong>Escenario semanal</strong><span>Sugerido, base historica y brecha del modelo.</span></div>
+            </div>
+            <div class="card-body chart-wrap forecast-chart-lg"><canvas id="chartPrediccionSemanal"></canvas></div>
+        </article>
+
+        <article class="card analytics-card forecast-card">
+            <div class="card-header forecast-section-header">
+                <div><strong>Pulso de decision</strong><span>Resumen ejecutivo para tomar accion mas rapido.</span></div>
+            </div>
+            <div class="card-body forecast-insight-card">
+                <div class="forecast-confidence">
+                    <div class="forecast-confidence-header"><span>Confianza del modelo</span><strong id="forecastConfidenceTotal">0 lecturas</strong></div>
+                    <div class="forecast-confidence-track">
+                        <span id="forecastConfidenceGoodBar" class="forecast-confidence-bar forecast-confidence-good"></span>
+                        <span id="forecastConfidenceMediumBar" class="forecast-confidence-bar forecast-confidence-medium"></span>
+                        <span id="forecastConfidenceLowBar" class="forecast-confidence-bar forecast-confidence-low"></span>
+                    </div>
+                    <div class="forecast-confidence-legend" id="forecastConfidenceLegend"></div>
+                </div>
+                <div class="forecast-insight-list" id="forecastInsightList"></div>
+            </div>
+        </article>
+
+        <article class="card analytics-card forecast-card">
+            <div class="card-header forecast-section-header">
+                <div><strong>Matriz semanal</strong><span>Heatmap para ver intensidad, base y sugerido por dia.</span></div>
+            </div>
+            <div class="card-body forecast-heatmap-card"><div class="forecast-heatmap" id="forecastHeatmap"></div></div>
+        </article>
+
+        <article class="card analytics-card forecast-card forecast-card-wide">
+            <div class="card-header forecast-section-header">
+                <div><strong>Control producido vs vendido</strong><span>Ultimos 14 registros para vigilar sobrantes.</span></div>
+            </div>
+            <div class="card-body chart-wrap"><canvas id="chartControlProduccion"></canvas></div>
+        </article>
+
+        <article class="card analytics-card forecast-card">
+            <div class="card-header forecast-section-header">
+                <div><strong>Radar de comportamiento</strong><span>Comparacion visual entre sugerido y patron historico.</span></div>
+            </div>
+            <div class="card-body chart-wrap"><canvas id="chartRadarPronostico"></canvas></div>
+        </article>
+
+        <article class="card analytics-card forecast-card">
+            <div class="card-header forecast-section-header">
+                <div><strong>Ingresos del producto</strong><span>Serie diaria para conectar volumen recomendado con ventas reales.</span></div>
+            </div>
+            <div class="card-body chart-wrap"><canvas id="chartVentasProducto"></canvas></div>
+        </article>
+
+        <article class="card analytics-card forecast-card forecast-card-wide">
+            <div class="card-header forecast-section-header">
+                <div><strong>Participacion comercial</strong><span>Ranking de productos para poner el pronostico en contexto del negocio.</span></div>
+            </div>
+            <div class="card-body chart-wrap"><canvas id="chartRankingProductos"></canvas></div>
+        </article>
+    </section>
+
+    <section class="card forecast-table-card">
+        <div class="card-header forecast-section-header">
+            <div><strong>Plan semanal recomendado</strong><span>Detalle operativo para revisar sugerido, base, brecha y lectura del modelo.</span></div>
+        </div>
+        <div class="card-body forecast-table-wrap">
+            <table class="table table-compact forecast-table">
                 <thead>
                     <tr>
                         <th>Dia</th>
                         <th>Fecha</th>
                         <th class="text-center">Sugerido</th>
-                        <th class="text-center">Promedio base</th>
+                        <th class="text-center">Base</th>
+                        <th class="text-center">Brecha</th>
                         <th>Confianza</th>
                         <th>Modelo</th>
+                        <th>Lectura</th>
                     </tr>
                 </thead>
                 <tbody id="tablaPrediccionBody">
-                    <tr><td colspan="6" class="text-center text-muted">Cargando...</td></tr>
+                    <tr><td colspan="8" class="text-center text-muted">Cargando...</td></tr>
                 </tbody>
             </table>
         </div>
-    </div>
+    </section>
 </div>
 
 <script>
-let chartPrediccionSemanal = null;
-let chartControlProduccion = null;
-let chartVentasProducto = null;
-let chartRankingProductos = null;
+let chartPrediccionSemanal = null, chartControlProduccion = null, chartVentasProducto = null, chartRankingProductos = null, chartRadarPronostico = null;
+const n = (v, d = 0) => Number(v || 0).toLocaleString('es-CO', { minimumFractionDigits: d, maximumFractionDigits: d });
+const money = (v) => '$' + Number(v || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 });
+const cap = (t) => !t ? '-' : `${t}`.charAt(0).toUpperCase() + `${t}`.slice(1);
+const model = (t) => cap(`${t || '-'}`.replace(/_/g, ' '));
+const sgn = (v, d = 0) => `${Number(v || 0) > 0 ? '+' : ''}${n(v, d)}`;
+const shortDate = (f) => !f || f.split('-').length !== 3 ? (f || '-') : `${f.split('-')[2]}/${f.split('-')[1]}`;
+const heat = (v) => `linear-gradient(180deg, rgba(193,120,23,${(0.16 + Math.max(0.08, Math.min(Number(v || 0), 1)) * 0.48).toFixed(2)}), rgba(255,255,255,0.98))`;
+const esc = (t) => `${t == null ? '' : t}`.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const confidenceLabel = (v) => ({ buena: 'Buena', media: 'Media', poca: 'Poca' }[v] || cap(v));
+const confidenceClass = (v) => ({ buena: 'confidence-good', media: 'confidence-medium', poca: 'confidence-low' }[v] || 'confidence-medium');
+const stateClass = (v) => ({ bien: 'state-good', alerta: 'state-warning', problema: 'state-danger' }[v] || 'state-warning');
+const typeLabel = (v) => ({ laboral: 'Laboral', viernes: 'Viernes', fin_semana: 'Fin semana' }[v] || cap(v));
+function destroyChart(ref) { if (ref) ref.destroy(); }
 
-function destruirChart(chartRef) {
-    if (chartRef) {
-        chartRef.destroy();
+function renderHero(data) {
+    const r = data.resumen || {}, i = data.insights || {}, p = data.periodo || {}, peak = i.dia_pico || {}, low = i.dia_relajado || {};
+    document.getElementById('forecastHeroSummary').textContent =
+        `${data.producto || 'Producto'} concentra su mayor presion el ${peak.dia || 'dia pico'} y su menor carga el ${low.dia || 'dia ligero'}. ` +
+        `La tendencia historica esta ${r.tendencia || 'sin datos'} y el aprovechamiento acumulado llega a ${n(r.aprovechamiento || 0, 1)}%.`;
+    document.getElementById('forecastPeriodoPill').textContent = `${p.dias || 0} dias historicos`;
+    document.getElementById('forecastModeloPill').textContent = `Modelo principal: ${i.modelo_principal_label || '-'}`;
+    document.getElementById('forecastVentanaPill').textContent = p.desde && p.hasta ? `Ventana: ${p.desde} a ${p.hasta}` : 'Ventana: sin historial';
+    document.getElementById('heroSemanaSugerida').textContent = n(r.sugerido_semana || 0);
+    document.getElementById('heroBrechaSemana').textContent = sgn(r.brecha_total_semana || 0, 1);
+    document.getElementById('heroDiaPico').textContent = peak.dia ? `${peak.dia} - ${n(peak.valor || 0)}` : '-';
+}
+
+function renderKpis(r, i, p) {
+    const c = i.confianza || {}, peak = i.dia_pico || {};
+    document.getElementById('kpiSugeridoSemana').textContent = n(r.sugerido_semana || 0);
+    document.getElementById('kpiSugeridoMeta').textContent = `${n(r.promedio_sugerido || 0, 1)} por dia`;
+    document.getElementById('kpiAprovechamiento').textContent = `${n(r.aprovechamiento || 0, 1)}%`;
+    document.getElementById('kpiAprovechamientoMeta').textContent = `${n(r.total_vendido || 0)} vendidos de ${n(r.total_producido || 0)} producidos`;
+    document.getElementById('kpiBrechaPromedio').textContent = sgn(r.brecha_promedio_semana || 0, 1);
+    document.getElementById('kpiBrechaMeta').textContent = `Brecha semanal total ${sgn(r.brecha_total_semana || 0, 1)}`;
+    document.getElementById('kpiDiaPico').textContent = peak.dia || '-';
+    document.getElementById('kpiDiaPicoMeta').textContent = peak.dia ? `${n(peak.valor || 0)} unidades sugeridas` : 'Sin dia pico';
+    document.getElementById('kpiConfianza').textContent = `${c.buena || 0}/7`;
+    document.getElementById('kpiConfianzaMeta').textContent = 'Dias con buena confianza';
+    document.getElementById('kpiTendencia').textContent = cap(r.tendencia || '-');
+    document.getElementById('kpiTendenciaMeta').textContent = `Promedio vendido ${n(r.ventas_promedio_periodo || 0, 1)} - ${p.muestras || 0} muestras`;
+}
+
+function renderWeekCards(rows) {
+    const box = document.getElementById('forecastWeekCards');
+    if (!rows.length) {
+        box.innerHTML = '<div class="forecast-week-empty">Sin datos para la semana proyectada.</div>';
+        return;
     }
+    box.innerHTML = rows.map((row) => `
+        <article class="forecast-day-card ${stateClass(row.estado)}">
+            <div class="forecast-day-head">
+                <div><h4>${esc(row.dia)}</h4><span>${shortDate(row.fecha)}</span></div>
+                <span class="forecast-tag ${confidenceClass(row.confianza)}">${confidenceLabel(row.confianza)}</span>
+            </div>
+            <div class="forecast-day-value">${n(row.sugerido || 0)}</div>
+            <div class="forecast-day-meta">Base ${n(row.promedio || 0, 1)} - ${esc(typeLabel(row.tipo_dia))}</div>
+            <div class="forecast-day-delta ${(row.delta || 0) >= 0 ? 'is-up' : 'is-down'}">${sgn(row.delta || 0, 1)}</div>
+            <p>${esc(row.mensaje || 'Sin lectura adicional para este dia.')}</p>
+        </article>
+    `).join('');
+}
+
+function renderConfidence(i) {
+    const c = i.confianza || {}, total = (c.buena || 0) + (c.media || 0) + (c.poca || 0) || 1;
+    document.getElementById('forecastConfidenceTotal').textContent = `${total} lecturas`;
+    document.getElementById('forecastConfidenceGoodBar').style.width = `${((c.buena || 0) / total) * 100}%`;
+    document.getElementById('forecastConfidenceMediumBar').style.width = `${((c.media || 0) / total) * 100}%`;
+    document.getElementById('forecastConfidenceLowBar').style.width = `${((c.poca || 0) / total) * 100}%`;
+    document.getElementById('forecastConfidenceLegend').innerHTML =
+        `<span><i class="dot dot-good"></i>Buena ${c.buena || 0}</span><span><i class="dot dot-medium"></i>Media ${c.media || 0}</span><span><i class="dot dot-low"></i>Poca ${c.poca || 0}</span>`;
+}
+
+function renderInsights(data) {
+    const r = data.resumen || {}, i = data.insights || {}, p = data.periodo || {};
+    const peakValue = i.dia_pico && i.dia_pico.dia ? `${i.dia_pico.dia} - ${n(i.dia_pico.valor || 0)}` : '-';
+    const peakHelper = i.dia_pico && i.dia_pico.fecha ? `Fecha ${i.dia_pico.fecha}` : 'Sin fecha disponible';
+    const historyValue = i.mejor_historial && i.mejor_historial.dia ? `${i.mejor_historial.dia} - ${n(i.mejor_historial.valor || 0, 1)}` : '-';
+    const items = [
+        { label: 'Pico proyectado', value: peakValue, helper: peakHelper },
+        { label: 'Dia historico mas fuerte', value: historyValue, helper: 'Promedio historico por dia' },
+        { label: 'Modelo dominante', value: i.modelo_principal_label || '-', helper: `${p.muestras || 0} registros revisados` },
+        { label: 'Variacion semanal', value: n(i.variacion_semana || 0), helper: `${n(r.total_sobrante || 0)} unidades sobrantes en el periodo` },
+    ];
+    document.getElementById('forecastInsightList').innerHTML = items.map((item) => `
+        <article class="forecast-insight-item">
+            <div class="forecast-insight-label">${esc(item.label)}</div>
+            <div class="forecast-insight-value">${esc(item.value)}</div>
+            <div class="forecast-insight-helper">${esc(item.helper)}</div>
+        </article>
+    `).join('');
+}
+
+function renderHeatmap(rows) {
+    const box = document.getElementById('forecastHeatmap');
+    if (!rows.length) {
+        box.innerHTML = '<div class="forecast-week-empty">Sin historial para construir la matriz semanal.</div>';
+        return;
+    }
+    box.innerHTML = rows.map((row) => `
+        <article class="forecast-heatmap-cell" style="background:${heat(row.intensidad)};">
+            <div class="forecast-heatmap-head"><strong>${esc(row.dia)}</strong><span>${esc(typeLabel(row.tipo_dia))}</span></div>
+            <div class="forecast-heatmap-value">${n(row.sugerido || 0)}</div>
+            <div class="forecast-heatmap-foot">Base ${n(row.promedio || 0, 1)} - ${row.muestras || 0} muestras</div>
+            <div class="forecast-heatmap-progress"><span style="width:${Math.max(8, Number(row.participacion || 0))}%"></span></div>
+        </article>
+    `).join('');
+}
+
+function renderTable(rows) {
+    const tbody = document.getElementById('tablaPrediccionBody');
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">Sin datos para mostrar.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = rows.map((row) => `
+        <tr>
+            <td>${esc(row.dia)}</td>
+            <td>${esc(row.fecha)}</td>
+            <td class="text-center"><strong>${n(row.sugerido || 0)}</strong></td>
+            <td class="text-center">${n(row.promedio || 0, 1)}</td>
+            <td class="text-center ${(Number(row.delta || 0) >= 0) ? 'text-accent' : 'text-success'}">${sgn(row.delta || 0, 1)}</td>
+            <td><span class="forecast-tag ${confidenceClass(row.confianza)}">${confidenceLabel(row.confianza)}</span></td>
+            <td>${esc(model(row.modelo))}</td>
+            <td>${esc(row.mensaje || '-')}</td>
+        </tr>
+    `).join('');
+}
+
+function renderMainChart(rows) {
+    destroyChart(chartPrediccionSemanal);
+    chartPrediccionSemanal = new Chart(document.getElementById('chartPrediccionSemanal'), {
+        data: {
+            labels: rows.map((r) => r.dia),
+            datasets: [
+                { type: 'bar', label: 'Sugerido', data: rows.map((r) => r.sugerido), backgroundColor: 'rgba(193,120,23,0.78)', borderRadius: 14, borderSkipped: false, maxBarThickness: 34 },
+                { type: 'line', label: 'Base historica', data: rows.map((r) => r.promedio), borderColor: '#2F6B63', backgroundColor: 'rgba(47,107,99,0.12)', fill: true, tension: 0.36, pointRadius: 4 },
+                { type: 'line', label: 'Brecha', data: rows.map((r) => r.delta), borderColor: '#D4722A', borderDash: [6, 4], yAxisID: 'y1', tension: 0.3, pointRadius: 3, pointBackgroundColor: '#D4722A' },
+            ],
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${n(ctx.parsed.y || 0, 1)}` } } },
+            scales: { y: { beginAtZero: true, grid: { color: 'rgba(139,85,19,0.08)' } }, y1: { position: 'right', grid: { drawOnChartArea: false } } },
+        },
+    });
+}
+
+function renderControlChart(rows) {
+    const data = rows.slice(-14);
+    destroyChart(chartControlProduccion);
+    chartControlProduccion = new Chart(document.getElementById('chartControlProduccion'), {
+        data: {
+            labels: data.map((r) => shortDate(r.fecha)),
+            datasets: [
+                { type: 'bar', label: 'Producido', data: data.map((r) => r.producido), backgroundColor: 'rgba(224,122,95,0.7)', borderRadius: 10, borderSkipped: false },
+                { type: 'bar', label: 'Vendido', data: data.map((r) => r.vendido), backgroundColor: 'rgba(56,142,60,0.74)', borderRadius: 10, borderSkipped: false },
+                { type: 'line', label: 'Sobrante', data: data.map((r) => r.sobrante), borderColor: '#5D4037', backgroundColor: 'rgba(93,64,55,0.12)', pointRadius: 3, tension: 0.28, yAxisID: 'y1' },
+            ],
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'top' } },
+            scales: { y: { beginAtZero: true, grid: { color: 'rgba(139,85,19,0.08)' } }, y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false } } },
+        },
+    });
+}
+
+function renderSalesChart(rows) {
+    destroyChart(chartVentasProducto);
+    chartVentasProducto = new Chart(document.getElementById('chartVentasProducto'), {
+        type: 'line',
+        data: { labels: rows.map((r) => shortDate(r.fecha)), datasets: [{ label: 'Ingresos diarios', data: rows.map((r) => r.dinero), borderColor: '#D4722A', backgroundColor: 'rgba(212,114,42,0.18)', fill: true, tension: 0.28, pointRadius: 2.5 }] },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: (ctx) => `Ingresos: ${money(ctx.parsed.y)}` } } },
+            scales: { y: { beginAtZero: true, ticks: { callback: (v) => money(v) }, grid: { color: 'rgba(139,85,19,0.08)' } } },
+        },
+    });
+}
+
+function renderRankingChart(rows) {
+    const data = rows.slice(0, 8).reverse();
+    destroyChart(chartRankingProductos);
+    chartRankingProductos = new Chart(document.getElementById('chartRankingProductos'), {
+        type: 'bar',
+        data: { labels: data.map((r) => r.producto), datasets: [{ label: 'Ingresos', data: data.map((r) => r.dinero), backgroundColor: ['#5D4037', '#81B29A', '#A7C957', '#D9A441', '#E8B44D', '#D4722A', '#E07A5F', '#C17817'], borderRadius: 12, borderSkipped: false }] },
+        options: {
+            indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `Ingresos: ${money(ctx.parsed.x)}` } } },
+            scales: { x: { beginAtZero: true, ticks: { callback: (v) => money(v) }, grid: { color: 'rgba(139,85,19,0.08)' } }, y: { grid: { display: false } } },
+        },
+    });
+}
+
+function renderRadarChart(rows) {
+    destroyChart(chartRadarPronostico);
+    chartRadarPronostico = new Chart(document.getElementById('chartRadarPronostico'), {
+        type: 'radar',
+        data: {
+            labels: rows.map((r) => r.dia),
+            datasets: [
+                { label: 'Sugerido', data: rows.map((r) => r.sugerido), borderColor: '#C17817', backgroundColor: 'rgba(193,120,23,0.18)', pointBackgroundColor: '#C17817', pointRadius: 3 },
+                { label: 'Base historica', data: rows.map((r) => r.promedio), borderColor: '#2F6B63', backgroundColor: 'rgba(47,107,99,0.12)', pointBackgroundColor: '#2F6B63', pointRadius: 3 },
+            ],
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { r: { beginAtZero: true, angleLines: { color: 'rgba(139,85,19,0.08)' }, grid: { color: 'rgba(139,85,19,0.08)' }, pointLabels: { font: { size: 11 } } } } },
+    });
 }
 
 function cargarPronosticoDashboard() {
@@ -120,171 +406,29 @@ function cargarPronosticoDashboard() {
     btn.textContent = 'Actualizando...';
 
     fetch(`/api/pronostico/dashboard?producto=${encodeURIComponent(producto)}&dias=${dias}`)
-        .then(r => r.json())
-        .then(data => {
-            renderKPIsPronostico(data.resumen || {});
-            renderTablaPrediccion(data.prediccion_semana || []);
-            renderChartPrediccion(data.prediccion_semana || []);
-            renderChartControl(data.historial_producto || []);
-            renderChartVentasProducto(data.serie_ventas_producto || []);
-            renderChartRanking(data.ranking_productos || []);
+        .then((r) => r.json())
+        .then((data) => {
+            renderHero(data);
+            renderKpis(data.resumen || {}, data.insights || {}, data.periodo || {});
+            renderWeekCards(data.prediccion_semana || []);
+            renderConfidence(data.insights || {});
+            renderInsights(data);
+            renderHeatmap(data.matriz_semana || []);
+            renderTable(data.prediccion_semana || []);
+            renderMainChart(data.prediccion_semana || []);
+            renderControlChart(data.historial_producto || []);
+            renderSalesChart(data.serie_ventas_producto || []);
+            renderRankingChart(data.ranking_productos || []);
+            renderRadarChart(data.matriz_semana || []);
         })
-        .catch(err => {
-            console.error(err);
-            alert('No se pudo cargar la analitica del pronostico.');
+        .catch((error) => {
+            console.error(error);
+            alert('No se pudo cargar el dashboard de pronostico.');
         })
         .finally(() => {
             btn.disabled = false;
-            btn.textContent = 'Actualizar Analitica';
+            btn.textContent = 'Actualizar dashboard';
         });
-}
-
-function renderKPIsPronostico(resumen) {
-    document.getElementById('kpiSugeridoSemana').textContent = resumen.sugerido_semana || 0;
-    document.getElementById('kpiPromedioSugerido').textContent = resumen.promedio_sugerido || 0;
-    document.getElementById('kpiAprovechamiento').textContent = (resumen.aprovechamiento || 0) + '%';
-    document.getElementById('kpiTendencia').textContent = resumen.tendencia || '-';
-}
-
-function renderTablaPrediccion(filas) {
-    const tbody = document.getElementById('tablaPrediccionBody');
-    if (!filas.length) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Sin datos para mostrar.</td></tr>';
-        return;
-    }
-
-    tbody.innerHTML = filas.map(f => `
-        <tr>
-            <td>${f.dia}</td>
-            <td>${f.fecha}</td>
-            <td class="text-center"><strong>${f.sugerido}</strong></td>
-            <td class="text-center">${f.promedio}</td>
-            <td>${f.confianza}</td>
-            <td>${f.modelo}</td>
-        </tr>
-    `).join('');
-}
-
-function renderChartPrediccion(filas) {
-    const ctx = document.getElementById('chartPrediccionSemanal');
-    destruirChart(chartPrediccionSemanal);
-
-    chartPrediccionSemanal = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: filas.map(f => f.dia),
-            datasets: [
-                {
-                    label: 'Sugerido',
-                    data: filas.map(f => f.sugerido),
-                    backgroundColor: '#C17817',
-                    borderRadius: 8,
-                },
-                {
-                    label: 'Promedio base',
-                    data: filas.map(f => f.promedio),
-                    backgroundColor: '#81B29A',
-                    borderRadius: 8,
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { position: 'top' } },
-            scales: { y: { beginAtZero: true } }
-        }
-    });
-}
-
-function renderChartControl(historial) {
-    const ctx = document.getElementById('chartControlProduccion');
-    destruirChart(chartControlProduccion);
-
-    const ultimos = historial.slice(-14);
-
-    chartControlProduccion = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: ultimos.map(h => h.fecha),
-            datasets: [
-                {
-                    label: 'Producido',
-                    data: ultimos.map(h => h.producido),
-                    borderColor: '#E07A5F',
-                    backgroundColor: 'rgba(224,122,95,0.2)',
-                    fill: true,
-                    tension: 0.25,
-                },
-                {
-                    label: 'Vendido',
-                    data: ultimos.map(h => h.vendido),
-                    borderColor: '#2E7D32',
-                    backgroundColor: 'rgba(46,125,50,0.2)',
-                    fill: true,
-                    tension: 0.25,
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { position: 'top' } },
-            scales: { y: { beginAtZero: true } }
-        }
-    });
-}
-
-function renderChartVentasProducto(serie) {
-    const ctx = document.getElementById('chartVentasProducto');
-    destruirChart(chartVentasProducto);
-
-    chartVentasProducto = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: serie.map(s => s.fecha),
-            datasets: [
-                {
-                    label: 'Ingresos diarios',
-                    data: serie.map(s => s.dinero),
-                    borderColor: '#D4722A',
-                    backgroundColor: 'rgba(212,114,42,0.2)',
-                    fill: true,
-                    tension: 0.2,
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { position: 'top' } },
-            scales: { y: { beginAtZero: true } }
-        }
-    });
-}
-
-function renderChartRanking(ranking) {
-    const ctx = document.getElementById('chartRankingProductos');
-    destruirChart(chartRankingProductos);
-    const top = ranking.slice(0, 8);
-
-    chartRankingProductos = new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-            labels: top.map(r => r.producto),
-            datasets: [{
-                data: top.map(r => r.dinero),
-                backgroundColor: ['#E8B44D', '#E07A5F', '#81B29A', '#9B8EA0', '#C17817', '#D4722A', '#5D4037', '#B0BEC5']
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { position: 'right' }
-            }
-        }
-    });
 }
 
 cargarPronosticoDashboard();

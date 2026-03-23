@@ -1,575 +1,931 @@
 {% extends "base.html" %}
-{% block title_extra %} - Dashboard Contable{% endblock %}
+{% block title_extra %} - Historial de Ventas{% endblock %}
 {% block content %}
-<div class="page-container analytics-page">
-    <div class="page-header">
-        <h2 class="page-title">Dashboard Contable y de Ventas</h2>
-        <span class="text-muted">Control financiero y operativo de Panaderia Rich</span>
-    </div>
+<div class="page-container analytics-page history-page">
+    <section class="card history-hero-card">
+        <div class="history-hero-copy">
+            <div class="history-eyebrow">Vista contable y comercial del negocio</div>
+            <h2 class="history-title">Historial de Ventas</h2>
+            <p class="history-summary" id="historyHeroSummary">
+                Revisa ingresos, flujo de caja, productos y ritmo operativo en un solo tablero pensado para entender el negocio sin leer reportes tecnicos.
+            </p>
+            <div class="history-hero-tags">
+                <span class="history-pill" id="historyRangePill">Periodo: {{ filtro_fecha_inicio }} a {{ filtro_fecha_fin }}</span>
+                <span class="history-pill history-pill-soft" id="historyFilterPill">Producto: {{ filtro_producto }}</span>
+                <span class="history-pill history-pill-soft" id="historyActivePill">Cargando actividad...</span>
+            </div>
+        </div>
+        <div class="history-hero-stats">
+            <div class="history-mini-stat">
+                <span class="material-symbols-outlined">payments</span>
+                <div><small>Ingresos del periodo</small><strong id="historyHeroRevenue">$0</strong></div>
+            </div>
+            <div class="history-mini-stat">
+                <span class="material-symbols-outlined">calendar_month</span>
+                <div><small>Mejor dia</small><strong id="historyHeroBestDay">-</strong></div>
+            </div>
+            <div class="history-mini-stat">
+                <span class="material-symbols-outlined">schedule</span>
+                <div><small>Hora pico</small><strong id="historyHeroPeakHour">-</strong></div>
+            </div>
+        </div>
+    </section>
 
-    <div class="card filters-card">
+    <section class="card filters-card history-filters-card">
         <div class="card-body">
-            <form class="filters-form" onsubmit="event.preventDefault(); cargarDashboardHistorial();">
-                <div class="filter-group">
+            <form class="filters-form history-filters-form" id="historialFiltersForm">
+                <div class="filter-group history-filter-group">
                     <label for="filtroProductoHistorial">Producto</label>
                     <select id="filtroProductoHistorial" class="form-input form-input-sm">
-                        <option value="Todos">Todos</option>
+                        <option value="Todos" {% if filtro_producto == "Todos" %}selected{% endif %}>Todos</option>
                         {% for p in productos %}
-                        <option value="{{ p }}" {% if filtro_producto == p %}selected{% endif %}>{{ p }}</option>
+                        <option value="{{ p }}" {% if p == filtro_producto %}selected{% endif %}>{{ p }}</option>
                         {% endfor %}
                     </select>
                 </div>
-                <div class="filter-group">
-                    <label for="filtroDiasHistorial">Periodo</label>
+                <div class="filter-group history-filter-group">
+                    <label for="filtroDiasHistorial">Ventana</label>
                     <select id="filtroDiasHistorial" class="form-input form-input-sm">
-                        <option value="7" {% if filtro_dias == 7 %}selected{% endif %}>7 dias</option>
-                        <option value="30" {% if filtro_dias == 30 %}selected{% endif %}>30 dias</option>
-                        <option value="60" {% if filtro_dias == 60 %}selected{% endif %}>60 dias</option>
-                        <option value="90" {% if filtro_dias == 90 %}selected{% endif %}>90 dias</option>
+                        <option value="14" {% if not filtro_personalizado and filtro_dias == 14 %}selected{% endif %}>14 dias</option>
+                        <option value="30" {% if not filtro_personalizado and filtro_dias == 30 %}selected{% endif %}>30 dias</option>
+                        <option value="60" {% if not filtro_personalizado and filtro_dias == 60 %}selected{% endif %}>60 dias</option>
+                        <option value="90" {% if not filtro_personalizado and filtro_dias == 90 %}selected{% endif %}>90 dias</option>
+                        <option value="custom" {% if filtro_personalizado %}selected{% endif %}>Rango personalizado</option>
                     </select>
                 </div>
-                <button type="submit" class="btn btn-accent" id="btnRefrescarHistorial">Actualizar Dashboard</button>
+                <div class="filter-group history-filter-group">
+                    <label for="filtroFechaInicioHistorial">Desde</label>
+                    <input id="filtroFechaInicioHistorial" class="form-input form-input-sm" type="date" value="{{ filtro_fecha_inicio }}" max="{{ hoy_str }}">
+                </div>
+                <div class="filter-group history-filter-group">
+                    <label for="filtroFechaFinHistorial">Hasta</label>
+                    <input id="filtroFechaFinHistorial" class="form-input form-input-sm" type="date" value="{{ filtro_fecha_fin }}" max="{{ hoy_str }}">
+                </div>
+                <div class="history-filter-actions">
+                    <button class="btn btn-accent" type="submit" id="btnRefrescarHistorial">Actualizar dashboard</button>
+                    <button class="btn btn-light" type="button" id="btnResetHistorial">Restablecer</button>
+                </div>
             </form>
         </div>
-    </div>
+    </section>
 
-    <h3 class="subsection-title">Resumen de ventas</h3>
-    <div class="kpi-grid">
-        <div class="kpi-card">
-            <div class="kpi-label">Ingresos totales</div>
-            <div class="kpi-value" id="kpiIngresos">$0.00</div>
-        </div>
-        <div class="kpi-card">
-            <div class="kpi-label">Unidades vendidas</div>
-            <div class="kpi-value" id="kpiPanes">0</div>
-        </div>
-        <div class="kpi-card">
-            <div class="kpi-label">Transacciones</div>
-            <div class="kpi-value" id="kpiTransacciones">0</div>
-        </div>
-        <div class="kpi-card">
-            <div class="kpi-label">Ticket promedio</div>
-            <div class="kpi-value" id="kpiTicket">$0.00</div>
-        </div>
-    </div>
+    <section class="history-kpi-grid">
+        <article class="history-kpi-card">
+            <div class="history-kpi-label">Ventas totales</div>
+            <div class="history-kpi-value" id="kpiIngresos">$0</div>
+            <div class="history-kpi-meta" id="kpiIngresosMeta">0 dias con ventas</div>
+        </article>
+        <article class="history-kpi-card">
+            <div class="history-kpi-label">Ticket promedio</div>
+            <div class="history-kpi-value" id="kpiTicket">$0</div>
+            <div class="history-kpi-meta" id="kpiTicketMeta">0 transacciones</div>
+        </article>
+        <article class="history-kpi-card">
+            <div class="history-kpi-label">Unidades vendidas</div>
+            <div class="history-kpi-value" id="kpiPanes">0</div>
+            <div class="history-kpi-meta" id="kpiPanesMeta">0 producidas</div>
+        </article>
+        <article class="history-kpi-card">
+            <div class="history-kpi-label">Promedio diario</div>
+            <div class="history-kpi-value" id="kpiPromedioDiario">$0</div>
+            <div class="history-kpi-meta" id="kpiPromedioDiarioMeta">0 unidades por dia</div>
+        </article>
+        <article class="history-kpi-card">
+            <div class="history-kpi-label">Mejor dia</div>
+            <div class="history-kpi-value" id="kpiMejorDia">-</div>
+            <div class="history-kpi-meta" id="kpiMejorDiaMeta">Sin lectura</div>
+        </article>
+        <article class="history-kpi-card">
+            <div class="history-kpi-label">Producto lider</div>
+            <div class="history-kpi-value" id="kpiProductoLider">-</div>
+            <div class="history-kpi-meta" id="kpiProductoLiderMeta">Sin ranking</div>
+        </article>
+    </section>
 
-    <h3 class="subsection-title">Resumen de caja</h3>
-    <div class="kpi-grid">
-        <div class="kpi-card">
-            <div class="kpi-label">Ventas en efectivo</div>
-            <div class="kpi-value" id="kpiVentasEfectivo">$0.00</div>
-        </div>
-        <div class="kpi-card">
-            <div class="kpi-label">Ventas en transferencia</div>
-            <div class="kpi-value" id="kpiVentasTransferencia">$0.00</div>
-        </div>
-        <div class="kpi-card">
-            <div class="kpi-label">Ingresos manuales</div>
-            <div class="kpi-value" id="kpiIngresosManuales">$0.00</div>
-        </div>
-        <div class="kpi-card">
-            <div class="kpi-label">Egresos manuales</div>
-            <div class="kpi-value" id="kpiEgresosManuales">$0.00</div>
-        </div>
-    </div>
-
-    <h3 class="subsection-title">Control de produccion</h3>
-    <div class="kpi-grid">
-        <div class="kpi-card">
-            <div class="kpi-label">Total producido</div>
-            <div class="kpi-value" id="kpiProducido">0</div>
-        </div>
-        <div class="kpi-card">
-            <div class="kpi-label">Total sobrante</div>
-            <div class="kpi-value" id="kpiSobrante">0</div>
-        </div>
-        <div class="kpi-card">
-            <div class="kpi-label">Total faltante</div>
-            <div class="kpi-value" id="kpiFaltante">0</div>
-        </div>
-        <div class="kpi-card">
-            <div class="kpi-label">Aprovechamiento</div>
-            <div class="kpi-value" id="kpiAprovechamientoOp">0%</div>
-        </div>
-    </div>
-
-    <div class="analytics-grid">
-        <div class="card analytics-card">
-            <div class="card-header">Evolucion diaria (ingresos y unidades)</div>
-            <div class="card-body chart-wrap">
-                <canvas id="chartEvolucionDiaria"></canvas>
+    <section class="history-dashboard-grid">
+        <article class="card analytics-card history-card history-card-wide">
+            <div class="card-header history-section-header">
+                <div><strong>Evolucion diaria</strong><span>Compara ingresos contra numero de transacciones para detectar dias fuertes y dias flojos.</span></div>
             </div>
-        </div>
+            <div class="card-body chart-wrap history-chart-lg"><canvas id="chartEvolucionDiaria"></canvas></div>
+        </article>
 
-        <div class="card analytics-card">
-            <div class="card-header">Control operativo por dia</div>
-            <div class="card-body chart-wrap">
-                <canvas id="chartOperacion"></canvas>
+        <article class="card analytics-card history-card">
+            <div class="card-header history-section-header">
+                <div><strong>Lectura ejecutiva</strong><span>Mix de pago, caja y productos que sostienen la facturacion.</span></div>
             </div>
-        </div>
-
-        <div class="card analytics-card">
-            <div class="card-header">Medios de pago del periodo</div>
-            <div class="card-body chart-wrap">
-                <canvas id="chartMediosPagoHistorial"></canvas>
+            <div class="card-body history-panel-body">
+                <div class="history-panel-block">
+                    <div class="history-panel-title">Mix de recaudo</div>
+                    <div class="history-progress-list">
+                        <div class="history-progress-item">
+                            <div class="history-progress-head"><span>Efectivo</span><strong id="historyCashPct">0%</strong></div>
+                            <div class="history-progress-bar"><span id="historyCashBar"></span></div>
+                        </div>
+                        <div class="history-progress-item">
+                            <div class="history-progress-head"><span>Transferencia</span><strong id="historyTransferPct">0%</strong></div>
+                            <div class="history-progress-bar history-progress-alt"><span id="historyTransferBar"></span></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="history-panel-mini-grid">
+                    <div class="history-mini-card">
+                        <small>Ingresos manuales</small>
+                        <strong id="historyManualIncome">$0</strong>
+                    </div>
+                    <div class="history-mini-card">
+                        <small>Egresos manuales</small>
+                        <strong id="historyManualExpense">$0</strong>
+                    </div>
+                    <div class="history-mini-card">
+                        <small>Diferencia de cierre</small>
+                        <strong id="historyClosingDiff">$0</strong>
+                    </div>
+                    <div class="history-mini-card">
+                        <small>Reaperturas</small>
+                        <strong id="historyReopenings">0</strong>
+                    </div>
+                </div>
+                <div class="history-panel-block">
+                    <div class="history-panel-title">Top productos</div>
+                    <div class="history-top-list" id="historyTopProductsList">
+                        <div class="history-empty">Cargando ranking...</div>
+                    </div>
+                </div>
             </div>
-        </div>
+        </article>
 
-        <div class="card analytics-card">
-            <div class="card-header">Flujo de caja y arqueos</div>
-            <div class="card-body chart-wrap">
-                <canvas id="chartCajaHistorial"></canvas>
+        <article class="card analytics-card history-card history-card-wide">
+            <div class="card-header history-section-header">
+                <div><strong>Flujo de caja por dia</strong><span>Mira como se compone el dinero entre apertura, ventas, ingresos manuales y salidas.</span></div>
             </div>
-        </div>
+            <div class="card-body chart-wrap"><canvas id="chartCajaHistorial"></canvas></div>
+        </article>
 
-        <div class="card analytics-card">
-            <div class="card-header">Ventas por producto (ingresos)</div>
-            <div class="card-body chart-wrap">
-                <canvas id="chartVentasProductoHistorial"></canvas>
+        <article class="card analytics-card history-card">
+            <div class="card-header history-section-header">
+                <div><strong>Productos mas rentables</strong><span>Ranking de referencia para ver que empuja la venta real.</span></div>
             </div>
-        </div>
+            <div class="card-body chart-wrap"><canvas id="chartVentasProductoHistorial"></canvas></div>
+        </article>
 
-        <div class="card analytics-card">
-            <div class="card-header">Distribucion por hora</div>
-            <div class="card-body chart-wrap">
-                <canvas id="chartHora"></canvas>
+        <article class="card analytics-card history-card">
+            <div class="card-header history-section-header">
+                <div><strong>Ritmo por dia de semana</strong><span>Ideal para entender cuando se concentra la demanda del negocio.</span></div>
             </div>
-        </div>
+            <div class="card-body chart-wrap"><canvas id="chartDiaSemanaHistorial"></canvas></div>
+        </article>
 
-        <div class="card analytics-card">
-            <div class="card-header">Participacion por producto</div>
-            <div class="card-body chart-wrap">
-                <canvas id="chartParticipacion"></canvas>
+        <article class="card analytics-card history-card">
+            <div class="card-header history-section-header">
+                <div><strong>Horas de mayor movimiento</strong><span>Distribucion de unidades vendidas segun franja horaria.</span></div>
             </div>
-        </div>
-    </div>
+            <div class="card-body chart-wrap"><canvas id="chartHora"></canvas></div>
+        </article>
 
-    <div class="card">
-        <div class="card-header">Ventas recientes</div>
-        <div class="card-body">
-            <table class="table table-compact">
-                <thead>
-                    <tr>
-                        <th>Fecha</th>
-                        <th>Hora</th>
-                        <th>Producto</th>
-                        <th class="text-center">Cantidad</th>
-                        <th>Medio de pago</th>
-                        <th>Referencia</th>
-                        <th class="text-right">Total</th>
-                        <th>Registrado por</th>
-                    </tr>
-                </thead>
-                <tbody id="tablaVentasRecientes">
-                    <tr><td colspan="8" class="text-center text-muted">Cargando...</td></tr>
-                </tbody>
-            </table>
-        </div>
-    </div>
+        <article class="card analytics-card history-card">
+            <div class="card-header history-section-header">
+                <div><strong>Produccion vs venta</strong><span>Lectura operativa para revisar sobrantes, faltantes y balance del periodo.</span></div>
+            </div>
+            <div class="card-body chart-wrap"><canvas id="chartOperacion"></canvas></div>
+        </article>
+    </section>
 
-    <div class="card">
-        <div class="card-header">Historial de caja y arqueos</div>
-        <div class="card-body">
-            <table class="table table-compact">
-                <thead>
-                    <tr>
-                        <th>Fecha</th>
-                        <th>Apertura</th>
-                        <th>Cierre</th>
-                        <th class="text-right">Monto apertura</th>
-                        <th class="text-right">Monto cierre</th>
-                        <th class="text-right">Diferencia</th>
-                        <th>Estado</th>
-                    </tr>
-                </thead>
-                <tbody id="tablaArqueosHistorial">
-                    <tr><td colspan="7" class="text-center text-muted">Cargando...</td></tr>
-                </tbody>
-            </table>
-        </div>
-    </div>
+    <section class="history-tables-grid">
+        <article class="card history-table-card history-table-wide">
+            <div class="card-header history-section-header">
+                <div><strong>Ventas recientes</strong><span>Detalle de las ultimas transacciones registradas en el periodo.</span></div>
+            </div>
+            <div class="card-body history-table-wrap">
+                <table class="table table-compact history-table">
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Hora</th>
+                            <th>Producto</th>
+                            <th class="text-center">Cant.</th>
+                            <th>Total</th>
+                            <th>Pago</th>
+                            <th>Origen</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tablaVentasRecientes">
+                        <tr><td colspan="7" class="text-center text-muted">Cargando ventas...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </article>
 
-    <div class="card">
-        <div class="card-header">Movimientos manuales de caja</div>
-        <div class="card-body">
-            <table class="table table-compact">
-                <thead>
-                    <tr>
-                        <th>Fecha</th>
-                        <th>Hora</th>
-                        <th>Tipo</th>
-                        <th>Concepto</th>
-                        <th class="text-right">Monto</th>
-                        <th>Registrado por</th>
-                    </tr>
-                </thead>
-                <tbody id="tablaMovimientosHistorial">
-                    <tr><td colspan="6" class="text-center text-muted">Cargando...</td></tr>
-                </tbody>
-            </table>
-        </div>
-    </div>
+        <article class="card history-table-card">
+            <div class="card-header history-section-header">
+                <div><strong>Arqueos de caja</strong><span>Cierres y diferencias del periodo seleccionado.</span></div>
+            </div>
+            <div class="card-body history-table-wrap">
+                <table class="table table-compact history-table">
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Apertura</th>
+                            <th>Cierre</th>
+                            <th>Diferencia</th>
+                            <th>Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tablaArqueosHistorial">
+                        <tr><td colspan="5" class="text-center text-muted">Cargando arqueos...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </article>
+
+        <article class="card history-table-card">
+            <div class="card-header history-section-header">
+                <div><strong>Movimientos de caja</strong><span>Ingresos y egresos manuales que afectan la lectura financiera.</span></div>
+            </div>
+            <div class="card-body history-table-wrap">
+                <table class="table table-compact history-table">
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Tipo</th>
+                            <th>Concepto</th>
+                            <th>Monto</th>
+                            <th>Usuario</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tablaMovimientosHistorial">
+                        <tr><td colspan="5" class="text-center text-muted">Cargando movimientos...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </article>
+    </section>
 </div>
 
 <script>
-let chartEvolucionDiaria = null;
-let chartOperacion = null;
-let chartMediosPagoHistorial = null;
-let chartCajaHistorial = null;
-let chartVentasProductoHistorial = null;
-let chartHora = null;
-let chartParticipacion = null;
+let chartHistorialVentas = null;
+let chartHistorialCaja = null;
+let chartHistorialProductos = null;
+let chartHistorialDiaSemana = null;
+let chartHistorialHora = null;
+let chartHistorialOperacion = null;
 
-function money(v) {
-    return '$' + Number(v || 0).toFixed(2);
+const moneyFormatter = new Intl.NumberFormat('es-CO', {
+    style: 'currency',
+    currency: 'COP',
+    currencyDisplay: 'narrowSymbol',
+    maximumFractionDigits: 0,
+});
+const compactMoneyFormatter = new Intl.NumberFormat('es-CO', {
+    notation: 'compact',
+    maximumFractionDigits: 1,
+});
+const numberFormatter = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 });
+const dateFormatter = new Intl.DateTimeFormat('es-CO', { day: '2-digit', month: 'short' });
+const todayStr = {{ hoy_str|tojson }};
+
+function money(value) { return moneyFormatter.format(Number(value || 0)); }
+function compactMoney(value) { return compactMoneyFormatter.format(Number(value || 0)); }
+function number(value, decimals = 0) {
+    return Number(value || 0).toLocaleString('es-CO', {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+    });
+}
+function percent(value) { return `${number(value || 0, 1)}%`; }
+function signedMoney(value) {
+    const amount = Number(value || 0);
+    return `${amount > 0 ? '+' : ''}${money(amount)}`;
+}
+function shortDate(value) {
+    if (!value) return '-';
+    const [year, month, day] = `${value}`.split('-');
+    if (!year || !month || !day) return value;
+    const parsed = new Date(Number(year), Number(month) - 1, Number(day));
+    return Number.isNaN(parsed.getTime()) ? value : dateFormatter.format(parsed);
+}
+function escapeHtml(value) {
+    return `${value == null ? '' : value}`.replace(/[&<>\"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+    }[char]));
+}
+function destroyChart(chartRef) {
+    if (chartRef) chartRef.destroy();
+}
+function humanize(value) {
+    const text = `${value || '-'}`.replace(/_/g, ' ').trim();
+    return text ? text.charAt(0).toUpperCase() + text.slice(1) : '-';
+}
+function badgeClassForMethod(method) {
+    return `${method}`.toLowerCase() === 'transferencia' ? 'is-transfer' : 'is-cash';
+}
+function badgeClassForMovement(type) {
+    return `${type}`.toLowerCase() === 'egreso' ? 'is-expense' : 'is-income';
+}
+function badgeClassForStatus(status) {
+    return `${status}`.toLowerCase() === 'cerrado' ? 'is-good' : 'is-warning';
+}
+function badgeClassForDiff(value) {
+    const amount = Number(value || 0);
+    if (amount > 0) return 'is-good';
+    if (amount < 0) return 'is-warning';
+    return '';
+}
+function axisMoney(value) { return compactMoney(value); }
+function clampPercent(value) {
+    const amount = Math.max(0, Math.min(Number(value || 0), 100));
+    return `${amount}%`;
+}
+function toInputDate(dateValue) {
+    const year = dateValue.getFullYear();
+    const month = `${dateValue.getMonth() + 1}`.padStart(2, '0');
+    const day = `${dateValue.getDate()}`.padStart(2, '0');
+    return `${year}-${month}-${day}`;
 }
 
-function destroyChart(chart) {
-    if (chart) chart.destroy();
+function applyPresetDays(days) {
+    const daysInt = Math.max(Number(days || 30), 1);
+    const end = new Date(`${todayStr}T00:00:00`);
+    const start = new Date(end);
+    start.setDate(start.getDate() - (daysInt - 1));
+    document.getElementById('filtroFechaInicioHistorial').value = toInputDate(start);
+    document.getElementById('filtroFechaFinHistorial').value = toInputDate(end);
 }
 
-function cargarDashboardHistorial() {
-    const producto = document.getElementById('filtroProductoHistorial').value;
-    const dias = document.getElementById('filtroDiasHistorial').value;
-    const btn = document.getElementById('btnRefrescarHistorial');
+function resetHistorialFilters() {
+    document.getElementById('filtroProductoHistorial').value = 'Todos';
+    document.getElementById('filtroDiasHistorial').value = '30';
+    applyPresetDays(30);
+    cargarDashboardHistorial();
+}
 
-    btn.disabled = true;
-    btn.textContent = 'Actualizando...';
+function bindHistorialFilters() {
+    const form = document.getElementById('historialFiltersForm');
+    const daysSelect = document.getElementById('filtroDiasHistorial');
+    const startInput = document.getElementById('filtroFechaInicioHistorial');
+    const endInput = document.getElementById('filtroFechaFinHistorial');
 
-    fetch(`/api/historial/dashboard?producto=${encodeURIComponent(producto)}&dias=${dias}`)
-        .then(r => r.json())
-        .then(data => {
-            renderKpiHistorial(data.totales || {});
-            renderKpiCajaPeriodo(data.caja_periodo || {}, data.totales || {});
-            renderKpiOperacion(data.operacion || {});
-            renderChartEvolucion(data.serie_diaria || []);
-            renderChartOperacion(data.serie_operativa || []);
-            renderChartMediosPago(data.medios_pago || []);
-            renderChartCaja(data.serie_caja || []);
-            renderChartProducto(data.resumen_productos || []);
-            renderChartHora(data.serie_horaria || []);
-            renderChartParticipacion(data.resumen_productos || []);
-            renderVentasRecientes(data.ventas_recientes || []);
-            renderArqueosHistorial(data.arqueos_historial || []);
-            renderMovimientosHistorial(data.movimientos_historial || []);
-        })
-        .catch(err => {
-            console.error(err);
-            alert('No se pudo cargar el dashboard contable.');
-        })
-        .finally(() => {
-            btn.disabled = false;
-            btn.textContent = 'Actualizar Dashboard';
+    form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        cargarDashboardHistorial();
+    });
+    document.getElementById('btnResetHistorial').addEventListener('click', resetHistorialFilters);
+    daysSelect.addEventListener('change', () => {
+        if (daysSelect.value !== 'custom') {
+            applyPresetDays(daysSelect.value);
+        }
+    });
+    [startInput, endInput].forEach((input) => {
+        input.addEventListener('change', () => {
+            daysSelect.value = 'custom';
         });
+    });
 }
 
-function renderKpiHistorial(t) {
-    document.getElementById('kpiIngresos').textContent = money(t.dinero);
-    document.getElementById('kpiPanes').textContent = t.panes || 0;
-    document.getElementById('kpiTransacciones').textContent = t.transacciones || 0;
-    document.getElementById('kpiTicket').textContent = money(t.ticket_promedio);
+function renderHero(data) {
+    const totals = data.totales || {};
+    const insights = data.insights || {};
+    const period = data.periodo || {};
+    const bestDay = insights.mejor_dia || {};
+    const peakHour = insights.hora_pico || {};
+    const productText = data.filtro_producto && data.filtro_producto !== 'Todos'
+        ? `el producto ${data.filtro_producto}`
+        : 'todos los productos';
+
+    document.getElementById('historyHeroSummary').textContent =
+        `Este dashboard resume ingresos, caja y comportamiento comercial de ${productText}. ` +
+        `Te muestra que dias movieron mas dinero, como se repartio el recaudo y donde esta la presion operativa real del periodo.`;
+    document.getElementById('historyRangePill').textContent =
+        `Periodo: ${period.fecha_inicio || '-'} a ${period.fecha_fin || '-'}`;
+    document.getElementById('historyFilterPill').textContent =
+        `Filtro: ${data.filtro_producto || 'Todos'}`;
+    document.getElementById('historyActivePill').textContent =
+        `${number(totals.dias_activos || 0)} dias activos de ${number(period.dias || 0)} dias`;
+    document.getElementById('historyHeroRevenue').textContent = money(totals.dinero || 0);
+    document.getElementById('historyHeroBestDay').textContent =
+        bestDay.fecha ? `${shortDate(bestDay.fecha)} · ${money(bestDay.dinero || 0)}` : 'Sin ventas';
+    document.getElementById('historyHeroPeakHour').textContent =
+        peakHour.hora ? `${peakHour.hora} · ${number(peakHour.panes || 0)} und.` : 'Sin pico';
 }
 
-function renderKpiCajaPeriodo(caja, totales) {
-    document.getElementById('kpiVentasEfectivo').textContent = money((totales || {}).ventas_efectivo);
-    document.getElementById('kpiVentasTransferencia').textContent = money((totales || {}).ventas_transferencia);
-    document.getElementById('kpiIngresosManuales').textContent = money((totales || {}).ingresos_manuales);
-    document.getElementById('kpiEgresosManuales').textContent = money((totales || {}).egresos_manuales);
+function renderKpis(totals, insights, operation) {
+    const bestDay = insights.mejor_dia || {};
+    const leader = insights.producto_lider || {};
+
+    document.getElementById('kpiIngresos').textContent = money(totals.dinero || 0);
+    document.getElementById('kpiIngresosMeta').textContent =
+        `${number(totals.dias_activos || 0)} dias con ventas registradas`;
+
+    document.getElementById('kpiTicket').textContent = money(totals.ticket_promedio || 0);
+    document.getElementById('kpiTicketMeta').textContent =
+        `${number(totals.transacciones || 0)} transacciones en el periodo`;
+
+    document.getElementById('kpiPanes').textContent = number(totals.panes || 0);
+    document.getElementById('kpiPanesMeta').textContent =
+        `${number(operation.total_vendido || 0)} vendidos de ${number(operation.total_producido || 0)} producidos`;
+
+    document.getElementById('kpiPromedioDiario').textContent = money(totals.promedio_diario || 0);
+    document.getElementById('kpiPromedioDiarioMeta').textContent =
+        `${number(totals.promedio_unidades_diario || 0, 1)} unidades promedio por dia`;
+
+    document.getElementById('kpiMejorDia').textContent = bestDay.fecha ? shortDate(bestDay.fecha) : '-';
+    document.getElementById('kpiMejorDiaMeta').textContent = bestDay.fecha
+        ? `${money(bestDay.dinero || 0)} con ${number(bestDay.panes || 0)} unidades`
+        : 'Sin ventas suficientes para comparar';
+
+    document.getElementById('kpiProductoLider').textContent = leader.producto || '-';
+    document.getElementById('kpiProductoLiderMeta').textContent = leader.producto
+        ? `${money(leader.dinero || 0)} · ${number(leader.panes || 0)} unidades`
+        : 'Sin ranking en el periodo';
 }
 
-function renderKpiOperacion(op) {
-    document.getElementById('kpiProducido').textContent = op.total_producido || 0;
-    document.getElementById('kpiSobrante').textContent = op.total_sobrante || 0;
-    document.getElementById('kpiFaltante').textContent = op.total_faltante || 0;
-    document.getElementById('kpiAprovechamientoOp').textContent = (op.aprovechamiento || 0) + '%';
+function renderExecutivePanel(data) {
+    const totals = data.totales || {};
+    const caja = data.caja_periodo || {};
+    const products = (data.resumen_productos || []).slice(0, 5);
+
+    document.getElementById('historyCashPct').textContent = percent(totals.porcentaje_efectivo || 0);
+    document.getElementById('historyTransferPct').textContent = percent(totals.porcentaje_transferencia || 0);
+    document.getElementById('historyCashBar').style.width = clampPercent(totals.porcentaje_efectivo || 0);
+    document.getElementById('historyTransferBar').style.width = clampPercent(totals.porcentaje_transferencia || 0);
+
+    document.getElementById('historyManualIncome').textContent = money(totals.ingresos_manuales || 0);
+    document.getElementById('historyManualExpense').textContent = money(totals.egresos_manuales || 0);
+    document.getElementById('historyClosingDiff').textContent = signedMoney(caja.diferencia_total || 0);
+    document.getElementById('historyReopenings').textContent = number(caja.reaperturas || 0);
+
+    const list = document.getElementById('historyTopProductsList');
+    if (!products.length) {
+        list.innerHTML = '<div class="history-empty">No hay productos suficientes para mostrar ranking en este periodo.</div>';
+        return;
+    }
+
+    list.innerHTML = products.map((item, index) => `
+        <div class="history-top-item">
+            <div class="history-top-rank">${index + 1}</div>
+            <div class="history-top-copy">
+                <strong>${escapeHtml(item.producto || '-')}</strong>
+                <span>${number(item.panes || 0)} unidades · ${number(item.transacciones || 0)} transacciones</span>
+            </div>
+            <div class="history-top-amount">${money(item.dinero || 0)}</div>
+        </div>
+    `).join('');
 }
 
-function renderChartEvolucion(serie) {
+function renderChartEvolucion(rows) {
+    destroyChart(chartHistorialVentas);
     const ctx = document.getElementById('chartEvolucionDiaria');
-    destroyChart(chartEvolucionDiaria);
-
-    chartEvolucionDiaria = new Chart(ctx, {
-        type: 'line',
+    chartHistorialVentas = new Chart(ctx, {
+        type: 'bar',
         data: {
-            labels: serie.map(s => s.fecha),
+            labels: rows.map((row) => shortDate(row.fecha)),
             datasets: [
                 {
-                    label: 'Ingresos',
-                    data: serie.map(s => s.dinero),
+                    type: 'line',
+                    label: 'Ventas',
+                    data: rows.map((row) => Number(row.dinero || 0)),
                     borderColor: '#C17817',
-                    backgroundColor: 'rgba(193,120,23,0.2)',
+                    backgroundColor: 'rgba(193, 120, 23, 0.18)',
+                    tension: 0.32,
+                    borderWidth: 3,
+                    pointRadius: 2,
+                    yAxisID: 'y',
                     fill: true,
-                    tension: 0.2,
+                    order: 1,
                 },
                 {
-                    label: 'Unidades',
-                    data: serie.map(s => s.panes),
-                    borderColor: '#388E3C',
-                    backgroundColor: 'rgba(56,142,60,0.15)',
-                    fill: true,
-                    tension: 0.2,
-                    yAxisID: 'y1'
-                }
-            ]
+                    type: 'bar',
+                    label: 'Transacciones',
+                    data: rows.map((row) => Number(row.transacciones || 0)),
+                    backgroundColor: 'rgba(67, 107, 79, 0.78)',
+                    borderRadius: 10,
+                    yAxisID: 'y1',
+                    order: 2,
+                },
+            ],
         },
         options: {
-            responsive: true,
             maintainAspectRatio: false,
             interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { labels: { usePointStyle: true } },
+                tooltip: {
+                    callbacks: {
+                        label(context) {
+                            const value = context.raw;
+                            return context.dataset.yAxisID === 'y1'
+                                ? `${context.dataset.label}: ${number(value || 0)}`
+                                : `${context.dataset.label}: ${money(value || 0)}`;
+                        },
+                    },
+                },
+            },
             scales: {
-                y: { beginAtZero: true, position: 'left' },
-                y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false } },
-            }
-        }
-    });
-}
-
-function renderChartOperacion(serie) {
-    const ctx = document.getElementById('chartOperacion');
-    destroyChart(chartOperacion);
-
-    chartOperacion = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: serie.map(s => s.fecha),
-            datasets: [
-                {
-                    label: 'Producido',
-                    data: serie.map(s => s.producido),
-                    backgroundColor: '#81B29A',
-                    borderRadius: 6,
+                x: { grid: { display: false } },
+                y: {
+                    beginAtZero: true,
+                    ticks: { callback: (value) => axisMoney(value) },
                 },
-                {
-                    label: 'Vendido',
-                    data: serie.map(s => s.vendido),
-                    backgroundColor: '#2E7D32',
-                    borderRadius: 6,
+                y1: {
+                    beginAtZero: true,
+                    position: 'right',
+                    grid: { drawOnChartArea: false },
+                    ticks: { precision: 0 },
                 },
-                {
-                    label: 'Sobrante',
-                    data: serie.map(s => s.sobrante),
-                    backgroundColor: '#E8B44D',
-                    borderRadius: 6,
-                },
-                {
-                    label: 'Faltante',
-                    data: serie.map(s => s.faltante),
-                    backgroundColor: '#D32F2F',
-                    borderRadius: 6,
-                }
-            ]
+            },
         },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: { y: { beginAtZero: true } }
-        }
     });
 }
 
-function renderChartMediosPago(medios) {
-    const ctx = document.getElementById('chartMediosPagoHistorial');
-    destroyChart(chartMediosPagoHistorial);
-
-    const dataset = (medios || []).filter(item => Number(item.total || 0) > 0);
-    chartMediosPagoHistorial = new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-            labels: dataset.length ? dataset.map(item => item.metodo) : ['Sin datos'],
-            datasets: [{
-                data: dataset.length ? dataset.map(item => item.total) : [1],
-                backgroundColor: dataset.length ? ['#4F8C5B', '#D28B36', '#9B8EA0', '#B0BEC5'] : ['#EFEBE9'],
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { position: 'bottom' } }
-        }
-    });
-}
-
-function renderChartCaja(serie) {
+function renderChartCaja(rows) {
+    destroyChart(chartHistorialCaja);
     const ctx = document.getElementById('chartCajaHistorial');
-    destroyChart(chartCajaHistorial);
-
-    chartCajaHistorial = new Chart(ctx, {
+    chartHistorialCaja = new Chart(ctx, {
         type: 'bar',
         data: {
-            labels: serie.map(s => s.fecha),
+            labels: rows.map((row) => shortDate(row.fecha)),
             datasets: [
                 {
-                    label: 'Apertura',
-                    data: serie.map(s => s.apertura),
-                    backgroundColor: '#C17817',
-                    borderRadius: 6,
-                },
-                {
-                    label: 'Efectivo',
-                    data: serie.map(s => s.ventas_efectivo),
-                    backgroundColor: '#4F8C5B',
-                    borderRadius: 6,
+                    label: 'Ventas efectivo',
+                    data: rows.map((row) => Number(row.ventas_efectivo || 0)),
+                    backgroundColor: 'rgba(193, 120, 23, 0.86)',
+                    borderRadius: 8,
                 },
                 {
                     label: 'Transferencia',
-                    data: serie.map(s => s.ventas_transferencia),
-                    backgroundColor: '#D28B36',
-                    borderRadius: 6,
+                    data: rows.map((row) => Number(row.ventas_transferencia || 0)),
+                    backgroundColor: 'rgba(65, 121, 90, 0.82)',
+                    borderRadius: 8,
                 },
                 {
-                    label: 'Ingresos',
-                    data: serie.map(s => s.ingresos),
-                    backgroundColor: '#81B29A',
-                    borderRadius: 6,
+                    label: 'Ingresos manuales',
+                    data: rows.map((row) => Number(row.ingresos || 0)),
+                    backgroundColor: 'rgba(93, 149, 111, 0.72)',
+                    borderRadius: 8,
                 },
                 {
-                    label: 'Egresos',
-                    data: serie.map(s => s.egresos),
-                    backgroundColor: '#D32F2F',
-                    borderRadius: 6,
-                }
-            ]
+                    label: 'Egresos manuales',
+                    data: rows.map((row) => Number(row.egresos || 0) * -1),
+                    backgroundColor: 'rgba(166, 74, 63, 0.82)',
+                    borderRadius: 8,
+                },
+            ],
         },
         options: {
-            responsive: true,
             maintainAspectRatio: false,
-            scales: { y: { beginAtZero: true } }
-        }
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { labels: { usePointStyle: true } },
+                tooltip: {
+                    callbacks: {
+                        label(context) {
+                            return `${context.dataset.label}: ${signedMoney(context.raw || 0)}`;
+                        },
+                    },
+                },
+            },
+            scales: {
+                x: { stacked: true, grid: { display: false } },
+                y: {
+                    stacked: true,
+                    beginAtZero: true,
+                    ticks: { callback: (value) => axisMoney(value) },
+                },
+            },
+        },
     });
 }
 
-function renderChartProducto(resumen) {
+function renderChartProductos(rows) {
+    const top = rows.slice(0, 8).reverse();
+    destroyChart(chartHistorialProductos);
     const ctx = document.getElementById('chartVentasProductoHistorial');
-    destroyChart(chartVentasProductoHistorial);
-
-    const top = resumen.slice(0, 10);
-
-    chartVentasProductoHistorial = new Chart(ctx, {
+    chartHistorialProductos = new Chart(ctx, {
         type: 'bar',
         data: {
-            labels: top.map(r => r.producto),
+            labels: top.map((row) => row.producto || '-'),
             datasets: [{
                 label: 'Ingresos',
-                data: top.map(r => r.dinero),
-                backgroundColor: '#D4722A',
-                borderRadius: 8,
-            }]
+                data: top.map((row) => Number(row.dinero || 0)),
+                backgroundColor: top.map((_, index) => index === top.length - 1
+                    ? 'rgba(193, 120, 23, 0.92)'
+                    : 'rgba(193, 120, 23, 0.38)'),
+                borderRadius: 12,
+            }],
         },
         options: {
-            responsive: true,
-            maintainAspectRatio: false,
             indexAxis: 'y',
-            scales: { x: { beginAtZero: true } }
-        }
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label(context) {
+                            const item = top[context.dataIndex] || {};
+                            return `Ingresos: ${money(item.dinero || 0)} · ${number(item.panes || 0)} unidades`;
+                        },
+                    },
+                },
+            },
+            scales: {
+                x: {
+                    beginAtZero: true,
+                    ticks: { callback: (value) => axisMoney(value) },
+                    grid: { color: 'rgba(193, 120, 23, 0.08)' },
+                },
+                y: { grid: { display: false } },
+            },
+        },
     });
 }
 
-function renderChartHora(serie) {
-    const ctx = document.getElementById('chartHora');
-    destroyChart(chartHora);
-
-    chartHora = new Chart(ctx, {
+function renderChartDiaSemana(rows) {
+    destroyChart(chartHistorialDiaSemana);
+    const ctx = document.getElementById('chartDiaSemanaHistorial');
+    chartHistorialDiaSemana = new Chart(ctx, {
         type: 'bar',
         data: {
-            labels: serie.map(s => s.hora),
+            labels: rows.map((row) => row.dia || '-'),
+            datasets: [
+                {
+                    label: 'Ventas',
+                    data: rows.map((row) => Number(row.dinero || 0)),
+                    backgroundColor: 'rgba(211, 143, 55, 0.78)',
+                    borderRadius: 10,
+                    yAxisID: 'y',
+                },
+                {
+                    type: 'line',
+                    label: 'Unidades',
+                    data: rows.map((row) => Number(row.panes || 0)),
+                    borderColor: '#436B4F',
+                    backgroundColor: 'rgba(67, 107, 79, 0.16)',
+                    borderWidth: 3,
+                    pointRadius: 2,
+                    tension: 0.25,
+                    yAxisID: 'y1',
+                },
+            ],
+        },
+        options: {
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { labels: { usePointStyle: true } },
+                tooltip: {
+                    callbacks: {
+                        label(context) {
+                            return context.dataset.yAxisID === 'y1'
+                                ? `${context.dataset.label}: ${number(context.raw || 0)}`
+                                : `${context.dataset.label}: ${money(context.raw || 0)}`;
+                        },
+                    },
+                },
+            },
+            scales: {
+                x: { grid: { display: false } },
+                y: {
+                    beginAtZero: true,
+                    ticks: { callback: (value) => axisMoney(value) },
+                },
+                y1: {
+                    beginAtZero: true,
+                    position: 'right',
+                    grid: { drawOnChartArea: false },
+                    ticks: { precision: 0 },
+                },
+            },
+        },
+    });
+}
+
+function renderChartHora(rows) {
+    destroyChart(chartHistorialHora);
+    const ctx = document.getElementById('chartHora');
+    chartHistorialHora = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: rows.map((row) => row.hora || '-'),
             datasets: [{
                 label: 'Unidades vendidas',
-                data: serie.map(s => s.panes),
-                backgroundColor: '#81B29A',
-                borderRadius: 6,
-            }]
+                data: rows.map((row) => Number(row.panes || 0)),
+                borderColor: '#A6593F',
+                backgroundColor: 'rgba(166, 89, 63, 0.18)',
+                fill: true,
+                tension: 0.32,
+                borderWidth: 3,
+                pointRadius: 2,
+            }],
         },
         options: {
-            responsive: true,
             maintainAspectRatio: false,
-            scales: { y: { beginAtZero: true } }
-        }
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label(context) {
+                            return `Unidades: ${number(context.raw || 0)}`;
+                        },
+                    },
+                },
+            },
+            scales: {
+                x: { grid: { display: false } },
+                y: { beginAtZero: true, ticks: { precision: 0 } },
+            },
+        },
     });
 }
 
-function renderChartParticipacion(resumen) {
-    const ctx = document.getElementById('chartParticipacion');
-    destroyChart(chartParticipacion);
-
-    const top = resumen.slice(0, 8);
-
-    chartParticipacion = new Chart(ctx, {
-        type: 'doughnut',
+function renderChartOperacion(rows) {
+    const periodRows = rows.slice(-14);
+    destroyChart(chartHistorialOperacion);
+    const ctx = document.getElementById('chartOperacion');
+    chartHistorialOperacion = new Chart(ctx, {
+        type: 'bar',
         data: {
-            labels: top.map(r => r.producto),
-            datasets: [{
-                data: top.map(r => r.dinero),
-                backgroundColor: ['#E8B44D', '#E07A5F', '#81B29A', '#9B8EA0', '#C17817', '#D4722A', '#5D4037', '#B0BEC5']
-            }]
+            labels: periodRows.map((row) => shortDate(row.fecha)),
+            datasets: [
+                {
+                    type: 'line',
+                    label: 'Producido',
+                    data: periodRows.map((row) => Number(row.producido || 0)),
+                    borderColor: '#C17817',
+                    backgroundColor: 'rgba(193, 120, 23, 0.16)',
+                    borderWidth: 3,
+                    pointRadius: 2,
+                    tension: 0.25,
+                },
+                {
+                    type: 'line',
+                    label: 'Vendido',
+                    data: periodRows.map((row) => Number(row.vendido || 0)),
+                    borderColor: '#436B4F',
+                    backgroundColor: 'rgba(67, 107, 79, 0.16)',
+                    borderWidth: 3,
+                    pointRadius: 2,
+                    tension: 0.25,
+                },
+                {
+                    label: 'Sobrante',
+                    data: periodRows.map((row) => Number(row.sobrante || 0)),
+                    backgroundColor: 'rgba(100, 161, 117, 0.68)',
+                    borderRadius: 8,
+                },
+                {
+                    label: 'Faltante',
+                    data: periodRows.map((row) => Number(row.faltante || 0) * -1),
+                    backgroundColor: 'rgba(166, 74, 63, 0.75)',
+                    borderRadius: 8,
+                },
+            ],
         },
         options: {
-            responsive: true,
             maintainAspectRatio: false,
-            plugins: { legend: { position: 'right' } }
-        }
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { labels: { usePointStyle: true } },
+                tooltip: {
+                    callbacks: {
+                        label(context) {
+                            return `${context.dataset.label}: ${number(Math.abs(context.raw || 0))}`;
+                        },
+                    },
+                },
+            },
+            scales: {
+                x: { stacked: false, grid: { display: false } },
+                y: { beginAtZero: true, ticks: { precision: 0 } },
+            },
+        },
     });
 }
-
-function renderVentasRecientes(ventas) {
+function renderVentasTable(rows) {
     const tbody = document.getElementById('tablaVentasRecientes');
-    if (!ventas.length) {
-        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">No hay ventas para el filtro seleccionado.</td></tr>';
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No hay ventas registradas en este periodo.</td></tr>';
         return;
     }
 
-    tbody.innerHTML = ventas.map(v => `
+    tbody.innerHTML = rows.slice(0, 14).map((row) => `
         <tr>
-            <td>${v.fecha}</td>
-            <td>${(v.hora || '').substring(0, 5)}</td>
-            <td>${v.producto}</td>
-            <td class="text-center">${v.cantidad}</td>
-            <td>${(v.metodo_pago || 'efectivo').replace(/^./, l => l.toUpperCase())}</td>
-            <td>${v.referencia_tipo || '-'}</td>
-            <td class="text-right">${money(v.total)}</td>
-            <td>${v.registrado_por || '-'}</td>
+            <td>${shortDate(row.fecha)}</td>
+            <td>${escapeHtml((row.hora || '').slice(0, 5) || '-')}</td>
+            <td>${escapeHtml(row.producto || '-')}</td>
+            <td class="text-center">${number(row.cantidad || 0)}</td>
+            <td>${money(row.total || 0)}</td>
+            <td><span class="history-badge ${badgeClassForMethod(row.metodo_pago)}">${escapeHtml(humanize(row.metodo_pago || 'efectivo'))}</span></td>
+            <td>${escapeHtml(humanize(row.referencia_tipo || 'venta_directa'))}</td>
         </tr>
     `).join('');
 }
 
-function renderArqueosHistorial(arqueos) {
+function renderArqueosTable(rows) {
     const tbody = document.getElementById('tablaArqueosHistorial');
-    if (!arqueos.length) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No hay arqueos en el periodo seleccionado.</td></tr>';
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No hay arqueos en este rango.</td></tr>';
         return;
     }
 
-    tbody.innerHTML = arqueos.map(a => `
+    tbody.innerHTML = rows.slice(0, 12).map((row) => `
         <tr>
-            <td>${a.fecha}</td>
-            <td>${a.abierto_por || '-'}</td>
-            <td>${a.cerrado_por || '-'}</td>
-            <td class="text-right">${money(a.monto_apertura)}</td>
-            <td class="text-right">${money(a.monto_cierre || 0)}</td>
-            <td class="text-right">${money(a.diferencia_cierre || 0)}</td>
-            <td>${a.estado === 'abierto' ? 'Abierta' : 'Cerrada'}${Number(a.reaperturas || 0) > 0 ? ` · ${a.reaperturas} reap.` : ''}</td>
+            <td>${shortDate(row.fecha)}</td>
+            <td>${money(row.monto_apertura || 0)}</td>
+            <td>${row.monto_cierre != null ? money(row.monto_cierre) : '-'}</td>
+            <td><span class="history-badge ${badgeClassForDiff(row.diferencia_cierre)}">${signedMoney(row.diferencia_cierre || 0)}</span></td>
+            <td><span class="history-badge ${badgeClassForStatus(row.estado)}">${escapeHtml(humanize(row.estado || 'abierto'))}</span></td>
         </tr>
     `).join('');
 }
 
-function renderMovimientosHistorial(movimientos) {
+function renderMovimientosTable(rows) {
     const tbody = document.getElementById('tablaMovimientosHistorial');
-    if (!movimientos.length) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No hay movimientos manuales en el periodo seleccionado.</td></tr>';
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No hay movimientos manuales en este rango.</td></tr>';
         return;
     }
 
-    tbody.innerHTML = movimientos.map(m => `
+    tbody.innerHTML = rows.slice(0, 14).map((row) => `
         <tr>
-            <td>${m.fecha}</td>
-            <td>${(m.creado_en || '').substring(11, 19)}</td>
-            <td>${m.tipo === 'egreso' ? 'Egreso' : 'Ingreso'}</td>
-            <td>${m.concepto}</td>
-            <td class="text-right">${money(m.monto)}</td>
-            <td>${m.registrado_por || '-'}</td>
+            <td>${shortDate(row.fecha)}</td>
+            <td><span class="history-badge ${badgeClassForMovement(row.tipo)}">${escapeHtml(humanize(row.tipo || 'ingreso'))}</span></td>
+            <td>${escapeHtml(row.concepto || row.notas || '-')}</td>
+            <td>${money(row.monto || 0)}</td>
+            <td>${escapeHtml(row.registrado_por || '-')}</td>
         </tr>
     `).join('');
 }
+async function cargarDashboardHistorial() {
+    const button = document.getElementById('btnRefrescarHistorial');
+    const producto = document.getElementById('filtroProductoHistorial').value || 'Todos';
+    const diasValue = document.getElementById('filtroDiasHistorial').value || '30';
+    const fechaInicio = document.getElementById('filtroFechaInicioHistorial').value || '';
+    const fechaFin = document.getElementById('filtroFechaFinHistorial').value || '';
+    const isCustomRange = diasValue === 'custom';
 
+    let dias = Number(diasValue) || 30;
+    if (isCustomRange && fechaInicio && fechaFin) {
+        const start = new Date(`${fechaInicio}T00:00:00`);
+        const end = new Date(`${fechaFin}T00:00:00`);
+        if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime())) {
+            dias = Math.max(1, Math.round((end - start) / 86400000) + 1);
+        }
+    }
+
+    const params = new URLSearchParams({
+        producto,
+        dias: String(dias),
+    });
+    if (isCustomRange && fechaInicio) params.set('fecha_inicio', fechaInicio);
+    if (isCustomRange && fechaFin) params.set('fecha_fin', fechaFin);
+
+    button.disabled = true;
+    button.textContent = 'Actualizando...';
+
+    try {
+        const response = await fetch(`/api/historial/dashboard?${params.toString()}`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const data = await response.json();
+
+        window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+
+        renderHero(data);
+        renderKpis(data.totales || {}, data.insights || {}, data.operacion || {});
+        renderExecutivePanel(data);
+        renderChartEvolucion(data.serie_diaria || []);
+        renderChartCaja(data.serie_caja || []);
+        renderChartProductos(data.resumen_productos || []);
+        renderChartDiaSemana(data.serie_dia_semana || []);
+        renderChartHora(data.serie_horaria || []);
+        renderChartOperacion(data.serie_operativa || []);
+        renderVentasTable(data.ventas_recientes || []);
+        renderArqueosTable(data.arqueos_historial || []);
+        renderMovimientosTable(data.movimientos_historial || []);
+    } catch (error) {
+        console.error('Error cargando historial dashboard', error);
+        document.getElementById('historyHeroSummary').textContent =
+            'No fue posible cargar el dashboard del historial en este momento. Revisa la conexion o intenta actualizar de nuevo.';
+        document.getElementById('historyTopProductsList').innerHTML =
+            '<div class="history-empty">No se pudo cargar el ranking de productos.</div>';
+        document.getElementById('tablaVentasRecientes').innerHTML =
+            '<tr><td colspan="7" class="text-center text-muted">No se pudo cargar la informacion.</td></tr>';
+        document.getElementById('tablaArqueosHistorial').innerHTML =
+            '<tr><td colspan="5" class="text-center text-muted">No se pudo cargar la informacion.</td></tr>';
+        document.getElementById('tablaMovimientosHistorial').innerHTML =
+            '<tr><td colspan="5" class="text-center text-muted">No se pudo cargar la informacion.</td></tr>';
+    } finally {
+        button.disabled = false;
+        button.textContent = 'Actualizar dashboard';
+    }
+}
+
+bindHistorialFilters();
 cargarDashboardHistorial();
 </script>
 {% endblock %}

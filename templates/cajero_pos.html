@@ -1,58 +1,90 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 {% block title_extra %} - Punto de Venta{% endblock %}
 {% block content %}
 <style>
+.cajero-layout.cajero-pos-shell {
+    height: 100dvh;
+    overflow: hidden;
+}
+.cajero-layout.cajero-pos-shell .main-content {
+    display: flex;
+    min-height: 0;
+    overflow: hidden;
+}
+.page-container.pos-page.cajero-pos-page {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 18px;
+    height: 100%;
+    min-height: 0;
+    max-width: none;
+}
+.page-container.pos-page.cajero-pos-page .pos-layout {
+    height: auto;
+    min-height: 0;
+}
+.page-container.pos-page.cajero-pos-page .pos-products,
+.page-container.pos-page.cajero-pos-page .cart-panel {
+    min-height: 0;
+}
+
 @media (max-width: 900px) {
-    .cajero-layout .main-content {
-        width: 100vw;
-        max-width: 100vw;
-        overflow-x: hidden;
+    .cajero-layout.cajero-pos-shell {
+        height: auto;
+        overflow: visible;
     }
-    .page-container.pos-page {
+    .cajero-layout.cajero-pos-shell .main-content {
+        display: block;
+        overflow-y: auto;
+    }
+    .page-container.pos-page.cajero-pos-page {
+        display: block;
         width: 100vw;
         max-width: 100vw;
+        height: auto;
         margin: 0;
         padding: 16px 12px 24px;
     }
-    .page-container.pos-page > * {
+    .page-container.pos-page.cajero-pos-page > * {
         width: 100%;
         max-width: 100%;
     }
-    .page-container.pos-page .pos-layout {
+    .page-container.pos-page.cajero-pos-page .pos-layout {
         display: flex;
         flex-direction: column;
         width: 100%;
         max-width: 100%;
         min-width: 0;
-        height: auto;
     }
-    .page-container.pos-page .pos-products,
-    .page-container.pos-page .cart-panel,
-    .page-container.pos-page #cajaStatusCard,
-    .page-container.pos-page .card {
+    .page-container.pos-page.cajero-pos-page .pos-products,
+    .page-container.pos-page.cajero-pos-page .cart-panel,
+    .page-container.pos-page.cajero-pos-page #cajaStatusCard,
+    .page-container.pos-page.cajero-pos-page .card {
         width: 100% !important;
         max-width: 100% !important;
         min-width: 0 !important;
         margin-left: 0;
         margin-right: 0;
     }
-    .page-container.pos-page .product-grid {
+    .page-container.pos-page.cajero-pos-page .product-grid {
         grid-template-columns: 1fr;
     }
-    .page-container.pos-page .cart-panel {
+    .page-container.pos-page.cajero-pos-page .cart-panel {
         max-height: none;
         border-left: none;
         border-top: 1px solid var(--divider);
     }
 }
 </style>
-<div class="page-container pos-page">
+
+<div class="page-container pos-page cajero-pos-page">
     <div id="cajaStatusCard"></div>
 
     <div class="pos-layout">
         <div class="pos-products">
             <h2 class="page-title">Punto de Venta</h2>
             <p class="text-muted" style="margin-bottom: 16px;">Agrega productos a la cuenta y cobra desde caja.</p>
+
             <div class="product-filters-panel">
                 <input type="text" id="productSearch" class="form-input" placeholder="Buscar producto por nombre..."
                        oninput="applyProductFilters()">
@@ -65,17 +97,28 @@
                     {% endfor %}
                 </div>
             </div>
+
+            <div id="top3Banner" style="display:none;margin-bottom:12px;background:var(--color-surface);border:1px solid var(--color-border);border-radius:8px;padding:10px 14px">
+                <div style="font-size:.75rem;font-weight:600;opacity:.6;margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">Mas vendidos hoy</div>
+                <div id="top3Lista" style="display:flex;gap:12px;flex-wrap:wrap"></div>
+            </div>
+
             <div class="product-grid">
                 {% for p in productos %}
-                <button class="product-card" onclick='addToCart({{ p.nombre|tojson }}, {{ p.precio }}, {{ p.icono|tojson }})'
+                <button type="button" class="product-card"
+                        onclick='addToCart({{ p.nombre|tojson }}, {{ p.precio }}, {{ p.icono|tojson }}, {{ p.id }}, {{ p.stock_minimo or 0 }})'
                         style="--prod-color: {{ p.color }}"
                         data-category="{{ p.categoria|lower }}"
-                        data-name="{{ p.nombre|lower }}">
+                        data-name="{{ p.nombre|lower }}"
+                        data-producto="{{ p.nombre }}"
+                        data-product-id="{{ p.id }}"
+                        data-stock-minimo="{{ p.stock_minimo or 0 }}">
                     <div class="product-color-bar" style="background: {{ p.color }}"></div>
                     <span class="material-symbols-outlined product-icon">{{ p.icono }}</span>
                     <span class="product-name">{{ p.nombre }}</span>
                     <span class="chip product-category-chip">{{ p.categoria }}</span>
                     <span class="product-price">${{ '%.2f'|format(p.precio) }}</span>
+                    <span class="stock-badge" id="stock_{{ p.id }}" style="display:none"></span>
                 </button>
                 {% endfor %}
             </div>
@@ -104,6 +147,32 @@
                     <button class="btn btn-success btn-lg" onclick="openPaymentModal()">Cobrar</button>
                 </div>
             </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="modModal" style="display:none;" onclick="if (event.target === this) cerrarModal()">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 id="modModalTitle">Personalizar</h3>
+            <button class="modal-close" onclick="cerrarModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="mod-section">
+                <h4>Adicionales</h4>
+                <p class="text-muted" style="margin-bottom: 10px;">Los adicionales son opcionales. Ajusta solo los que necesites para este producto.</p>
+                <div class="mod-options" id="modAdicionales"></div>
+            </div>
+            <div class="mod-section">
+                <h4>Exclusiones</h4>
+                <input type="text" id="modExclusion" class="form-input" placeholder="Ej: sin salsa, sin queso...">
+                <div id="modExclusiones" style="margin-top: 10px;"></div>
+                <button class="btn btn-light" style="margin-top: 10px;" onclick="agregarExclusion()">Agregar exclusion</button>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="cerrarModal()">Cancelar</button>
+            <button class="btn btn-success" onclick="guardarMods()">Guardar</button>
         </div>
     </div>
 </div>
@@ -160,12 +229,29 @@
 </div>
 
 <script>
+document.body.classList.add('cajero-pos-shell');
+
 let cart = [];
+let currentModItem = null;
+let tempExclusiones = [];
 let cajaActual = {{ caja|default({})|tojson }};
 let selectedCategory = 'todos';
+let stockDisponible = {};
+const ADICIONALES = {{ adicionales | tojson }};
+const ADICIONALES_DISPONIBLES = ADICIONALES || [];
 
 function money(value) {
     return '$' + Number(value || 0).toFixed(2);
+}
+
+function escapeHtml(value) {
+    return `${value == null ? '' : value}`.replace(/[&<>\"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+    }[char]));
 }
 
 function setCategoryFilter(category) {
@@ -185,19 +271,88 @@ function applyProductFilters() {
     });
 }
 
+function calcItemTotal(item) {
+    let extras = 0;
+    item.modificaciones.forEach(mod => {
+        if (mod.tipo === 'adicional') {
+            extras += (Number(mod.cantidad || 1) * Number(mod.precio_extra || 0));
+        }
+    });
+    return (Number(item.precio || 0) + extras) * Number(item.cantidad || 0);
+}
+
 function getCartTotal() {
-    return cart.reduce((sum, item) => sum + (item.precio * item.cantidad), 0);
+    return cart.reduce((sum, item) => sum + calcItemTotal(item), 0);
 }
 
 function getCartCount() {
     return cart.reduce((sum, item) => sum + item.cantidad, 0);
 }
 
+async function cargarStockDisponible() {
+    try {
+        const r = await fetch('/api/stock-disponible');
+        if (!r.ok) return;
+        const d = await r.json();
+        stockDisponible = d.stock || {};
+        actualizarBadgesStock();
+        renderCart();
+    } catch (e) {}
+}
+
+function getCartQtyForProduct(nombre, excluirItemId = null) {
+    return cart
+        .filter(item => item.nombre === nombre && item.id !== excluirItemId)
+        .reduce((sum, item) => sum + item.cantidad, 0);
+}
+
+function getStockRestante(nombre, excluirItemId = null) {
+    if (!(nombre in stockDisponible)) return Infinity;
+    return Number(stockDisponible[nombre] || 0) - getCartQtyForProduct(nombre, excluirItemId);
+}
+
+function limpiarEstadoStockProducto(btn, badge) {
+    btn.classList.remove('product-card-stock-low', 'product-card-stock-out');
+    btn.disabled = false;
+    badge.style.display = 'none';
+    badge.className = 'stock-badge';
+}
+
+function actualizarBadgesStock() {
+    document.querySelectorAll('.product-card[data-producto]').forEach(btn => {
+        const nombre = btn.dataset.producto;
+        const badge = document.getElementById('stock_' + btn.dataset.productId);
+        if (!badge) return;
+
+        limpiarEstadoStockProducto(btn, badge);
+        if (!(nombre in stockDisponible)) return;
+
+        const disponible = Number(stockDisponible[nombre] || 0);
+        const stockMinimo = Number(btn.dataset.stockMinimo || 0);
+        const restante = Math.max(disponible - getCartQtyForProduct(nombre), 0);
+
+        badge.style.display = 'inline-flex';
+        if (restante <= 0) {
+            badge.textContent = 'Producto sin stock';
+            badge.classList.add('stock-badge-out');
+            btn.classList.add('product-card-stock-out');
+            btn.disabled = true;
+        } else if (stockMinimo > 0 && restante <= stockMinimo) {
+            badge.textContent = `Quedan pocas unidades (${restante})`;
+            badge.classList.add('stock-badge-low');
+            btn.classList.add('product-card-stock-low');
+        } else {
+            badge.textContent = `${restante} disponibles`;
+            badge.classList.add('stock-badge-ok');
+        }
+    });
+}
+
 function renderCajaStatus() {
     const container = document.getElementById('cajaStatusCard');
     if (!cajaActual || !cajaActual.arqueo_activo) {
         container.innerHTML = `
-            <div class="card caja-banner caja-banner-alert" style="margin-bottom: 18px;">
+            <div class="card caja-banner caja-banner-alert">
                 <div>
                     <div class="caja-banner-title">Caja sin arqueo abierto</div>
                     <div class="text-muted">Antes de cobrar ventas debes abrir la caja desde Ventas de Hoy.</div>
@@ -210,7 +365,7 @@ function renderCajaStatus() {
 
     const arqueo = cajaActual.arqueo || {};
     container.innerHTML = `
-        <div class="card caja-banner caja-banner-success" style="margin-bottom: 18px;">
+        <div class="card caja-banner caja-banner-success">
             <div>
                 <div class="caja-banner-title">Caja abierta</div>
                 <div class="text-muted">Abierta por ${arqueo.abierto_por || 'Cajero'} a las ${String(arqueo.abierto_en || '').slice(11, 19) || '--:--:--'}</div>
@@ -223,37 +378,112 @@ function renderCajaStatus() {
     `;
 }
 
-function addToCart(nombre, precio, icono) {
-    const existing = cart.find(item => item.nombre === nombre);
-    if (existing) {
-        existing.cantidad += 1;
-    } else {
-        cart.push({ nombre, precio: Number(precio), icono, cantidad: 1 });
-    }
-    renderCart();
+function getAdicionalById(adicionalId) {
+    return (ADICIONALES_DISPONIBLES.length ? ADICIONALES_DISPONIBLES : ADICIONALES)
+        .find(item => String(item.id) === String(adicionalId)) || null;
 }
 
-function updateQty(index, qty) {
+function getInputAdicional(adicionalId) {
+    return document.querySelector(`[data-adicional-qty="${adicionalId}"]`);
+}
+
+function addToCart(nombre, precio, icono, productId, stockMinimo) {
+    const restante = getStockRestante(nombre);
+    if (restante <= 0) {
+        alert(`${nombre} no tiene stock disponible en este momento.`);
+        return;
+    }
+
+    cart.push({
+        id: Date.now() + Math.random(),
+        nombre,
+        precio: Number(precio),
+        icono,
+        cantidad: 1,
+        productId,
+        stockMinimo: Number(stockMinimo || 0),
+        modificaciones: [],
+    });
+    renderCart();
+    actualizarBadgesStock();
+}
+
+function updateQty(itemId, qty) {
     qty = parseInt(qty, 10);
-    if (Number.isNaN(qty) || qty < 0 || !cart[index]) return;
+    const item = cart.find(entry => entry.id === itemId);
+    if (Number.isNaN(qty) || qty < 0 || !item) return;
 
     if (qty === 0) {
-        cart.splice(index, 1);
+        cart = cart.filter(entry => entry.id !== itemId);
     } else {
-        cart[index].cantidad = qty;
+        const restante = getStockRestante(item.nombre, itemId);
+        if (qty > item.cantidad && restante < (qty - item.cantidad)) {
+            alert(`Solo hay ${stockDisponible[item.nombre]} unidades disponibles de ${item.nombre}.`);
+            qty = item.cantidad + Math.max(restante, 0);
+            if (qty <= 0) {
+                cart = cart.filter(entry => entry.id !== itemId);
+                renderCart();
+                actualizarBadgesStock();
+                return;
+            }
+        }
+        item.cantidad = qty;
     }
     renderCart();
+    actualizarBadgesStock();
 }
 
-function removeFromCart(index) {
-    if (!cart[index]) return;
-    cart.splice(index, 1);
+function removeFromCart(itemId) {
+    cart = cart.filter(item => item.id !== itemId);
     renderCart();
+    actualizarBadgesStock();
 }
 
 function clearCart() {
     cart = [];
+    cerrarModal();
+    closePaymentModal();
     renderCart();
+    actualizarBadgesStock();
+}
+
+function obtenerAvisoStockItem(item) {
+    if (!(item.nombre in stockDisponible)) return null;
+
+    const disponible = Number(stockDisponible[item.nombre] || 0);
+    const totalEnCarrito = getCartQtyForProduct(item.nombre);
+    const restante = Math.max(disponible - totalEnCarrito, 0);
+
+    if (restante <= 0) {
+        return {
+            clase: 'cart-stock-note-out',
+            texto: 'Producto sin stock. Ajusta la cantidad antes de cobrar.',
+        };
+    }
+
+    if (Number(item.stockMinimo || 0) > 0 && restante <= Number(item.stockMinimo || 0)) {
+        return {
+            clase: 'cart-stock-note-low',
+            texto: `Quedan pocas unidades (${restante}).`,
+        };
+    }
+
+    return null;
+}
+
+function validarCarritoContraStock() {
+    const requeridos = {};
+    cart.forEach(item => {
+        requeridos[item.nombre] = (requeridos[item.nombre] || 0) + item.cantidad;
+    });
+
+    return Object.entries(requeridos)
+        .filter(([nombre, cantidad]) => nombre in stockDisponible && Number(stockDisponible[nombre] || 0) < cantidad)
+        .map(([nombre, cantidad]) => ({
+            producto: nombre,
+            disponible: Number(stockDisponible[nombre] || 0),
+            requerido: cantidad,
+        }));
 }
 
 function renderCart() {
@@ -272,33 +502,188 @@ function renderCart() {
         return;
     }
 
-    container.innerHTML = cart.map((item, index) => {
-        const subtotal = item.precio * item.cantidad;
-        return `
-            <div class="cart-item">
-                <div class="cart-item-info">
-                    <span class="material-symbols-outlined cart-item-icon">${item.icono}</span>
-                    <div>
-                        <div class="cart-item-name">${item.nombre}</div>
-                        <div class="cart-item-price">${money(item.precio)} c/u</div>
-                    </div>
-                </div>
-                <div class="cart-item-controls">
-                    <button class="qty-btn qty-minus" onclick="updateQty(${index}, ${item.cantidad - 1})">-</button>
-                    <input type="number" class="qty-input" value="${item.cantidad}" min="0"
-                           onchange="updateQty(${index}, this.value)"
-                           onkeyup="updateQty(${index}, this.value)">
-                    <button class="qty-btn qty-plus" onclick="updateQty(${index}, ${item.cantidad + 1})">+</button>
-                </div>
-                <div class="cart-item-subtotal">${money(subtotal)}</div>
-                <button class="cart-item-remove" onclick="removeFromCart(${index})">&times;</button>
-            </div>`;
-    }).join('');
+    let total = 0;
+    let totalItems = 0;
+    let html = '';
 
-    const total = getCartTotal();
-    const totalItems = getCartCount();
+    cart.forEach(item => {
+        const subtotal = calcItemTotal(item);
+        total += subtotal;
+        totalItems += item.cantidad;
+
+        let modsHtml = '';
+        const adicionales = item.modificaciones.filter(mod => mod.tipo === 'adicional');
+        const exclusiones = item.modificaciones.filter(mod => mod.tipo === 'exclusion');
+
+        if (adicionales.length) {
+            modsHtml += '<div class="cart-item-mods">';
+            adicionales.forEach(mod => {
+                const totalExtra = Number(mod.cantidad || 1) * Number(mod.precio_extra || 0);
+                modsHtml += `<span class="mod-tag mod-tag-adicional">+ ${escapeHtml(mod.descripcion)} x${mod.cantidad || 1} (${money(totalExtra)})</span>`;
+            });
+            modsHtml += '</div>';
+        }
+        if (exclusiones.length) {
+            modsHtml += '<div class="cart-item-mods">';
+            exclusiones.forEach(mod => {
+                modsHtml += `<span class="mod-tag mod-tag-exclusion">${escapeHtml(mod.descripcion)}</span>`;
+            });
+            modsHtml += '</div>';
+        }
+
+        const avisoStock = obtenerAvisoStockItem(item);
+        const avisoStockHtml = avisoStock
+            ? `<div class="cart-stock-note ${avisoStock.clase}">${escapeHtml(avisoStock.texto)}</div>`
+            : '';
+
+        html += `
+            <div class="cart-item-block">
+                <div class="cart-item">
+                    <div class="cart-item-info">
+                        <span class="material-symbols-outlined cart-item-icon">${item.icono}</span>
+                        <div>
+                            <div class="cart-item-name">${escapeHtml(item.nombre)}</div>
+                            <div class="cart-item-price">${money(item.precio)} c/u</div>
+                        </div>
+                    </div>
+                    <div class="cart-item-controls">
+                        <button class="qty-btn qty-minus" onclick="updateQty(${item.id}, ${item.cantidad - 1})">-</button>
+                        <input type="number" class="qty-input" value="${item.cantidad}" min="0"
+                               onchange="updateQty(${item.id}, this.value)"
+                               onkeyup="updateQty(${item.id}, this.value)">
+                        <button class="qty-btn qty-plus" onclick="updateQty(${item.id}, ${item.cantidad + 1})">+</button>
+                    </div>
+                    <div class="cart-item-subtotal">${money(subtotal)}</div>
+                    <button class="cart-item-remove" onclick="removeFromCart(${item.id})">&times;</button>
+                </div>
+                ${modsHtml}
+                ${avisoStockHtml}
+                <button class="btn-mod-edit" onclick="abrirModal(${item.id})">${item.modificaciones.length ? 'Editar personalizacion' : 'Personalizar'}</button>
+            </div>`;
+    });
+
+    container.innerHTML = html;
     countEl.textContent = totalItems + (totalItems === 1 ? ' item' : ' items');
     totalEl.textContent = money(total);
+}
+
+function abrirModal(itemId) {
+    const item = cart.find(entry => entry.id === itemId);
+    if (!item) return;
+    currentModItem = itemId;
+    tempExclusiones = item.modificaciones
+        .filter(mod => mod.tipo === 'exclusion')
+        .map(mod => mod.descripcion);
+
+    document.getElementById('modModalTitle').textContent = 'Personalizar: ' + item.nombre;
+    renderAdicionalesModal(item);
+    document.getElementById('modExclusion').value = '';
+    renderExclusiones();
+    document.getElementById('modModal').style.display = 'flex';
+}
+
+function cerrarModal() {
+    document.getElementById('modModal').style.display = 'none';
+    currentModItem = null;
+    tempExclusiones = [];
+}
+
+function agregarExclusion() {
+    const input = document.getElementById('modExclusion');
+    const value = input.value.trim();
+    if (value && !tempExclusiones.includes(value)) {
+        tempExclusiones.push(value);
+        input.value = '';
+        renderExclusiones();
+    }
+}
+
+function quitarExclusion(index) {
+    tempExclusiones.splice(index, 1);
+    renderExclusiones();
+}
+
+function renderExclusiones() {
+    const container = document.getElementById('modExclusiones');
+    if (!tempExclusiones.length) {
+        container.innerHTML = '<span class="text-muted" style="font-size:13px;">Sin exclusiones</span>';
+        return;
+    }
+    container.innerHTML = tempExclusiones.map((item, index) => `
+        <span class="mod-tag mod-tag-exclusion" style="margin: 2px;">
+            ${escapeHtml(item)}
+            <button onclick="quitarExclusion(${index})" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:14px;padding:0 4px;">&times;</button>
+        </span>
+    `).join('');
+}
+
+function renderAdicionalesModal(item) {
+    const container = document.getElementById('modAdicionales');
+    const catalogo = ADICIONALES_DISPONIBLES.length ? ADICIONALES_DISPONIBLES : ADICIONALES;
+
+    if (!catalogo.length) {
+        container.innerHTML = '<div class="text-muted" style="font-size: 13px;">No hay adicionales configurados.</div>';
+        return;
+    }
+
+    container.innerHTML = catalogo.map(adicional => {
+        const actual = item.modificaciones.find(
+            mod => mod.tipo === 'adicional' && mod.descripcion === adicional.nombre
+        );
+        const cantidad = actual ? (parseInt(actual.cantidad, 10) || 0) : 0;
+        return `
+            <div class="mod-option mod-option-qty">
+                <div class="mod-option-main">
+                    <span class="mod-option-name">${escapeHtml(adicional.nombre)}</span>
+                    <span class="mod-option-price">+ ${money(Number(adicional.precio || 0))}</span>
+                </div>
+                <div class="mod-qty-controls">
+                    <button type="button" class="qty-btn qty-minus" onclick="cambiarCantidadAdicional(${JSON.stringify(adicional.id)}, -1)">-</button>
+                    <input type="number" class="qty-input mod-qty-input" min="0" step="1" value="${cantidad}" data-adicional-qty="${escapeHtml(adicional.id)}">
+                    <button type="button" class="qty-btn qty-plus" onclick="cambiarCantidadAdicional(${JSON.stringify(adicional.id)}, 1)">+</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function cambiarCantidadAdicional(adicionalId, delta) {
+    const input = getInputAdicional(adicionalId);
+    if (!input) return;
+    const actual = parseInt(input.value, 10) || 0;
+    input.value = Math.max(0, actual + delta);
+}
+
+function guardarMods() {
+    const item = cart.find(entry => entry.id === currentModItem);
+    if (!item) return;
+
+    const mods = [];
+    document.querySelectorAll('[data-adicional-qty]').forEach(input => {
+        const cantidad = parseInt(input.value, 10) || 0;
+        if (cantidad <= 0) return;
+        const adicional = getAdicionalById(input.dataset.adicionalQty);
+        if (!adicional) return;
+        mods.push({
+            tipo: 'adicional',
+            descripcion: adicional.nombre,
+            cantidad,
+            precio_extra: parseFloat(adicional.precio || 0),
+        });
+    });
+
+    tempExclusiones.forEach(exclusion => {
+        mods.push({
+            tipo: 'exclusion',
+            descripcion: exclusion,
+            cantidad: 1,
+            precio_extra: 0,
+        });
+    });
+
+    item.modificaciones = mods;
+    cerrarModal();
+    renderCart();
 }
 
 function openPaymentModal() {
@@ -356,10 +741,25 @@ async function confirmPayment() {
         return;
     }
 
+    await cargarStockDisponible();
+    const faltantesPrevios = validarCarritoContraStock();
+    if (faltantesPrevios.length) {
+        const detalle = faltantesPrevios
+            .map(item => `${item.producto}: disponibles ${item.disponible}, solicitadas ${item.requerido}`)
+            .join('\n');
+        alert('No puedes cobrar esta venta porque no hay stock suficiente:\n' + detalle);
+        actualizarBadgesStock();
+        return;
+    }
+
     const items = cart.map(item => ({
         producto: item.nombre,
         cantidad: item.cantidad,
-        precio: item.precio,
+        modificaciones: (item.modificaciones || []).map(mod => ({
+            tipo: mod.tipo,
+            descripcion: mod.descripcion,
+            cantidad: mod.cantidad,
+        })),
     }));
 
     try {
@@ -374,8 +774,10 @@ async function confirmPayment() {
         });
         const data = await res.json();
         if (!res.ok || !data.ok) {
-            const faltantes = (data.faltantes || []).map(item => `- ${item.producto}: faltan ${item.faltante}`).join('\n');
-            throw new Error(data.error + (faltantes ? `\n${faltantes}` : ''));
+            const faltantes = (data.faltantes || [])
+                .map(item => `- ${item.producto}: faltan ${item.faltante}`)
+                .join('\n');
+            throw new Error((data.error || 'No se pudo registrar la venta.') + (faltantes ? `\n${faltantes}` : ''));
         }
 
         cajaActual = data.caja || cajaActual;
@@ -390,5 +792,26 @@ async function confirmPayment() {
 renderCajaStatus();
 renderCart();
 applyProductFilters();
+
+async function cargarTop3() {
+    try {
+        const r = await fetch('/api/top-productos?limite=3');
+        if (!r.ok) return;
+        const d = await r.json();
+        const top = d.top || [];
+        if (!top.length) return;
+        document.getElementById('top3Banner').style.display = 'block';
+        document.getElementById('top3Lista').innerHTML = top.map((item, index) => `
+            <span style="font-size:.85rem;background:var(--color-bg);border-radius:6px;padding:4px 10px;border:1px solid var(--color-border)">
+                <strong>#${index + 1}</strong> ${escapeHtml(item.producto)} <span style="opacity:.6">(${item.unidades} uds)</span>
+            </span>
+        `).join('');
+    } catch (e) {}
+}
+
+cargarStockDisponible();
+cargarTop3();
+setInterval(cargarStockDisponible, 60000);
+setInterval(cargarTop3, 120000);
 </script>
 {% endblock %}

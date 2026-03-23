@@ -1,0 +1,28 @@
+services:
+  web:
+    environment:
+      FLASK_SECRET_KEY: demo-secret-key-change-me
+      DATABASE_URL: postgresql://panaderia:${POSTGRES_PASSWORD:-demo-db-change-me}@db:5432/panaderia
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: panaderia
+      POSTGRES_USER: panaderia
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-demo-db-change-me}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U panaderia -d panaderia"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - panaderia_net
+
+volumes:
+  postgres_data:

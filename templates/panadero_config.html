@@ -107,7 +107,7 @@
         <div class="card-header">Codigo de Verificacion de Caja</div>
         <div class="card-body">
             <div class="config-add-row">
-                <input type="text" class="form-input form-input-sm" id="cashCode"
+                <input type="password" class="form-input form-input-sm" id="cashCode"
                        value="{{ codigo_caja }}" style="width: 180px;">
                 <button class="btn btn-primary" onclick="saveCashCode()">Guardar codigo</button>
             </div>
@@ -127,7 +127,7 @@
                 </span>
                 <span class="config-name">{{ u.nombre }}</span>
                 <button class="btn btn-sm btn-danger-outline"
-                        onclick="deleteUser({{ u.id }}, '{{ u.nombre }}')">
+                        onclick="deleteUser({{ u.id }}, {{ u.nombre|tojson }})">
                     Eliminar
                 </button>
             </div>
@@ -136,7 +136,7 @@
             <div class="config-add-row">
                 <input type="text" class="form-input form-input-sm" placeholder="Nombre"
                        id="newUserName" style="flex: 1;">
-                <input type="text" class="form-input form-input-sm" placeholder="PIN"
+                <input type="password" class="form-input form-input-sm" placeholder="PIN"
                        id="newUserPin" style="width: 80px;">
                 <select class="form-input form-input-sm" id="newUserRol" style="width: 120px;">
                     <option value="cajero">Cajero</option>
@@ -149,16 +149,10 @@
     </div>
 
     <div class="card">
-        <div class="card-header">QR para Clientes</div>
+        <div class="card-header">Canal de Atención</div>
         <div class="card-body">
-            <div class="qr-section">
-                <div class="qr-info">
-                    <p>Los clientes pueden escanear este codigo QR para registrar su compra desde su celular.</p>
-                    <p class="text-muted">URL: <strong>{{ qr_url }}</strong></p>
-                    <p class="text-muted">Imprime este QR y ponlo cerca de la caja.</p>
-                </div>
-                <div class="qr-code" id="qrCode"></div>
-            </div>
+            <p>El flujo de cliente por QR fue retirado del producto.</p>
+            <p class="text-muted">Los pedidos ahora se gestionan únicamente desde el módulo de meseros y la caja del negocio.</p>
         </div>
     </div>
 
@@ -172,21 +166,7 @@
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <script>
-try {
-    new QRCode(document.getElementById('qrCode'), {
-        text: '{{ qr_url }}',
-        width: 200,
-        height: 200,
-        colorDark: '#2C1810',
-        colorLight: '#FFFFFF',
-    });
-} catch (e) {
-    document.getElementById('qrCode').innerHTML =
-        '<p class="text-muted">No se pudo generar el QR.<br>URL: {{ qr_url }}</p>';
-}
-
 function saveProduct(productId) {
     const nombre = document.getElementById('prod-name-' + productId).value.trim();
     const precio = parseFloat(document.getElementById('prod-price-' + productId).value);

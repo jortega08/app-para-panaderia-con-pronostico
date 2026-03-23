@@ -2,20 +2,19 @@
 backup.py
 ---------
 Sistema de respaldo de la base de datos.
-Soporta:
-  - Backup local con rotacion por fecha
-  - Restauracion desde un backup
-  - Limpieza de backups antiguos (retencion configurable)
-  - Preparado para integracion con servicios en la nube (Google Drive, etc.)
+
+Notas operativas:
+  - SQLite: usa el API nativo de backup para copias consistentes con WAL.
+  - PostgreSQL: la app no ejecuta backups/restores directos; deben hacerse con
+    pg_dump o snapshots del proveedor.
 """
 
-import shutil
-import os
 import json
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-from data.database import DB_PATH
+from data.db_adapter import get_database_info
 
 
 BACKUP_DIR = Path(__file__).parent / "backups"
@@ -28,11 +27,49 @@ def _ensure_backup_dir():
     BACKUP_DIR.mkdir(exist_ok=True)
 
 
+def _database_info() -> dict:
+    return get_database_info()
+
+
+def _sqlite_db_path() -> Path | None:
+    info = _database_info()
+    if info.get("type") != "sqlite":
+        return None
+
+    sqlite_path = info.get("sqlite_path")
+    if not sqlite_path:
+        return None
+    return Path(sqlite_path)
+
+
+def _sqlite_backup_to_file(origen: Path, destino: Path) -> None:
+    with sqlite3.connect(str(origen), timeout=30) as src:
+        with sqlite3.connect(str(destino), timeout=30) as dst:
+            src.backup(dst)
+
+
+def _sqlite_restore_from_file(origen: Path, destino: Path) -> None:
+    with sqlite3.connect(str(origen), timeout=30) as src:
+        with sqlite3.connect(str(destino), timeout=30) as dst:
+            src.backup(dst)
+
+
 def crear_backup(nota: str = "") -> dict:
     """Crea un backup de la base de datos. Retorna info del backup."""
     _ensure_backup_dir()
+    info = _database_info()
 
-    if not DB_PATH.exists():
+    if info.get("type") != "sqlite":
+        return {
+            "ok": False,
+            "error": (
+                "El backup desde la app solo esta disponible para SQLite. "
+                "En PostgreSQL usa pg_dump o snapshots administrados."
+            ),
+        }
+
+    db_path = _sqlite_db_path()
+    if not db_path or not db_path.exists():
         return {"ok": False, "error": "Base de datos no encontrada"}
 
     ahora = datetime.now()
@@ -41,9 +78,8 @@ def crear_backup(nota: str = "") -> dict:
     destino = BACKUP_DIR / nombre
 
     try:
-        shutil.copy2(DB_PATH, destino)
+        _sqlite_backup_to_file(db_path, destino)
 
-        # Guardar metadata
         meta = {
             "archivo": nombre,
             "fecha": ahora.strftime("%Y-%m-%d"),
@@ -51,6 +87,7 @@ def crear_backup(nota: str = "") -> dict:
             "timestamp": timestamp,
             "tamano_bytes": destino.stat().st_size,
             "nota": nota,
+            "motor": info.get("type"),
         }
         meta_file = BACKUP_DIR / f"panaderia_backup_{timestamp}.json"
         with open(meta_file, "w", encoding="utf-8") as f:
@@ -72,7 +109,6 @@ def listar_backups() -> list[dict]:
         try:
             with open(f, "r", encoding="utf-8") as fp:
                 meta = json.load(fp)
-            # Verificar que el archivo .db existe
             db_file = BACKUP_DIR / meta["archivo"]
             meta["disponible"] = db_file.exists()
             meta["tamano_mb"] = round(meta.get("tamano_bytes", 0) / (1024 * 1024), 2)
@@ -86,6 +122,16 @@ def listar_backups() -> list[dict]:
 def restaurar_backup(timestamp: str) -> dict:
     """Restaura la base de datos desde un backup."""
     _ensure_backup_dir()
+    info = _database_info()
+
+    if info.get("type") != "sqlite":
+        return {
+            "ok": False,
+            "error": (
+                "La restauracion desde la app no esta disponible para PostgreSQL. "
+                "Usa restore de pg_dump o snapshots del proveedor."
+            ),
+        }
 
     nombre = f"panaderia_backup_{timestamp}.db"
     origen = BACKUP_DIR / nombre
@@ -93,11 +139,16 @@ def restaurar_backup(timestamp: str) -> dict:
     if not origen.exists():
         return {"ok": False, "error": "Backup no encontrado"}
 
-    try:
-        # Crear backup de seguridad antes de restaurar
-        crear_backup(nota="Auto-backup antes de restauracion")
+    db_path = _sqlite_db_path()
+    if not db_path:
+        return {"ok": False, "error": "Ruta de base SQLite no disponible"}
 
-        shutil.copy2(origen, DB_PATH)
+    try:
+        respaldo_previo = crear_backup(nota="Auto-backup antes de restauracion")
+        if not respaldo_previo.get("ok"):
+            return respaldo_previo
+
+        _sqlite_restore_from_file(origen, db_path)
         return {"ok": True, "restaurado": nombre}
     except Exception as e:
         return {"ok": False, "error": str(e)}
@@ -131,7 +182,7 @@ def limpiar_backups_antiguos(dias_retencion: int = DEFAULT_RETENTION_DAYS) -> di
     eliminados = 0
     ahora = datetime.now()
 
-    for backup in backups[5:]:  # Mantener al menos los ultimos 5
+    for backup in backups[5:]:
         try:
             fecha = datetime.strptime(backup["fecha"], "%Y-%m-%d")
             dias = (ahora - fecha).days
@@ -141,7 +192,6 @@ def limpiar_backups_antiguos(dias_retencion: int = DEFAULT_RETENTION_DAYS) -> di
         except Exception:
             continue
 
-    # Limitar total de backups
     backups = listar_backups()
     while len(backups) > MAX_BACKUPS:
         eliminar_backup(backups[-1]["timestamp"])
@@ -155,6 +205,7 @@ def obtener_info_backup() -> dict:
     """Informacion general del sistema de backups."""
     _ensure_backup_dir()
     backups = listar_backups()
+    info = _database_info()
 
     tamano_total = sum(
         (BACKUP_DIR / b["archivo"]).stat().st_size
@@ -166,4 +217,6 @@ def obtener_info_backup() -> dict:
         "ultimo_backup": backups[0] if backups else None,
         "tamano_total_mb": round(tamano_total / (1024 * 1024), 2),
         "directorio": str(BACKUP_DIR),
+        "motor_activo": info.get("type"),
+        "backup_en_app_disponible": bool(info.get("supports_app_file_backup")),
     }
