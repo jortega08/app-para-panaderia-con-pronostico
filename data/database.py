@@ -1696,7 +1696,7 @@ def registrar_venta_lote(items: list[dict], registrado_por: str = "",
             "cambio": cambio,
         }
     except Exception as e:
-        print(f"[ERROR] registrar_venta_lote: {e}")
+        logger.error(f"registrar_venta_lote: {e}")
         return {"ok": False, "error": str(e)}
 
 
@@ -1953,7 +1953,7 @@ def guardar_registro(fecha: str, producto: str,
             conn.commit()
         return True
     except Exception as e:
-        print(f"[ERROR] guardar_registro: {e}")
+        logger.error(f"guardar_registro: {e}")
         return False
 
 
@@ -2120,7 +2120,7 @@ def crear_pedido(mesa_id: int, mesero: str, items: list[dict],
             conn.commit()
         return pedido_id
     except Exception as e:
-        print(f"[ERROR] crear_pedido: {e}")
+        logger.error(f"crear_pedido: {e}")
         return None
 
 
@@ -2404,7 +2404,7 @@ def cambiar_estado_pedido(pedido_id: int, nuevo_estado: str,
             conn.commit()
         return True
     except Exception as e:
-        print(f"[ERROR] cambiar_estado_pedido: {e}")
+        logger.error(f"cambiar_estado_pedido: {e}")
         return False
 
 
@@ -2538,7 +2538,7 @@ def pagar_pedido(pedido_id: int, registrado_por: str = "",
             "total": total_pedido,
         }
     except Exception as e:
-        print(f"[ERROR] pagar_pedido: {e}")
+        logger.error(f"pagar_pedido: {e}")
         return {"ok": False, "error": str(e)}
 
 
@@ -2701,7 +2701,7 @@ def guardar_configuracion_adicional(adicional_id: int, insumos: list[dict] | Non
             conn.commit()
         return True
     except Exception as e:
-        print(f"[ERROR] guardar_configuracion_adicional: {e}")
+        logger.error(f"guardar_configuracion_adicional: {e}")
         return False
 
 
