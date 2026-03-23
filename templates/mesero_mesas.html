@@ -29,5 +29,31 @@
         </a>
         {% endfor %}
     </div>
+
+    <!-- Top 3 productos del día -->
+    <div id="top3Banner" style="display:none;margin-top:16px;background:var(--color-surface);border:1px solid var(--color-border);border-radius:8px;padding:10px 14px">
+      <div style="font-size:.75rem;font-weight:600;opacity:.6;margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">🔥 Más pedidos hoy</div>
+      <div id="top3Lista" style="display:flex;gap:12px;flex-wrap:wrap"></div>
+    </div>
 </div>
+
+<script>
+async function cargarTop3() {
+    try {
+        const r = await fetch('/api/top-productos?limite=3');
+        if (!r.ok) return;
+        const d = await r.json();
+        const top = d.top || [];
+        if (top.length === 0) return;
+        document.getElementById('top3Banner').style.display = 'block';
+        document.getElementById('top3Lista').innerHTML = top.map((t,i) => `
+            <span style="font-size:.85rem;background:var(--color-bg);border-radius:6px;padding:4px 10px;border:1px solid var(--color-border)">
+                <strong>#${i+1}</strong> ${t.producto} <span style="opacity:.6">(${t.unidades})</span>
+            </span>
+        `).join('');
+    } catch(e) {}
+}
+cargarTop3();
+setInterval(cargarTop3, 120000);
+</script>
 {% endblock %}

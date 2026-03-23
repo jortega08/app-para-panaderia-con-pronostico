@@ -10,22 +10,50 @@ Aplicacion Flask ligera con:
 """
 
 import csv
+import io
+import os
 import re
+import secrets
 import socket
 import unicodedata
 import zipfile
+from collections import defaultdict
 from datetime import datetime, timedelta
 from functools import wraps
 from io import BytesIO
 from xml.etree import ElementTree as ET
 
+# Cargar variables de entorno desde .env si existe
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from flask import (
     Flask, render_template, request, redirect,
-    url_for, session, jsonify, flash,
+    url_for, session, jsonify, flash, Response,
 )
 
 from data.database import (
     inicializar_base_de_datos,
+    registrar_audit,
+    obtener_audit_log,
+    obtener_top_productos_dia,
+    obtener_alertas_stock_productos,
+    actualizar_stock_minimo_producto,
+    guardar_ajuste_pronostico,
+    obtener_ajuste_pronostico,
+    obtener_historial_ajustes,
+    registrar_merma,
+    obtener_mermas_dia,
+    obtener_resumen_mermas,
+    obtener_factor_dia_especial,
+    obtener_dias_especiales,
+    guardar_dia_especial,
+    obtener_resumen_cierre_diario,
+    exportar_ventas_csv,
+    exportar_inventario_csv,
     guardar_registro,
     obtener_registros,
     obtener_productos,
@@ -111,7 +139,27 @@ from logic.pronostico import (
 )
 
 app = Flask(__name__)
-app.secret_key = "panaderia-secret-key-2024"
+
+# ── Seguridad: secret key desde variable de entorno ──────────────────────────
+_secret_key = os.environ.get("FLASK_SECRET_KEY", "").strip()
+if not _secret_key or _secret_key == "cambia-esto-por-una-clave-aleatoria-segura":
+    import warnings
+    warnings.warn(
+        "ADVERTENCIA DE SEGURIDAD: FLASK_SECRET_KEY no configurada. "
+        "Usando clave temporal generada. Configura FLASK_SECRET_KEY en producción.",
+        stacklevel=1,
+    )
+    _secret_key = secrets.token_hex(32)
+app.secret_key = _secret_key
+
+# ── Configuración de sesión ────────────────────────────────────────────────────
+_SESSION_HOURS = int(os.environ.get("SESSION_LIFETIME_HOURS", "8"))
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=_SESSION_HOURS)
+
+# ── Rate limiting (en memoria, simple) ──────────────────────────────────────────
+_MAX_ATTEMPTS = int(os.environ.get("MAX_LOGIN_ATTEMPTS", "5"))
+_LOCKOUT_MINUTES = int(os.environ.get("LOGIN_LOCKOUT_MINUTES", "5"))
+_login_attempts: dict = defaultdict(lambda: {"count": 0, "until": None})
 
 # ── Iconos y colores por categoria/producto ──
 ICONOS_CATEGORIA = {
@@ -471,7 +519,19 @@ def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if "usuario" not in session:
+            if request.is_json:
+                return jsonify({"ok": False, "error": "No autenticado"}), 401
             return redirect(url_for("login"))
+        # Verificar expiración de sesión
+        login_ts = session.get("_login_ts")
+        if login_ts:
+            age = datetime.now().timestamp() - float(login_ts)
+            if age > _SESSION_HOURS * 3600:
+                session.clear()
+                if request.is_json:
+                    return jsonify({"ok": False, "error": "Sesion expirada"}), 401
+                flash("Tu sesion expiró. Inicia sesion de nuevo.", "info")
+                return redirect(url_for("login"))
         return f(*args, **kwargs)
     return decorated
 
@@ -496,19 +556,50 @@ def index():
 def login():
     if request.method == "POST":
         pin = request.form.get("pin", "").strip()
+        ip = request.remote_addr or "unknown"
+
         if not pin:
             flash("Escribe tu PIN", "error")
             return render_template("login.html")
 
+        # ── Rate limiting por IP ──────────────────────────────────────────────
+        entry = _login_attempts[ip]
+        if entry["until"] and datetime.now() < entry["until"]:
+            restante = int((entry["until"] - datetime.now()).total_seconds() / 60) + 1
+            flash(f"Demasiados intentos. Espera {restante} minuto(s).", "error")
+            return render_template("login.html")
+
         usuario = verificar_pin(pin)
         if usuario:
+            # Login exitoso: limpiar contador
+            _login_attempts.pop(ip, None)
+            session.clear()
+            session.permanent = True
             session["usuario"] = usuario
+            session["_login_ts"] = datetime.now().timestamp()
+            registrar_audit(
+                usuario=usuario["nombre"],
+                accion="login",
+                entidad="usuario",
+                entidad_id=str(usuario.get("id", "")),
+                detalle=f"Login exitoso - rol: {usuario['rol']}",
+            )
             if usuario["rol"] == "cajero":
                 return redirect(url_for("cajero_pos"))
             if usuario["rol"] == "mesero":
                 return redirect(url_for("mesero_mesas"))
             return redirect(url_for("panadero_pronostico"))
-        flash("PIN incorrecto", "error")
+
+        # PIN incorrecto: incrementar contador
+        entry["count"] = entry.get("count", 0) + 1
+        if entry["count"] >= _MAX_ATTEMPTS:
+            entry["until"] = datetime.now() + timedelta(minutes=_LOCKOUT_MINUTES)
+            entry["count"] = 0
+            flash(f"Demasiados intentos fallidos. Espera {_LOCKOUT_MINUTES} minutos.", "error")
+        else:
+            restantes = _MAX_ATTEMPTS - entry["count"]
+            flash(f"PIN incorrecto. Intentos restantes: {restantes}", "error")
+
     return render_template("login.html")
 
 
@@ -1377,6 +1468,15 @@ def api_cerrar_caja():
     )
     status = 200 if resultado.get("ok") else 400
     if resultado.get("ok"):
+        diferencia = resultado.get("diferencia", 0)
+        registrar_audit(
+            usuario=usuario,
+            accion="cierre_caja",
+            entidad="caja",
+            detalle=f"Caja cerrada. Monto: {monto_cierre}. Diferencia: {diferencia}",
+            valor_antes=str(resultado.get("efectivo_esperado", "")),
+            valor_nuevo=str(monto_cierre),
+        )
         resultado["caja"] = obtener_resumen_caja_dia()
         resultado["arqueos"] = obtener_historial_arqueos(6)
     return jsonify(resultado), status
@@ -1448,7 +1548,17 @@ def api_actualizar_producto_completo(producto_id):
 @app.route("/api/producto/<int:producto_id>", methods=["DELETE"])
 @login_required
 def api_eliminar_producto(producto_id):
+    nombre = request.args.get("nombre", str(producto_id))
     ok = eliminar_producto_por_id(producto_id)
+    if ok:
+        usuario = session.get("usuario", {}).get("nombre", "")
+        registrar_audit(
+            usuario=usuario,
+            accion="eliminar_producto",
+            entidad="producto",
+            entidad_id=str(producto_id),
+            detalle=f"Producto eliminado: {nombre}",
+        )
     return jsonify({"ok": ok, "error": None if ok else "No se pudo eliminar el producto"})
 
 
@@ -1493,8 +1603,20 @@ def api_agregar_categoria_producto():
 def api_actualizar_precio():
     data = request.json
     nombre = data.get("nombre", "")
-    precio = float(data.get("precio", 0))
-    ok = actualizar_precio(nombre, precio)
+    precio_nuevo = float(data.get("precio", 0))
+    precio_anterior = data.get("precio_anterior")
+    ok = actualizar_precio(nombre, precio_nuevo)
+    if ok:
+        usuario = session.get("usuario", {}).get("nombre", "")
+        registrar_audit(
+            usuario=usuario,
+            accion="cambio_precio",
+            entidad="producto",
+            entidad_id=nombre,
+            detalle=f"Precio actualizado: {nombre}",
+            valor_antes=str(precio_anterior) if precio_anterior is not None else "",
+            valor_nuevo=str(precio_nuevo),
+        )
     return jsonify({"ok": ok})
 
 
@@ -1651,6 +1773,14 @@ def api_cambiar_estado(pedido_id):
     else:
         usuario = session["usuario"]["nombre"] if "usuario" in session else ""
         ok = cambiar_estado_pedido(pedido_id, nuevo_estado, cambiado_por=usuario)
+        if ok and nuevo_estado == "cancelado":
+            registrar_audit(
+                usuario=usuario,
+                accion="cancelar_pedido",
+                entidad="pedido",
+                entidad_id=str(pedido_id),
+                detalle=f"Pedido #{pedido_id} cancelado",
+            )
     return jsonify({"ok": ok})
 
 
@@ -1777,8 +1907,21 @@ def api_importar_insumos():
 @login_required
 def api_actualizar_stock(iid):
     data = request.json
-    stock = float(data.get("stock", 0))
-    ok = actualizar_stock(iid, stock)
+    stock_nuevo = float(data.get("stock", 0))
+    stock_anterior = data.get("stock_anterior")
+    nombre_insumo = data.get("nombre", str(iid))
+    ok = actualizar_stock(iid, stock_nuevo)
+    if ok:
+        usuario = session.get("usuario", {}).get("nombre", "")
+        registrar_audit(
+            usuario=usuario,
+            accion="ajuste_inventario",
+            entidad="insumo",
+            entidad_id=str(iid),
+            detalle=f"Stock ajustado: {nombre_insumo}",
+            valor_antes=str(stock_anterior) if stock_anterior is not None else "",
+            valor_nuevo=str(stock_nuevo),
+        )
     return jsonify({"ok": ok})
 
 
@@ -1867,6 +2010,263 @@ def api_limpiar_backups():
 
 
 # ══════════════════════════════════════════════
+# NUEVAS APIs - FASE 2
+# ══════════════════════════════════════════════
+
+# ── Top 3 productos del día ──────────────────────────────────────────────────
+
+@app.route("/api/top-productos")
+@login_required
+def api_top_productos():
+    fecha = request.args.get("fecha", datetime.now().strftime("%Y-%m-%d"))
+    limite = int(request.args.get("limite", 3))
+    top = obtener_top_productos_dia(fecha=fecha, limite=limite)
+    return jsonify({"ok": True, "fecha": fecha, "top": top})
+
+
+# ── Alertas de stock por producto ────────────────────────────────────────────
+
+@app.route("/api/alertas-stock")
+@login_required
+def api_alertas_stock():
+    fecha = request.args.get("fecha", datetime.now().strftime("%Y-%m-%d"))
+    alertas = obtener_alertas_stock_productos(fecha=fecha)
+    return jsonify({"ok": True, "fecha": fecha, "alertas": alertas})
+
+
+@app.route("/api/producto/<int:producto_id>/stock-minimo", methods=["PUT"])
+@login_required
+def api_actualizar_stock_minimo(producto_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        stock_minimo = int(data.get("stock_minimo", 0) or 0)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Valor inválido"}), 400
+    ok = actualizar_stock_minimo_producto(producto_id, stock_minimo)
+    if ok:
+        usuario = session.get("usuario", {}).get("nombre", "")
+        registrar_audit(
+            usuario=usuario,
+            accion="cambio_stock_minimo",
+            entidad="producto",
+            entidad_id=str(producto_id),
+            detalle=f"Stock mínimo actualizado a {stock_minimo}",
+            valor_nuevo=str(stock_minimo),
+        )
+    return jsonify({"ok": ok})
+
+
+# ── Audit Log ────────────────────────────────────────────────────────────────
+
+@app.route("/api/audit-log")
+@login_required
+def api_audit_log():
+    if session.get("usuario", {}).get("rol") != "panadero":
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    dias = int(request.args.get("dias", 30))
+    limite = int(request.args.get("limite", 200))
+    log = obtener_audit_log(dias=dias, limite=limite)
+    return jsonify({"ok": True, "log": log})
+
+
+# ── Ajuste manual de pronóstico ──────────────────────────────────────────────
+
+@app.route("/api/pronostico/ajuste", methods=["POST"])
+@login_required
+def api_guardar_ajuste_pronostico():
+    data = request.get_json(silent=True) or {}
+    fecha = data.get("fecha", datetime.now().strftime("%Y-%m-%d"))
+    producto = str(data.get("producto", "")).strip()
+    motivo = str(data.get("motivo", "")).strip()
+    usuario = session.get("usuario", {}).get("nombre", "")
+    try:
+        sugerido = int(data.get("sugerido", 0))
+        ajustado = int(data.get("ajustado", 0))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Valores inválidos"}), 400
+    if not producto:
+        return jsonify({"ok": False, "error": "Producto requerido"}), 400
+    ok = guardar_ajuste_pronostico(fecha, producto, sugerido, ajustado, motivo, usuario)
+    if ok:
+        registrar_audit(
+            usuario=usuario,
+            accion="ajuste_pronostico",
+            entidad="pronostico",
+            entidad_id=f"{fecha}/{producto}",
+            detalle=f"Pronóstico ajustado: {producto} | {fecha}",
+            valor_antes=str(sugerido),
+            valor_nuevo=f"{ajustado} | motivo: {motivo}",
+        )
+    return jsonify({"ok": ok})
+
+
+@app.route("/api/pronostico/ajuste")
+@login_required
+def api_obtener_ajuste_pronostico():
+    fecha = request.args.get("fecha", datetime.now().strftime("%Y-%m-%d"))
+    producto = request.args.get("producto", "")
+    if not producto:
+        return jsonify({"ok": False, "error": "Producto requerido"}), 400
+    ajuste = obtener_ajuste_pronostico(fecha, producto)
+    historial = obtener_historial_ajustes(producto, dias=30)
+    return jsonify({"ok": True, "ajuste": ajuste, "historial": historial})
+
+
+# ── Mermas ───────────────────────────────────────────────────────────────────
+
+@app.route("/api/merma", methods=["POST"])
+@login_required
+def api_registrar_merma():
+    data = request.get_json(silent=True) or {}
+    producto = str(data.get("producto", "")).strip()
+    notas = str(data.get("notas", "")).strip()
+    tipo = str(data.get("tipo", "sobrante")).strip()
+    usuario = session.get("usuario", {}).get("nombre", "")
+    try:
+        cantidad = float(data.get("cantidad", 0))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Cantidad inválida"}), 400
+    if not producto:
+        return jsonify({"ok": False, "error": "Producto requerido"}), 400
+    ok = registrar_merma(producto, cantidad, tipo=tipo, registrado_por=usuario, notas=notas)
+    return jsonify({"ok": ok})
+
+
+@app.route("/api/mermas")
+@login_required
+def api_mermas_dia():
+    fecha = request.args.get("fecha", datetime.now().strftime("%Y-%m-%d"))
+    mermas = obtener_mermas_dia(fecha=fecha)
+    resumen = obtener_resumen_mermas(dias=30)
+    return jsonify({"ok": True, "fecha": fecha, "mermas": mermas, "resumen": resumen})
+
+
+# ── Días especiales ───────────────────────────────────────────────────────────
+
+@app.route("/api/dias-especiales")
+@login_required
+def api_dias_especiales():
+    dias = obtener_dias_especiales()
+    return jsonify({"ok": True, "dias_especiales": dias})
+
+
+@app.route("/api/dia-especial", methods=["POST"])
+@login_required
+def api_guardar_dia_especial():
+    if session.get("usuario", {}).get("rol") != "panadero":
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    fecha = str(data.get("fecha", "")).strip()
+    descripcion = str(data.get("descripcion", "")).strip()
+    tipo = str(data.get("tipo", "festivo")).strip()
+    try:
+        factor = float(data.get("factor", 1.0))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Factor inválido"}), 400
+    if not fecha or not descripcion:
+        return jsonify({"ok": False, "error": "Fecha y descripción requeridas"}), 400
+    ok = guardar_dia_especial(fecha, descripcion, factor=factor, tipo=tipo)
+    return jsonify({"ok": ok})
+
+
+# ── Dashboard de cierre diario ────────────────────────────────────────────────
+
+@app.route("/api/cierre-diario")
+@login_required
+def api_cierre_diario():
+    fecha = request.args.get("fecha", datetime.now().strftime("%Y-%m-%d"))
+    # Incluir pronóstico del día siguiente
+    from logic.pronostico import calcular_pronostico
+    from datetime import date, timedelta
+    manana = (date.today() + timedelta(days=1)).strftime("%Y-%m-%d")
+    productos_panaderia = obtener_productos(categoria="Panaderia")
+
+    pronostico_manana = []
+    for p in productos_panaderia:
+        try:
+            res = calcular_pronostico(p, fecha_objetivo=manana)
+            pronostico_manana.append({
+                "producto": p,
+                "sugerido": res.produccion_sugerida,
+                "confianza": res.confianza,
+            })
+        except Exception:
+            pass
+
+    resumen = obtener_resumen_cierre_diario(fecha=fecha)
+    resumen["pronostico_manana"] = pronostico_manana
+    return jsonify({"ok": True, **resumen})
+
+
+# ── Exportaciones CSV ─────────────────────────────────────────────────────────
+
+@app.route("/api/export/ventas")
+@login_required
+def api_export_ventas():
+    if session.get("usuario", {}).get("rol") != "panadero":
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    dias = int(request.args.get("dias", 30))
+    ventas = exportar_ventas_csv(dias=dias)
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=[
+        "fecha", "hora", "producto", "cantidad", "precio_unitario", "total",
+        "metodo_pago", "registrado_por"
+    ])
+    writer.writeheader()
+    writer.writerows(ventas)
+
+    fecha_hoy = datetime.now().strftime("%Y%m%d")
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=ventas_{fecha_hoy}.csv"}
+    )
+
+
+@app.route("/api/export/inventario")
+@login_required
+def api_export_inventario():
+    if session.get("usuario", {}).get("rol") != "panadero":
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    insumos = exportar_inventario_csv()
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=["nombre", "unidad", "stock", "stock_minimo", "activo"])
+    writer.writeheader()
+    writer.writerows(insumos)
+
+    fecha_hoy = datetime.now().strftime("%Y%m%d")
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=inventario_{fecha_hoy}.csv"}
+    )
+
+
+# ── Vista de cierre diario ───────────────────────────────────────────────────
+
+@app.route("/panadero/cierre")
+@login_required
+def panadero_cierre():
+    if session.get("usuario", {}).get("rol") != "panadero":
+        return redirect(url_for("index"))
+    return render_template("panadero_cierre.html",
+                           layout="panadero", active_page="cierre")
+
+
+# ── Vista de audit log ────────────────────────────────────────────────────────
+
+@app.route("/panadero/audit")
+@login_required
+def panadero_audit():
+    if session.get("usuario", {}).get("rol") != "panadero":
+        return redirect(url_for("index"))
+    return render_template("panadero_audit.html",
+                           layout="panadero", active_page="audit")
+
+
+# ══════════════════════════════════════════════
 # UTILIDADES
 # ══════════════════════════════════════════════
 
@@ -1895,9 +2295,41 @@ def utility_processor():
 # PUNTO DE ENTRADA
 # ══════════════════════════════════════════════
 
+def _iniciar_scheduler():
+    """Inicia el scheduler de backups automáticos diarios."""
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        backup_hour = int(os.environ.get("BACKUP_AUTO_HOUR", "23"))
+        retention_days = int(os.environ.get("BACKUP_RETENTION_DAYS", "30"))
+
+        def _backup_diario():
+            result = crear_backup(f"Backup automático diario - {datetime.now().strftime('%Y-%m-%d')}")
+            if result["ok"]:
+                limpiar_backups_antiguos(dias_retencion=retention_days)
+                print(f"[BACKUP] Backup automático completado: {result['backup']['archivo']}")
+            else:
+                print(f"[BACKUP ERROR] {result.get('error', 'Error desconocido')}")
+
+        scheduler = BackgroundScheduler(daemon=True)
+        scheduler.add_job(_backup_diario, "cron", hour=backup_hour, minute=0)
+        scheduler.start()
+        print(f"  Backup automático programado a las {backup_hour:02d}:00")
+        return scheduler
+    except ImportError:
+        print("  [AVISO] APScheduler no instalado. Backups automáticos desactivados.")
+        return None
+    except Exception as e:
+        print(f"  [AVISO] No se pudo iniciar scheduler de backups: {e}")
+        return None
+
+
+# Inicializar BD y scheduler al cargar el módulo (para Gunicorn)
+inicializar_base_de_datos()
+_scheduler = _iniciar_scheduler()
+
+
 if __name__ == "__main__":
-    inicializar_base_de_datos()
-    # Backup automatico al iniciar
+    # Backup automatico al iniciar en modo desarrollo
     result = crear_backup("Backup automatico al iniciar")
     if result["ok"]:
         print("  Backup automatico creado")
@@ -1909,7 +2341,8 @@ if __name__ == "__main__":
     print("=" * 50)
     print(f"  Abrir en navegador: http://{ip}:5000")
     print(f"  QR clientes:        http://{ip}:5000/cliente/pedido")
-    print(f"  PIN Panadero: 1234  |  PIN Cajero: 0000  |  PIN Mesero: 1111")
+    print()
+    print("  ADVERTENCIA: Cambia los PINes por defecto en Configuracion > Usuarios")
     print("=" * 50)
     print()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=os.environ.get("FLASK_ENV") == "development")

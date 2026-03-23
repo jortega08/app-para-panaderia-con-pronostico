@@ -25,6 +25,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
+from data.db_adapter import get_connection as _get_connection, DB_TYPE
 
 DB_PATH = Path(__file__).parent / "panaderia.db"
 
@@ -125,12 +126,9 @@ def _obtener_configuracion_conn(conn, clave: str, valor_default: str = "") -> st
     return str(row["valor"]) if row and row["valor"] is not None else valor_default
 
 
-def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH, timeout=10)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
-    return conn
+def get_connection():
+    """Retorna conexión activa (SQLite o PostgreSQL según DATABASE_URL)."""
+    return _get_connection()
 
 
 # ──────────────────────────────────────────────
@@ -396,6 +394,60 @@ def inicializar_base_de_datos() -> None:
             )
         """)
 
+        # ── Nuevas tablas (Fase 2) ─────────────────────────────────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                fecha        TEXT NOT NULL,
+                creado_en    TEXT NOT NULL,
+                usuario      TEXT NOT NULL DEFAULT '',
+                accion       TEXT NOT NULL,
+                entidad      TEXT NOT NULL DEFAULT '',
+                entidad_id   TEXT NOT NULL DEFAULT '',
+                detalle      TEXT NOT NULL DEFAULT '',
+                valor_antes  TEXT NOT NULL DEFAULT '',
+                valor_nuevo  TEXT NOT NULL DEFAULT ''
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS mermas (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                fecha        TEXT NOT NULL,
+                creado_en    TEXT NOT NULL,
+                producto     TEXT NOT NULL,
+                cantidad     REAL NOT NULL DEFAULT 0,
+                tipo         TEXT NOT NULL DEFAULT 'sobrante',
+                registrado_por TEXT NOT NULL DEFAULT '',
+                notas        TEXT NOT NULL DEFAULT ''
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dias_especiales (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                fecha        TEXT UNIQUE NOT NULL,
+                descripcion  TEXT NOT NULL DEFAULT '',
+                factor       REAL NOT NULL DEFAULT 1.0,
+                tipo         TEXT NOT NULL DEFAULT 'festivo',
+                activo       INTEGER NOT NULL DEFAULT 1
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ajustes_pronostico (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                fecha        TEXT NOT NULL,
+                creado_en    TEXT NOT NULL,
+                producto     TEXT NOT NULL,
+                sugerido     INTEGER NOT NULL DEFAULT 0,
+                ajustado     INTEGER NOT NULL DEFAULT 0,
+                motivo       TEXT NOT NULL DEFAULT '',
+                registrado_por TEXT NOT NULL DEFAULT '',
+                UNIQUE(fecha, producto)
+            )
+        """)
+
         # Migrar tabla productos existente: agregar columnas si faltan
         _migrar_productos(conn)
         # Migrar tabla usuarios: agregar rol mesero al CHECK
@@ -551,8 +603,15 @@ def inicializar_base_de_datos() -> None:
 
 def _migrar_productos(conn):
     """Agrega columnas de soporte si la tabla productos ya existia."""
-    cursor = conn.execute("PRAGMA table_info(productos)")
-    columnas = [row["name"] for row in cursor.fetchall()]
+    if DB_TYPE == "sqlite":
+        cursor = conn.execute("PRAGMA table_info(productos)")
+        columnas = [row["name"] for row in cursor.fetchall()]
+    else:
+        cursor = conn.execute("""
+            SELECT column_name as name FROM information_schema.columns
+            WHERE table_name = 'productos'
+        """)
+        columnas = [row["name"] for row in cursor.fetchall()]
 
     if "precio" not in columnas:
         conn.execute("ALTER TABLE productos ADD COLUMN precio REAL NOT NULL DEFAULT 0.0")
@@ -562,6 +621,8 @@ def _migrar_productos(conn):
         conn.execute("ALTER TABLE productos ADD COLUMN activo INTEGER NOT NULL DEFAULT 1")
     if "es_adicional" not in columnas:
         conn.execute("ALTER TABLE productos ADD COLUMN es_adicional INTEGER NOT NULL DEFAULT 0")
+    if "stock_minimo" not in columnas:
+        conn.execute("ALTER TABLE productos ADD COLUMN stock_minimo INTEGER NOT NULL DEFAULT 0")
 
 
 def _sembrar_categorias_producto(conn):
@@ -3043,3 +3104,446 @@ def obtener_resumen_mesas() -> list[dict]:
             mesa["estado_mesa"] = ultimo["estado"] if ultimo else "libre"
             resultado.append(mesa)
     return resultado
+
+
+# ──────────────────────────────────────────────
+# Audit Log
+# ──────────────────────────────────────────────
+
+def registrar_audit(
+    usuario: str,
+    accion: str,
+    entidad: str = "",
+    entidad_id: str = "",
+    detalle: str = "",
+    valor_antes: str = "",
+    valor_nuevo: str = "",
+) -> None:
+    """Registra una acción crítica en el audit log."""
+    ahora = datetime.now()
+    fecha = ahora.strftime("%Y-%m-%d")
+    creado_en = ahora.strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with get_connection() as conn:
+            conn.execute("""
+                INSERT INTO audit_log
+                    (fecha, creado_en, usuario, accion, entidad, entidad_id, detalle, valor_antes, valor_nuevo)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (fecha, creado_en, str(usuario or ""), str(accion or ""),
+                  str(entidad or ""), str(entidad_id or ""),
+                  str(detalle or ""), str(valor_antes or ""), str(valor_nuevo or "")))
+            conn.commit()
+    except Exception as e:
+        print(f"[AUDIT ERROR] {e}")
+
+
+def obtener_audit_log(dias: int = 30, limite: int = 200) -> list[dict]:
+    """Devuelve entradas recientes del audit log."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT id, fecha, creado_en, usuario, accion, entidad, entidad_id,
+                   detalle, valor_antes, valor_nuevo
+            FROM audit_log
+            WHERE fecha >= date('now', ?)
+            ORDER BY creado_en DESC, id DESC
+            LIMIT ?
+        """, (f"-{dias} days", limite)).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ──────────────────────────────────────────────
+# Top Productos del Día
+# ──────────────────────────────────────────────
+
+def obtener_top_productos_dia(fecha: str | None = None, limite: int = 3) -> list[dict]:
+    """Top N productos más vendidos hoy (unidades vendidas)."""
+    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    with get_connection() as conn:
+        # Ventas del cajero
+        rows_ventas = conn.execute("""
+            SELECT producto,
+                   COALESCE(SUM(cantidad), 0) as unidades,
+                   COALESCE(SUM(total), 0.0) as ingresos
+            FROM ventas
+            WHERE fecha = ?
+            GROUP BY producto
+        """, (fecha,)).fetchall()
+
+        # Ventas via pedidos de mesa (estado pagado)
+        rows_pedidos = conn.execute("""
+            SELECT pi.producto,
+                   COALESCE(SUM(pi.cantidad), 0) as unidades,
+                   COALESCE(SUM(pi.subtotal), 0.0) as ingresos
+            FROM pedido_items pi
+            JOIN pedidos p ON p.id = pi.pedido_id
+            WHERE p.fecha = ? AND p.estado = 'pagado'
+            GROUP BY pi.producto
+        """, (fecha,)).fetchall()
+
+    # Combinar ambas fuentes
+    combinado: dict[str, dict] = {}
+    for r in list(rows_ventas) + list(rows_pedidos):
+        nombre = r["producto"]
+        if nombre not in combinado:
+            combinado[nombre] = {"producto": nombre, "unidades": 0, "ingresos": 0.0}
+        combinado[nombre]["unidades"] += int(r["unidades"] or 0)
+        combinado[nombre]["ingresos"] += float(r["ingresos"] or 0)
+
+    resultado = sorted(combinado.values(), key=lambda x: x["unidades"], reverse=True)
+    return resultado[:limite]
+
+
+# ──────────────────────────────────────────────
+# Alertas de Stock por Producto
+# ──────────────────────────────────────────────
+
+def obtener_alertas_stock_productos(fecha: str | None = None) -> list[dict]:
+    """
+    Devuelve estado de stock de productos de panadería del día.
+    Estado: 'verde' (ok), 'amarillo' (pocas unidades), 'rojo' (agotado).
+    """
+    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    with get_connection() as conn:
+        productos = conn.execute("""
+            SELECT id, nombre, stock_minimo
+            FROM productos
+            WHERE activo = 1 AND categoria = 'Panaderia'
+        """).fetchall()
+
+        registros = conn.execute("""
+            SELECT producto, producido, vendido,
+                   COALESCE(producido - vendido, 0) as disponible
+            FROM registros_diarios
+            WHERE fecha = ?
+        """, (fecha,)).fetchall()
+
+    reg_por_prod = {r["producto"]: dict(r) for r in registros}
+
+    resultado = []
+    for p in productos:
+        nombre = p["nombre"]
+        stock_minimo = int(p["stock_minimo"] or 0)
+        reg = reg_por_prod.get(nombre)
+
+        if reg is None:
+            # No hay registro del día = sin datos
+            estado = "sin_datos"
+            disponible = None
+        else:
+            disponible = max(int(reg["disponible"] or 0), 0)
+            if disponible <= 0:
+                estado = "rojo"
+            elif stock_minimo > 0 and disponible <= stock_minimo:
+                estado = "amarillo"
+            else:
+                estado = "verde"
+
+        resultado.append({
+            "producto": nombre,
+            "disponible": disponible,
+            "stock_minimo": stock_minimo,
+            "estado": estado,
+        })
+
+    return resultado
+
+
+def actualizar_stock_minimo_producto(producto_id: int, stock_minimo: int) -> bool:
+    """Actualiza el stock mínimo de alerta de un producto."""
+    try:
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE productos SET stock_minimo = ? WHERE id = ?",
+                (max(0, int(stock_minimo)), producto_id)
+            )
+            conn.commit()
+        return True
+    except Exception:
+        return False
+
+
+# ──────────────────────────────────────────────
+# Ajustes de Pronóstico (ajuste manual del panadero)
+# ──────────────────────────────────────────────
+
+def guardar_ajuste_pronostico(
+    fecha: str,
+    producto: str,
+    sugerido: int,
+    ajustado: int,
+    motivo: str = "",
+    registrado_por: str = "",
+) -> bool:
+    """Guarda el ajuste manual del panadero al pronóstico del sistema."""
+    creado_en = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with get_connection() as conn:
+            conn.execute("""
+                INSERT INTO ajustes_pronostico
+                    (fecha, creado_en, producto, sugerido, ajustado, motivo, registrado_por)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(fecha, producto) DO UPDATE SET
+                    ajustado = excluded.ajustado,
+                    motivo = excluded.motivo,
+                    registrado_por = excluded.registrado_por,
+                    creado_en = excluded.creado_en
+            """, (fecha, creado_en, producto, sugerido, ajustado, motivo, registrado_por))
+            conn.commit()
+        return True
+    except Exception as e:
+        print(f"[ERROR] guardar_ajuste_pronostico: {e}")
+        return False
+
+
+def obtener_ajuste_pronostico(fecha: str, producto: str) -> dict | None:
+    """Devuelve el ajuste manual del panadero para un producto y fecha, si existe."""
+    with get_connection() as conn:
+        row = conn.execute("""
+            SELECT fecha, producto, sugerido, ajustado, motivo, registrado_por, creado_en
+            FROM ajustes_pronostico
+            WHERE fecha = ? AND producto = ?
+        """, (fecha, producto)).fetchone()
+    return dict(row) if row else None
+
+
+def obtener_historial_ajustes(producto: str, dias: int = 30) -> list[dict]:
+    """Historial de ajustes manuales de un producto."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT fecha, producto, sugerido, ajustado, motivo, registrado_por, creado_en
+            FROM ajustes_pronostico
+            WHERE producto = ? AND fecha >= date('now', ?)
+            ORDER BY fecha DESC
+        """, (producto, f"-{dias} days")).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ──────────────────────────────────────────────
+# Merma / Desperdicio
+# ──────────────────────────────────────────────
+
+def registrar_merma(
+    producto: str,
+    cantidad: float,
+    tipo: str = "sobrante",
+    registrado_por: str = "",
+    notas: str = "",
+    fecha: str | None = None,
+) -> bool:
+    """Registra una merma/desperdicio de un producto."""
+    ahora = datetime.now()
+    fecha = fecha or ahora.strftime("%Y-%m-%d")
+    creado_en = ahora.strftime("%Y-%m-%d %H:%M:%S")
+    tipos_validos = {"sobrante", "vencido", "danado", "consumo_interno", "cortesia", "otro"}
+    tipo = tipo if tipo in tipos_validos else "otro"
+    try:
+        with get_connection() as conn:
+            conn.execute("""
+                INSERT INTO mermas (fecha, creado_en, producto, cantidad, tipo, registrado_por, notas)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (fecha, creado_en, producto, float(cantidad), tipo, registrado_por, notas))
+            conn.commit()
+        return True
+    except Exception as e:
+        print(f"[ERROR] registrar_merma: {e}")
+        return False
+
+
+def obtener_mermas_dia(fecha: str | None = None) -> list[dict]:
+    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT id, fecha, creado_en, producto, cantidad, tipo, registrado_por, notas
+            FROM mermas WHERE fecha = ?
+            ORDER BY creado_en DESC
+        """, (fecha,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def obtener_resumen_mermas(dias: int = 30) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT producto, tipo,
+                   COALESCE(SUM(cantidad), 0) as total_unidades,
+                   COUNT(*) as registros
+            FROM mermas
+            WHERE fecha >= date('now', ?)
+            GROUP BY producto, tipo
+            ORDER BY total_unidades DESC
+        """, (f"-{dias} days",)).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ──────────────────────────────────────────────
+# Días Especiales / Festivos
+# ──────────────────────────────────────────────
+
+def obtener_dias_especiales(fecha_inicio: str | None = None, fecha_fin: str | None = None) -> list[dict]:
+    """Devuelve días especiales en un rango de fechas."""
+    with get_connection() as conn:
+        if fecha_inicio and fecha_fin:
+            rows = conn.execute("""
+                SELECT id, fecha, descripcion, factor, tipo, activo
+                FROM dias_especiales
+                WHERE activo = 1 AND fecha BETWEEN ? AND ?
+                ORDER BY fecha ASC
+            """, (fecha_inicio, fecha_fin)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT id, fecha, descripcion, factor, tipo, activo
+                FROM dias_especiales
+                WHERE activo = 1
+                ORDER BY fecha ASC
+            """).fetchall()
+    return [dict(r) for r in rows]
+
+
+def obtener_factor_dia_especial(fecha: str) -> float:
+    """Devuelve el factor multiplicador para una fecha especial (1.0 si no es especial)."""
+    with get_connection() as conn:
+        row = conn.execute("""
+            SELECT factor FROM dias_especiales WHERE fecha = ? AND activo = 1
+        """, (fecha,)).fetchone()
+    return float(row["factor"]) if row else 1.0
+
+
+def guardar_dia_especial(
+    fecha: str,
+    descripcion: str,
+    factor: float = 1.0,
+    tipo: str = "festivo",
+) -> bool:
+    try:
+        with get_connection() as conn:
+            conn.execute("""
+                INSERT INTO dias_especiales (fecha, descripcion, factor, tipo)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(fecha) DO UPDATE SET
+                    descripcion = excluded.descripcion,
+                    factor = excluded.factor,
+                    tipo = excluded.tipo,
+                    activo = 1
+            """, (fecha, descripcion, round(float(factor), 2), tipo))
+            conn.commit()
+        return True
+    except Exception as e:
+        print(f"[ERROR] guardar_dia_especial: {e}")
+        return False
+
+
+# ──────────────────────────────────────────────
+# Dashboard de Cierre Diario
+# ──────────────────────────────────────────────
+
+def obtener_resumen_cierre_diario(fecha: str | None = None) -> dict:
+    """
+    Genera el resumen completo del cierre del día:
+    ventas, ticket promedio, top producto, caja, merma, pronóstico mañana.
+    """
+    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+
+    with get_connection() as conn:
+        # ── Ventas del día ───────────────────────────────────────────────────
+        ventas_row = conn.execute("""
+            SELECT
+                COUNT(DISTINCT COALESCE(NULLIF(venta_grupo, ''), CAST(id AS TEXT))) as transacciones,
+                COALESCE(SUM(total), 0.0) as total_ventas,
+                COALESCE(SUM(cantidad), 0) as unidades_vendidas
+            FROM ventas WHERE fecha = ?
+        """, (fecha,)).fetchone()
+
+        # Ventas de pedidos de mesa (pagados)
+        pedidos_row = conn.execute("""
+            SELECT
+                COUNT(*) as pedidos_pagados,
+                COALESCE(SUM(total), 0.0) as total_pedidos
+            FROM pedidos WHERE fecha = ? AND estado = 'pagado'
+        """, (fecha,)).fetchone()
+
+        # ── Caja ─────────────────────────────────────────────────────────────
+        caja_row = conn.execute("""
+            SELECT monto_apertura, monto_cierre, efectivo_esperado,
+                   diferencia_cierre, estado, cerrado_por, cerrado_en,
+                   abierto_por, abierto_en
+            FROM arqueos_caja WHERE fecha = ?
+            ORDER BY CASE estado WHEN 'cerrado' THEN 0 ELSE 1 END,
+                     abierto_en DESC
+            LIMIT 1
+        """, (fecha,)).fetchone()
+
+        # ── Top producto del día ──────────────────────────────────────────────
+        top_row = conn.execute("""
+            SELECT producto, COALESCE(SUM(cantidad), 0) as unidades
+            FROM ventas WHERE fecha = ?
+            GROUP BY producto ORDER BY unidades DESC LIMIT 1
+        """, (fecha,)).fetchone()
+
+        # ── Producto sin rotación ─────────────────────────────────────────────
+        sin_rotacion = conn.execute("""
+            SELECT rd.producto
+            FROM registros_diarios rd
+            WHERE rd.fecha = ? AND COALESCE(rd.vendido, 0) = 0
+              AND COALESCE(rd.producido, 0) > 0
+        """, (fecha,)).fetchall()
+
+        # ── Merma del día ─────────────────────────────────────────────────────
+        merma_row = conn.execute("""
+            SELECT COALESCE(SUM(cantidad), 0) as total_merma
+            FROM mermas WHERE fecha = ?
+        """, (fecha,)).fetchone()
+
+        # ── Producción del día ────────────────────────────────────────────────
+        prod_row = conn.execute("""
+            SELECT COALESCE(SUM(producido), 0) as total_producido,
+                   COALESCE(SUM(vendido), 0) as total_vendido,
+                   COALESCE(SUM(CASE WHEN producido > vendido THEN producido - vendido ELSE 0 END), 0) as sobrante
+            FROM registros_diarios WHERE fecha = ?
+        """, (fecha,)).fetchone()
+
+    total_ventas = float((ventas_row["total_ventas"] or 0)) + float((pedidos_row["total_pedidos"] or 0))
+    transacciones = int(ventas_row["transacciones"] or 0) + int(pedidos_row["pedidos_pagados"] or 0)
+    ticket_promedio = round(total_ventas / transacciones, 2) if transacciones > 0 else 0.0
+
+    return {
+        "fecha": fecha,
+        "total_ventas": round(total_ventas, 2),
+        "transacciones": transacciones,
+        "ticket_promedio": ticket_promedio,
+        "top_producto": dict(top_row) if top_row else None,
+        "productos_sin_rotacion": [r["producto"] for r in sin_rotacion],
+        "caja": dict(caja_row) if caja_row else None,
+        "total_merma": float(merma_row["total_merma"] or 0) if merma_row else 0.0,
+        "produccion": {
+            "total_producido": int(prod_row["total_producido"] or 0),
+            "total_vendido": int(prod_row["total_vendido"] or 0),
+            "sobrante": int(prod_row["sobrante"] or 0),
+        } if prod_row else {},
+    }
+
+
+# ──────────────────────────────────────────────
+# Exportación CSV
+# ──────────────────────────────────────────────
+
+def exportar_ventas_csv(dias: int = 30) -> list[dict]:
+    """Retorna ventas del período listas para exportar a CSV."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT fecha, hora, producto, cantidad, precio_unitario, total,
+                   COALESCE(metodo_pago, 'efectivo') as metodo_pago,
+                   registrado_por
+            FROM ventas
+            WHERE fecha >= date('now', ?)
+            ORDER BY fecha DESC, hora DESC
+        """, (f"-{dias} days",)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def exportar_inventario_csv() -> list[dict]:
+    """Retorna inventario de insumos listo para exportar a CSV."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT nombre, unidad, stock, stock_minimo, activo
+            FROM insumos ORDER BY nombre ASC
+        """).fetchall()
+    return [dict(r) for r in rows]

@@ -77,6 +77,17 @@
                            placeholder="Ej: Fin de semana, evento especial...">
                 </div>
 
+                <!-- Ajuste manual con motivo (guarda para retroalimentar el pronóstico) -->
+                <div class="form-group" id="motivoAjusteBox" style="display:none">
+                    <label for="motivoAjuste" style="color:var(--color-warning)">
+                        <span class="material-symbols-outlined" style="font-size:1rem;vertical-align:middle">edit_note</span>
+                        Motivo del ajuste manual
+                    </label>
+                    <input type="text" id="motivoAjuste" class="form-input"
+                           placeholder="Ej: Evento especial, aumento de demanda esperado...">
+                    <small class="text-muted">Se guardará para mejorar el pronóstico futuro.</small>
+                </div>
+
                 <button type="submit" class="btn btn-accent btn-lg btn-full">
                     Guardar Registro
                 </button>
@@ -193,8 +204,41 @@ function cargarSugerenciaProduccion() {
 function usarSugerencia() {
     if (!sugerenciaActual) return;
     document.getElementById('producido').value = sugerenciaActual.sugerido ?? '';
+    document.getElementById('motivoAjusteBox').style.display = 'none';
     calcBalance();
 }
+
+// Mostrar campo de motivo si el panadero escribe un valor diferente a la sugerencia
+document.getElementById('producido').addEventListener('input', function() {
+    if (!sugerenciaActual) return;
+    const val = parseInt(this.value) || 0;
+    const sug = parseInt(sugerenciaActual.sugerido) || 0;
+    const caja = document.getElementById('motivoAjusteBox');
+    if (val > 0 && val !== sug) {
+        caja.style.display = 'block';
+    } else {
+        caja.style.display = 'none';
+    }
+});
+
+// Guardar ajuste manual cuando se envíe el formulario
+document.querySelector('form').addEventListener('submit', function() {
+    const producido = parseInt(document.getElementById('producido').value) || 0;
+    const motivo = document.getElementById('motivoAjuste').value.trim();
+    if (sugerenciaActual && producido !== sugerenciaActual.sugerido) {
+        fetch('/api/pronostico/ajuste', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                fecha: document.getElementById('fecha').value,
+                producto: document.getElementById('producto').value,
+                sugerido: sugerenciaActual.sugerido,
+                ajustado: producido,
+                motivo: motivo || 'Sin motivo especificado',
+            })
+        }).catch(() => {});
+    }
+});
 
 function calcBalance() {
     const p = parseInt(document.getElementById('producido').value) || 0;

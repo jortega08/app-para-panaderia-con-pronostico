@@ -65,17 +65,26 @@
                     {% endfor %}
                 </div>
             </div>
+            <!-- Top 3 del día -->
+            <div id="top3Banner" style="display:none;margin-bottom:12px;background:var(--color-surface);border:1px solid var(--color-border);border-radius:8px;padding:10px 14px">
+              <div style="font-size:.75rem;font-weight:600;opacity:.6;margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">🔥 Más vendidos hoy</div>
+              <div id="top3Lista" style="display:flex;gap:12px;flex-wrap:wrap"></div>
+            </div>
+
             <div class="product-grid">
                 {% for p in productos %}
                 <button class="product-card" onclick='addToCart({{ p.nombre|tojson }}, {{ p.precio }}, {{ p.icono|tojson }})'
                         style="--prod-color: {{ p.color }}"
                         data-category="{{ p.categoria|lower }}"
-                        data-name="{{ p.nombre|lower }}">
+                        data-name="{{ p.nombre|lower }}"
+                        data-product-id="{{ p.nombre|lower|replace(' ','_') }}">
                     <div class="product-color-bar" style="background: {{ p.color }}"></div>
                     <span class="material-symbols-outlined product-icon">{{ p.icono }}</span>
                     <span class="product-name">{{ p.nombre }}</span>
                     <span class="chip product-category-chip">{{ p.categoria }}</span>
                     <span class="product-price">${{ '%.2f'|format(p.precio) }}</span>
+                    <!-- Indicador de stock dinámico -->
+                    <span class="stock-dot" id="stock_{{ p.nombre|lower|replace(' ','_')|replace('/','_') }}" title="Cargando stock…"></span>
                 </button>
                 {% endfor %}
             </div>
@@ -390,5 +399,46 @@ async function confirmPayment() {
 renderCajaStatus();
 renderCart();
 applyProductFilters();
+
+// ── Stock alerts y Top 3 ─────────────────────────────────────────────────────
+const STOCK_COLOR = {verde:'#4caf50', amarillo:'#ff9800', rojo:'#f44336', sin_datos:'#bbb'};
+const STOCK_TITLE = {verde:'Disponible', amarillo:'Pocas unidades', rojo:'Agotado', sin_datos:'Sin datos de producción'};
+
+async function cargarStockAlertas() {
+    try {
+        const r = await fetch('/api/alertas-stock');
+        if (!r.ok) return;
+        const d = await r.json();
+        (d.alertas || []).forEach(a => {
+            const key = a.producto.toLowerCase().replace(/ /g,'_').replace(/\//g,'_');
+            const el = document.getElementById('stock_' + key);
+            if (el) {
+                el.style.cssText = `display:block;width:10px;height:10px;border-radius:50%;background:${STOCK_COLOR[a.estado]};position:absolute;top:6px;right:6px;border:1px solid #fff`;
+                el.title = STOCK_TITLE[a.estado] + (a.disponible !== null ? ` (${a.disponible} uds)` : '');
+            }
+        });
+    } catch(e) { /* silencio */ }
+}
+
+async function cargarTop3() {
+    try {
+        const r = await fetch('/api/top-productos?limite=3');
+        if (!r.ok) return;
+        const d = await r.json();
+        const top = d.top || [];
+        if (top.length === 0) return;
+        document.getElementById('top3Banner').style.display = 'block';
+        document.getElementById('top3Lista').innerHTML = top.map((t,i) => `
+            <span style="font-size:.85rem;background:var(--color-bg);border-radius:6px;padding:4px 10px;border:1px solid var(--color-border)">
+                <strong>#${i+1}</strong> ${t.producto} <span style="opacity:.6">(${t.unidades} uds)</span>
+            </span>
+        `).join('');
+    } catch(e) { /* silencio */ }
+}
+
+cargarStockAlertas();
+cargarTop3();
+setInterval(cargarStockAlertas, 60000);
+setInterval(cargarTop3, 120000);
 </script>
 {% endblock %}

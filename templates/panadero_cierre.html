@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}Cierre Diario{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div class="page-header-info">
+    <h1 class="page-title">Cierre Diario</h1>
+    <p class="page-subtitle">Resumen completo del día y pronóstico para mañana</p>
+  </div>
+  <div class="page-header-actions">
+    <input type="date" id="fechaCierre" class="input" style="max-width:180px">
+    <button class="btn btn-primary" onclick="cargarCierre()">
+      <span class="material-symbols-outlined">refresh</span> Actualizar
+    </button>
+    <a href="/api/export/ventas?dias=1" class="btn btn-outline">
+      <span class="material-symbols-outlined">download</span> CSV Ventas
+    </a>
+  </div>
+</div>
+
+<!-- KPIs principales -->
+<div class="grid grid-4" id="kpiCierre" style="margin-bottom:1.5rem">
+  <div class="stat-card"><div class="stat-label">Ventas del día</div><div class="stat-value" id="totalVentas">—</div></div>
+  <div class="stat-card"><div class="stat-label">Transacciones</div><div class="stat-value" id="totalTrans">—</div></div>
+  <div class="stat-card"><div class="stat-label">Ticket promedio</div><div class="stat-value" id="ticketProm">—</div></div>
+  <div class="stat-card"><div class="stat-label">Merma del día</div><div class="stat-value" id="totalMerma">—</div></div>
+</div>
+
+<div class="grid grid-2" style="gap:1.5rem;margin-bottom:1.5rem">
+  <!-- Producción del día -->
+  <div class="card">
+    <div class="card-header"><h3 class="card-title">Producción</h3></div>
+    <div class="card-body" id="produccionCierre">
+      <p class="text-muted">Cargando…</p>
+    </div>
+  </div>
+
+  <!-- Estado de caja -->
+  <div class="card">
+    <div class="card-header"><h3 class="card-title">Estado de Caja</h3></div>
+    <div class="card-body" id="cajaCierre">
+      <p class="text-muted">Cargando…</p>
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-2" style="gap:1.5rem;margin-bottom:1.5rem">
+  <!-- Top producto y sin rotación -->
+  <div class="card">
+    <div class="card-header"><h3 class="card-title">Destacados del día</h3></div>
+    <div class="card-body" id="destacadosCierre">
+      <p class="text-muted">Cargando…</p>
+    </div>
+  </div>
+
+  <!-- Pronóstico para mañana -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">Pronóstico para Mañana</h3>
+      <span class="badge badge-info" id="fechaManana"></span>
+    </div>
+    <div class="card-body" id="pronosticoManana">
+      <p class="text-muted">Cargando…</p>
+    </div>
+  </div>
+</div>
+
+<script>
+const hoy = new Date().toISOString().slice(0,10);
+document.getElementById('fechaCierre').value = hoy;
+
+function fmt(n) {
+  return '$' + parseFloat(n || 0).toLocaleString('es-CO', {minimumFractionDigits:0, maximumFractionDigits:0});
+}
+
+async function cargarCierre() {
+  const fecha = document.getElementById('fechaCierre').value || hoy;
+  const r = await fetch(`/api/cierre-diario?fecha=${fecha}`);
+  if (!r.ok) return;
+  const d = await r.json();
+
+  // KPIs
+  document.getElementById('totalVentas').textContent = fmt(d.total_ventas);
+  document.getElementById('totalTrans').textContent = d.transacciones;
+  document.getElementById('ticketProm').textContent = fmt(d.ticket_promedio);
+  document.getElementById('totalMerma').textContent = (d.total_merma || 0) + ' u.';
+
+  // Producción
+  const prod = d.produccion || {};
+  document.getElementById('produccionCierre').innerHTML = `
+    <div class="stat-row"><span>Producido:</span><strong>${prod.total_producido || 0} uds</strong></div>
+    <div class="stat-row"><span>Vendido:</span><strong>${prod.total_vendido || 0} uds</strong></div>
+    <div class="stat-row"><span>Sobrante:</span><strong>${prod.sobrante || 0} uds</strong></div>
+  `;
+
+  // Caja
+  const caja = d.caja || {};
+  const difClass = (caja.diferencia_cierre || 0) < 0 ? 'text-danger' : ((caja.diferencia_cierre || 0) > 0 ? 'text-success' : '');
+  document.getElementById('cajaCierre').innerHTML = `
+    <div class="stat-row"><span>Estado:</span><strong>${caja.estado || 'No abierta'}</strong></div>
+    <div class="stat-row"><span>Apertura:</span><strong>${fmt(caja.monto_apertura)}</strong></div>
+    <div class="stat-row"><span>Esperado en caja:</span><strong>${fmt(caja.efectivo_esperado)}</strong></div>
+    <div class="stat-row"><span>Contado:</span><strong>${fmt(caja.monto_cierre)}</strong></div>
+    <div class="stat-row"><span>Diferencia:</span><strong class="${difClass}">${fmt(caja.diferencia_cierre)}</strong></div>
+    ${caja.cerrado_por ? `<div class="stat-row"><span>Cerrado por:</span><strong>${caja.cerrado_por}</strong></div>` : ''}
+  `;
+
+  // Destacados
+  const top = d.top_producto;
+  const sinRot = (d.productos_sin_rotacion || []).join(', ') || 'Ninguno';
+  document.getElementById('destacadosCierre').innerHTML = `
+    <div style="margin-bottom:1rem">
+      <div class="section-label">Producto más vendido</div>
+      <div style="font-size:1.4rem;font-weight:700;margin-top:.25rem">
+        ${top ? `${top.producto} <span style="font-size:1rem;font-weight:400;opacity:.7">(${top.unidades} uds)</span>` : '— Sin datos'}
+      </div>
+    </div>
+    <div>
+      <div class="section-label">Sin rotación hoy</div>
+      <div style="margin-top:.25rem;color:var(--color-warning)">${sinRot}</div>
+    </div>
+  `;
+
+  // Pronóstico mañana
+  const manana = new Date(fecha);
+  manana.setDate(manana.getDate() + 1);
+  document.getElementById('fechaManana').textContent = manana.toLocaleDateString('es-CO', {weekday:'long', month:'short', day:'numeric'});
+
+  const prons = d.pronostico_manana || [];
+  if (prons.length === 0) {
+    document.getElementById('pronosticoManana').innerHTML = '<p class="text-muted">Sin productos de panadería.</p>';
+  } else {
+    const confianzaColor = {'buena':'var(--color-success)','media':'var(--color-warning)','poca':'var(--color-danger)'};
+    document.getElementById('pronosticoManana').innerHTML = prons.map(p => `
+      <div class="stat-row">
+        <span>${p.producto}</span>
+        <strong>${p.sugerido} uds
+          <span style="font-size:.75rem;color:${confianzaColor[p.confianza]||'inherit'}">(${p.confianza})</span>
+        </strong>
+      </div>
+    `).join('');
+  }
+}
+
+cargarCierre();
+</script>
+{% endblock %}
