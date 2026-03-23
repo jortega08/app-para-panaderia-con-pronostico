@@ -107,6 +107,8 @@ from data.database import (
     cambiar_estado_pedido,
     pagar_pedido,
     validar_items_contra_produccion_panaderia,
+    validar_stock_pedido,
+    obtener_stock_disponible_hoy,
     obtener_resumen_mesas,
     obtener_adicionales,
     agregar_adicional,
@@ -1339,7 +1341,7 @@ def api_venta():
             "modificaciones": [],
         })
 
-    validacion = validar_items_contra_produccion_panaderia(items_validacion)
+    validacion = validar_stock_pedido(items_validacion)
     if not validacion["ok"]:
         return jsonify({
             "ok": False,
@@ -1716,7 +1718,8 @@ def api_crear_pedido():
                 })
         items.append(entry)
 
-    validacion = validar_items_contra_produccion_panaderia(items)
+    # Validar stock real: aplica a TODOS los productos con producción registrada hoy
+    validacion = validar_stock_pedido(items)
     if not validacion["ok"]:
         return jsonify({
             "ok": False,
@@ -1742,7 +1745,7 @@ def api_cambiar_estado(pedido_id):
         pedido = obtener_pedido(pedido_id)
         if not pedido:
             return jsonify({"ok": False, "error": "Pedido no encontrado"}), 404
-        validacion = validar_items_contra_produccion_panaderia(
+        validacion = validar_stock_pedido(
             pedido["items"], fecha=pedido["fecha"], excluir_pedido_id=pedido_id
         )
         if not validacion["ok"]:
@@ -2032,6 +2035,15 @@ def api_alertas_stock():
     fecha = request.args.get("fecha", datetime.now().strftime("%Y-%m-%d"))
     alertas = obtener_alertas_stock_productos(fecha=fecha)
     return jsonify({"ok": True, "fecha": fecha, "alertas": alertas})
+
+
+@app.route("/api/stock-disponible")
+@login_required
+def api_stock_disponible():
+    """Stock disponible real por producto (producido - ventas - pedidos activos)."""
+    fecha = request.args.get("fecha", datetime.now().strftime("%Y-%m-%d"))
+    disponibles = obtener_stock_disponible_hoy(fecha)
+    return jsonify({"ok": True, "fecha": fecha, "stock": disponibles})
 
 
 @app.route("/api/producto/<int:producto_id>/stock-minimo", methods=["PUT"])

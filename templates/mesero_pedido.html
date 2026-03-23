@@ -24,12 +24,14 @@
             <button class="product-card" onclick='addToCart({{ p.nombre|tojson }}, {{ p.precio }}, {{ p.icono|tojson }})'
                     style="--prod-color: {{ p.color }}"
                     data-category="{{ p.categoria|lower }}"
-                    data-name="{{ p.nombre|lower }}">
+                    data-name="{{ p.nombre|lower }}"
+                    data-producto="{{ p.nombre }}">
                 <div class="product-color-bar" style="background: {{ p.color }}"></div>
                 <span class="material-symbols-outlined product-icon">{{ p.icono }}</span>
                 <span class="product-name">{{ p.nombre }}</span>
                 <span class="chip product-category-chip">{{ p.categoria }}</span>
                 <span class="product-price">${{ '%.2f'|format(p.precio) }}</span>
+                <span class="stock-badge" id="stock-{{ p.nombre|replace(' ','_') }}" style="display:none"></span>
             </button>
             {% endfor %}
         </div>
@@ -103,6 +105,56 @@ const MESA_ID = {{ mesa.id }};
 const ADICIONALES = {{ adicionales | tojson }};
 const ADICIONALES_DISPONIBLES = ADICIONALES || [];
 
+// Stock disponible por producto (se carga al inicio y se actualiza)
+let stockDisponible = {};
+
+async function cargarStockDisponible() {
+    try {
+        const r = await fetch('/api/stock-disponible');
+        if (!r.ok) return;
+        const d = await r.json();
+        stockDisponible = d.stock || {};
+        actualizarBadgesStock();
+    } catch(e) {}
+}
+
+function actualizarBadgesStock() {
+    document.querySelectorAll('.product-card[data-producto]').forEach(btn => {
+        const nombre = btn.dataset.producto;
+        const badgeId = 'stock-' + nombre.replace(/ /g, '_');
+        const badge = document.getElementById(badgeId);
+        if (!badge) return;
+
+        if (!(nombre in stockDisponible)) {
+            badge.style.display = 'none';
+            btn.style.opacity = '';
+            return;
+        }
+
+        const disponible = stockDisponible[nombre];
+        const enCarrito = cart.filter(i => i.nombre === nombre).reduce((s,i) => s + i.cantidad, 0);
+        const restante = disponible - enCarrito;
+
+        badge.style.display = 'inline-block';
+        if (restante <= 0) {
+            badge.textContent = 'Agotado';
+            badge.style.background = 'var(--color-danger, #ef4444)';
+            badge.style.color = '#fff';
+            btn.style.opacity = '0.5';
+        } else if (restante <= 3) {
+            badge.textContent = restante + ' disp.';
+            badge.style.background = 'var(--color-warning, #f59e0b)';
+            badge.style.color = '#fff';
+            btn.style.opacity = '';
+        } else {
+            badge.textContent = restante + ' disp.';
+            badge.style.background = 'var(--color-success, #22c55e)';
+            badge.style.color = '#fff';
+            btn.style.opacity = '';
+        }
+    });
+}
+
 function escapeHtml(texto) {
     return String(texto || '')
         .replace(/&/g, '&amp;')
@@ -138,10 +190,24 @@ function applyProductFilters() {
     });
 }
 
+function getStockRestante(nombre, excluirItemId = null) {
+    if (!(nombre in stockDisponible)) return Infinity;
+    const enCarrito = cart
+        .filter(i => i.nombre === nombre && i.id !== excluirItemId)
+        .reduce((s, i) => s + i.cantidad, 0);
+    return stockDisponible[nombre] - enCarrito;
+}
+
 function addToCart(nombre, precio, icono) {
+    const restante = getStockRestante(nombre);
+    if (restante <= 0) {
+        alert(`⚠️ ${nombre} está agotado (sin stock disponible hoy).`);
+        return;
+    }
     const id = Date.now() + Math.random();
     cart.push({id, nombre, precio, icono, cantidad: 1, modificaciones: []});
     renderCart();
+    actualizarBadgesStock();
 }
 
 function updateQty(itemId, qty) {
@@ -152,9 +218,21 @@ function updateQty(itemId, qty) {
     if (qty === 0) {
         cart = cart.filter(i => i.id !== itemId);
     } else {
+        const restante = getStockRestante(item.nombre, itemId);
+        if (qty > item.cantidad && restante < (qty - item.cantidad)) {
+            alert(`⚠️ Solo hay ${stockDisponible[item.nombre]} unidades disponibles de ${item.nombre} hoy.`);
+            qty = item.cantidad + Math.max(restante, 0);
+            if (qty <= 0) {
+                cart = cart.filter(i => i.id !== itemId);
+                renderCart();
+                actualizarBadgesStock();
+                return;
+            }
+        }
         item.cantidad = qty;
     }
     renderCart();
+    actualizarBadgesStock();
 }
 
 function removeFromCart(itemId) {
@@ -401,5 +479,7 @@ function enviarPedido() {
 }
 
 applyProductFilters();
+cargarStockDisponible();
+setInterval(cargarStockDisponible, 60000);
 </script>
 {% endblock %}

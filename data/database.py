@@ -2771,6 +2771,120 @@ def validar_items_contra_produccion_panaderia(items: list[dict], fecha: str | No
     }
 
 
+def obtener_stock_disponible_hoy(fecha: str | None = None) -> dict[str, int]:
+    """
+    Retorna el stock disponible REAL por producto para la fecha indicada.
+    Fórmula: producido_hoy - ventas_hoy - comprometido_pedidos_activos
+    - ventas_hoy: ventas en tabla ventas (POS + pedidos pagados)
+    - comprometido_activos: pedidos en estado pendiente/en_preparacion/listo
+    Solo incluye productos con registro de producción para hoy.
+    """
+    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    with get_connection() as conn:
+        # 1. Producción del día por producto
+        prod_rows = conn.execute(
+            "SELECT producto, SUM(producido) as producido FROM registros_diarios WHERE fecha = ? GROUP BY producto",
+            (fecha,)
+        ).fetchall()
+        if not prod_rows:
+            return {}
+
+        producidos = {r["producto"]: int(r["producido"] or 0) for r in prod_rows}
+
+        # 2. Ventas ya registradas (POS + pedidos cobrados)
+        venta_rows = conn.execute(
+            "SELECT producto, SUM(cantidad) as vendido FROM ventas WHERE fecha = ? GROUP BY producto",
+            (fecha,)
+        ).fetchall()
+        vendidos = {r["producto"]: int(r["vendido"] or 0) for r in venta_rows}
+
+        # 3. Pedidos activos (aún no cobrados): pendiente, en_preparacion, listo
+        pedido_ids = [
+            row["id"] for row in conn.execute(
+                "SELECT id FROM pedidos WHERE fecha = ? AND estado IN ('pendiente', 'en_preparacion', 'listo')",
+                (fecha,)
+            ).fetchall()
+        ]
+        comprometidos: dict[str, int] = {}
+        for pid in pedido_ids:
+            for item in conn.execute(
+                "SELECT producto, cantidad FROM pedido_items WHERE pedido_id = ?", (pid,)
+            ).fetchall():
+                p = item["producto"]
+                comprometidos[p] = comprometidos.get(p, 0) + int(item["cantidad"] or 0)
+
+        # 4. Calcular disponible real
+        disponibles: dict[str, int] = {}
+        for producto, producido in producidos.items():
+            vendido = vendidos.get(producto, 0)
+            comprometido = comprometidos.get(producto, 0)
+            disponibles[producto] = max(producido - vendido - comprometido, 0)
+
+    return disponibles
+
+
+def validar_stock_pedido(items: list[dict], fecha: str | None = None,
+                         excluir_pedido_id: int | None = None) -> dict:
+    """
+    Valida que los items del pedido no superen el stock disponible real.
+    Aplica a TODOS los productos con producción registrada hoy, sin importar categoría.
+    Si un producto no tiene registro de producción, se permite (sin límite).
+    """
+    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+
+    # Calcular requeridos del pedido (suma por producto)
+    requeridos: dict[str, float] = {}
+    for item in items:
+        producto = str(item.get("producto", "") or "").strip()
+        cantidad = float(item.get("cantidad", 0) or 0)
+        if producto and cantidad > 0:
+            requeridos[producto] = requeridos.get(producto, 0.0) + cantidad
+
+    if not requeridos:
+        return {"ok": True, "faltantes": []}
+
+    # Obtener stock disponible (incluye productos de todas las categorías)
+    disponibles = obtener_stock_disponible_hoy(fecha)
+
+    # Si excluimos un pedido (edición), devolver sus items al disponible
+    if excluir_pedido_id is not None:
+        with get_connection() as conn:
+            for row in conn.execute(
+                "SELECT producto, cantidad FROM pedido_items WHERE pedido_id = ?",
+                (excluir_pedido_id,)
+            ).fetchall():
+                p = row["producto"]
+                if p in disponibles:
+                    disponibles[p] = disponibles[p] + int(row["cantidad"] or 0)
+
+    faltantes = []
+    for producto, requerido in requeridos.items():
+        if producto not in disponibles:
+            # Sin registro de producción hoy → no validamos
+            continue
+        disponible = disponibles[producto]
+        if disponible < requerido:
+            faltantes.append({
+                "producto": producto,
+                "requerido": int(requerido),
+                "disponible": disponible,
+                "faltante": int(requerido - disponible),
+            })
+
+    if not faltantes:
+        return {"ok": True, "faltantes": []}
+
+    detalles = ", ".join(
+        f"{f['producto']} (disponible: {f['disponible']}, solicitado: {f['requerido']})"
+        for f in faltantes
+    )
+    return {
+        "ok": False,
+        "faltantes": faltantes,
+        "error": f"Stock insuficiente: {detalles}",
+    }
+
+
 def _acumular_consumo_producto(conn, producto: str, cantidad: float,
                                consumo: dict, ruta: tuple[str, ...] = (),
                                incluir_panaderia: bool = False) -> None:
