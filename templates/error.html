@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title_extra %} - Error {{ codigo }}{% endblock %}
+{% block content %}
+<div style="text-align: center; padding: 80px 20px;">
+    <h1 style="font-size: 72px; color: var(--primary); margin-bottom: 8px;">{{ codigo }}</h1>
+    <p style="font-size: 18px; color: var(--text-sec);">{{ mensaje }}</p>
+    <a href="/" class="btn btn-primary" style="margin-top: 24px;">Volver al inicio</a>
+</div>
+{% endblock %}
