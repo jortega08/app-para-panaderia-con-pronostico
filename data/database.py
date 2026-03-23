@@ -19,6 +19,7 @@ Tablas:
   - adicional_componentes: productos base consumidos por cada adicional
 """
 
+import hashlib
 import sqlite3
 import os
 from datetime import datetime
@@ -28,6 +29,10 @@ from uuid import uuid4
 from data.db_adapter import get_connection as _get_connection, DB_TYPE
 
 DB_PATH = Path(__file__).parent / "panaderia.db"
+
+
+def _hash_pin(pin: str) -> str:
+    return hashlib.sha256(str(pin).strip().encode('utf-8')).hexdigest()
 
 CATEGORIAS_PREDETERMINADAS = [
     "Panaderia",
@@ -448,6 +453,23 @@ def inicializar_base_de_datos() -> None:
             )
         """)
 
+        # ── Índices para rendimiento ──
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ventas_fecha ON ventas(fecha)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ventas_producto ON ventas(producto)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ventas_fecha_producto ON ventas(fecha, producto)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ventas_venta_grupo ON ventas(venta_grupo)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_registros_fecha ON registros_diarios(fecha)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_registros_fecha_producto ON registros_diarios(fecha, producto)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_pedidos_fecha_estado ON pedidos(fecha, estado)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_pedidos_mesa ON pedidos(mesa_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_pedido_items_pedido ON pedido_items(pedido_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_pedido_mods_item ON pedido_item_modificaciones(pedido_item_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_arqueos_fecha ON arqueos_caja(fecha)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_movimientos_arqueo ON movimientos_caja(arqueo_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_fecha ON audit_log(fecha)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_mermas_fecha ON mermas(fecha)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_mermas_producto ON mermas(producto)")
+
         # Migrar tabla productos existente: agregar columnas si faltan
         _migrar_productos(conn)
         # Migrar tabla usuarios: agregar rol mesero al CHECK
@@ -481,15 +503,15 @@ def inicializar_base_de_datos() -> None:
         if existe["c"] == 0:
             conn.execute(
                 "INSERT INTO usuarios (nombre, pin, rol) VALUES (?, ?, ?)",
-                ("Admin", "1234", "panadero")
+                ("Admin", _hash_pin("1234"), "panadero")
             )
             conn.execute(
                 "INSERT INTO usuarios (nombre, pin, rol) VALUES (?, ?, ?)",
-                ("Cajero", "0000", "cajero")
+                ("Cajero", _hash_pin("0000"), "cajero")
             )
             conn.execute(
                 "INSERT INTO usuarios (nombre, pin, rol) VALUES (?, ?, ?)",
-                ("Mesero", "1111", "mesero")
+                ("Mesero", _hash_pin("1111"), "mesero")
             )
 
         # Mesas iniciales (5 mesas por defecto)
@@ -637,7 +659,7 @@ def _migrar_usuarios(conn):
     """Recrea la tabla usuarios con el CHECK actualizado si mesero no esta permitido."""
     try:
         conn.execute(
-            "INSERT INTO usuarios (nombre, pin, rol) VALUES ('__test__', '9999', 'mesero')"
+            "INSERT INTO usuarios (nombre, pin, rol) VALUES ('__test__', ?, 'mesero')", (_hash_pin('9999'),)
         )
         conn.execute("DELETE FROM usuarios WHERE nombre = '__test__'")
     except sqlite3.IntegrityError:
@@ -661,8 +683,7 @@ def _migrar_usuarios(conn):
 
 def _migrar_recetas(conn):
     """Agrega soporte para unidades de receta y ficha tecnica por producto."""
-    columnas = [row["name"] for row in conn.execute("PRAGMA table_info(recetas)").fetchall()]
-    if "unidad_receta" not in columnas:
+    try:
         conn.execute("ALTER TABLE recetas ADD COLUMN unidad_receta TEXT")
 
         rows = conn.execute("""
@@ -677,6 +698,8 @@ def _migrar_recetas(conn):
                 "UPDATE recetas SET cantidad = ?, unidad_receta = ? WHERE id = ?",
                 (cantidad_receta, unidad_receta, row["id"])
             )
+    except Exception:
+        pass
 
     conn.execute("""
         UPDATE recetas
@@ -689,9 +712,10 @@ def _migrar_recetas(conn):
 
 def _migrar_adicionales(conn):
     """Agrega soporte de unidades configurables y componentes en adicionales."""
-    columnas = [row["name"] for row in conn.execute("PRAGMA table_info(adicional_insumos)").fetchall()]
-    if "unidad_config" not in columnas:
+    try:
         conn.execute("ALTER TABLE adicional_insumos ADD COLUMN unidad_config TEXT")
+    except Exception:
+        pass
 
     rows = conn.execute("""
         SELECT ai.id, ai.insumo_id, ai.cantidad, ai.unidad_config, i.unidad
@@ -713,33 +737,55 @@ def _migrar_adicionales(conn):
 
 def _migrar_ventas_pedidos_caja(conn):
     """Agrega campos de pago, agrupacion de ventas y arqueo de caja."""
-    ventas_cols = [row["name"] for row in conn.execute("PRAGMA table_info(ventas)").fetchall()]
-    if "venta_grupo" not in ventas_cols:
+    try:
         conn.execute("ALTER TABLE ventas ADD COLUMN venta_grupo TEXT DEFAULT ''")
-    if "metodo_pago" not in ventas_cols:
+    except Exception:
+        pass
+    try:
         conn.execute("ALTER TABLE ventas ADD COLUMN metodo_pago TEXT DEFAULT 'efectivo'")
-    if "monto_recibido" not in ventas_cols:
+    except Exception:
+        pass
+    try:
         conn.execute("ALTER TABLE ventas ADD COLUMN monto_recibido REAL NOT NULL DEFAULT 0.0")
-    if "cambio" not in ventas_cols:
+    except Exception:
+        pass
+    try:
         conn.execute("ALTER TABLE ventas ADD COLUMN cambio REAL NOT NULL DEFAULT 0.0")
-    if "referencia_tipo" not in ventas_cols:
+    except Exception:
+        pass
+    try:
         conn.execute("ALTER TABLE ventas ADD COLUMN referencia_tipo TEXT DEFAULT 'pos'")
-    if "referencia_id" not in ventas_cols:
+    except Exception:
+        pass
+    try:
         conn.execute("ALTER TABLE ventas ADD COLUMN referencia_id INTEGER")
+    except Exception:
+        pass
 
-    pedidos_cols = [row["name"] for row in conn.execute("PRAGMA table_info(pedidos)").fetchall()]
-    if "creado_en" not in pedidos_cols:
+    try:
         conn.execute("ALTER TABLE pedidos ADD COLUMN creado_en TEXT")
-    if "pagado_en" not in pedidos_cols:
+    except Exception:
+        pass
+    try:
         conn.execute("ALTER TABLE pedidos ADD COLUMN pagado_en TEXT")
-    if "pagado_por" not in pedidos_cols:
+    except Exception:
+        pass
+    try:
         conn.execute("ALTER TABLE pedidos ADD COLUMN pagado_por TEXT DEFAULT ''")
-    if "metodo_pago" not in pedidos_cols:
+    except Exception:
+        pass
+    try:
         conn.execute("ALTER TABLE pedidos ADD COLUMN metodo_pago TEXT DEFAULT ''")
-    if "monto_recibido" not in pedidos_cols:
+    except Exception:
+        pass
+    try:
         conn.execute("ALTER TABLE pedidos ADD COLUMN monto_recibido REAL NOT NULL DEFAULT 0.0")
-    if "cambio" not in pedidos_cols:
+    except Exception:
+        pass
+    try:
         conn.execute("ALTER TABLE pedidos ADD COLUMN cambio REAL NOT NULL DEFAULT 0.0")
+    except Exception:
+        pass
 
     conn.execute("""
         UPDATE pedidos
@@ -1035,7 +1081,11 @@ def _renombrar_producto_referencias_conn(conn, nombre_anterior: str, nuevo_nombr
         ("adicional_componentes", "componente_producto"),
     ]
 
+    _ALLOWED_RENAME_TARGETS = frozenset(actualizaciones)
+
     for tabla, columna in actualizaciones:
+        if (tabla, columna) not in _ALLOWED_RENAME_TARGETS:
+            raise ValueError(f"Referencia no permitida: {tabla}.{columna}")
         conn.execute(
             f"UPDATE {tabla} SET {columna} = ? WHERE {columna} = ?",
             (nuevo_nombre, nombre_anterior)
@@ -1184,7 +1234,7 @@ def verificar_pin(pin: str) -> dict | None:
     """Verifica un PIN y retorna el usuario si es valido."""
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT nombre, pin, rol FROM usuarios WHERE pin = ?", (pin,)
+            "SELECT nombre, pin, rol FROM usuarios WHERE pin = ?", (_hash_pin(pin),)
         ).fetchone()
     return dict(row) if row else None
 
@@ -1202,7 +1252,7 @@ def agregar_usuario(nombre: str, pin: str, rol: str) -> bool:
         with get_connection() as conn:
             conn.execute(
                 "INSERT INTO usuarios (nombre, pin, rol) VALUES (?, ?, ?)",
-                (nombre, pin, rol)
+                (nombre, _hash_pin(pin), rol)
             )
             conn.commit()
         return True
@@ -2089,6 +2139,99 @@ def obtener_pedidos(estado: str = None, mesa_id: int = None,
     return [dict(r) for r in rows]
 
 
+def obtener_pedidos_con_detalle(estado: str = None, mesa_id: int = None,
+                                fecha: str = None) -> list[dict]:
+    """Obtiene pedidos con items, modificaciones e historial en pocas queries (sin N+1)."""
+    if fecha is None:
+        fecha = datetime.now().strftime("%Y-%m-%d")
+
+    # 1) Pedidos base (con JOIN a mesas)
+    query = """
+        SELECT p.id, p.mesa_id, m.numero as mesa_numero, m.nombre as mesa_nombre,
+               p.mesero, p.estado, p.fecha, p.hora, p.hora_pagado, p.creado_en,
+               p.pagado_en, p.pagado_por, p.metodo_pago, p.monto_recibido,
+               p.cambio, p.notas, p.total
+        FROM pedidos p
+        LEFT JOIN mesas m ON p.mesa_id = m.id
+        WHERE p.fecha = ?
+    """
+    params: list = [fecha]
+
+    if estado:
+        query += " AND p.estado = ?"
+        params.append(estado)
+    if mesa_id:
+        query += " AND p.mesa_id = ?"
+        params.append(mesa_id)
+
+    query += " ORDER BY p.hora DESC"
+
+    with get_connection() as conn:
+        pedido_rows = conn.execute(query, params).fetchall()
+        pedidos = [dict(r) for r in pedido_rows]
+
+        if not pedidos:
+            return []
+
+        pedido_ids = [p["id"] for p in pedidos]
+        placeholders = ",".join("?" * len(pedido_ids))
+
+        # 2) Todos los items de todos los pedidos en 1 query
+        items_rows = conn.execute(f"""
+            SELECT id, pedido_id, producto, cantidad, precio_unitario, subtotal, notas
+            FROM pedido_items
+            WHERE pedido_id IN ({placeholders})
+            ORDER BY id
+        """, pedido_ids).fetchall()
+
+        items_by_pedido: dict[int, list[dict]] = {}
+        all_item_ids: list[int] = []
+        for row in items_rows:
+            item = dict(row)
+            all_item_ids.append(item["id"])
+            items_by_pedido.setdefault(item["pedido_id"], []).append(item)
+
+        # 3) Todas las modificaciones de todos los items en 1 query
+        mods_by_item: dict[int, list[dict]] = {}
+        if all_item_ids:
+            item_placeholders = ",".join("?" * len(all_item_ids))
+            mods_rows = conn.execute(f"""
+                SELECT id, pedido_item_id, tipo, descripcion, cantidad, precio_extra
+                FROM pedido_item_modificaciones
+                WHERE pedido_item_id IN ({item_placeholders})
+                ORDER BY tipo, id
+            """, all_item_ids).fetchall()
+            for row in mods_rows:
+                mod = dict(row)
+                mods_by_item.setdefault(mod["pedido_item_id"], []).append(mod)
+
+        # 4) Todo el historial de estados en 1 query
+        historial_rows = conn.execute(f"""
+            SELECT pedido_id, estado, cambiado_en, cambiado_por, detalle
+            FROM pedido_estado_historial
+            WHERE pedido_id IN ({placeholders})
+            ORDER BY cambiado_en ASC, id ASC
+        """, pedido_ids).fetchall()
+
+        historial_by_pedido: dict[int, list[dict]] = {}
+        for row in historial_rows:
+            h = dict(row)
+            historial_by_pedido.setdefault(h["pedido_id"], []).append(h)
+
+    # 5) Ensamblar resultado
+    for p in pedidos:
+        pid = p["id"]
+        p_items = items_by_pedido.get(pid, [])
+        for item in p_items:
+            item["modificaciones"] = mods_by_item.get(item["id"], [])
+            # Limpiar campo auxiliar
+            item.pop("pedido_id", None)
+        p["items"] = p_items
+        p["historial_estados"] = historial_by_pedido.get(pid, [])
+
+    return pedidos
+
+
 def obtener_pedido(pedido_id: int) -> dict | None:
     """Obtiene un pedido con sus items y modificaciones."""
     with get_connection() as conn:
@@ -2135,6 +2278,76 @@ def obtener_pedido(pedido_id: int) -> dict | None:
     result["items"] = items_list
     result["historial_estados"] = [dict(h) for h in historial]
     return result
+
+
+def obtener_pedidos_con_detalle(fecha: str | None = None, estado: str | None = None,
+                                mesa_id: int | None = None) -> list[dict]:
+    """Obtiene pedidos con items, modificaciones e historial en queries eficientes (sin N+1)."""
+    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    with get_connection() as conn:
+        query = """
+            SELECT p.id, p.mesa_id, m.numero as mesa_numero, m.nombre as mesa_nombre,
+                   p.mesero, p.estado, p.fecha, p.hora, p.hora_pagado, p.creado_en,
+                   p.pagado_en, p.pagado_por, p.metodo_pago, p.monto_recibido,
+                   p.cambio, p.notas, p.total
+            FROM pedidos p
+            LEFT JOIN mesas m ON p.mesa_id = m.id
+            WHERE p.fecha = ?
+        """
+        params: list = [fecha]
+        if estado:
+            query += " AND p.estado = ?"
+            params.append(estado)
+        if mesa_id:
+            query += " AND p.mesa_id = ?"
+            params.append(mesa_id)
+        query += " ORDER BY p.hora DESC"
+
+        pedidos = [dict(r) for r in conn.execute(query, params).fetchall()]
+        if not pedidos:
+            return []
+
+        pedido_ids = [p["id"] for p in pedidos]
+        ph = ",".join("?" * len(pedido_ids))
+
+        items_rows = conn.execute(
+            f"SELECT id, pedido_id, producto, cantidad, precio_unitario, subtotal, notas "
+            f"FROM pedido_items WHERE pedido_id IN ({ph}) ORDER BY pedido_id, id",
+            pedido_ids
+        ).fetchall()
+
+        item_ids = [r["id"] for r in items_rows]
+        mods_by_item: dict[int, list] = {}
+        if item_ids:
+            ph2 = ",".join("?" * len(item_ids))
+            for m in conn.execute(
+                f"SELECT pedido_item_id, id, tipo, descripcion, cantidad, precio_extra "
+                f"FROM pedido_item_modificaciones WHERE pedido_item_id IN ({ph2}) "
+                f"ORDER BY pedido_item_id, tipo, id",
+                item_ids
+            ).fetchall():
+                mods_by_item.setdefault(m["pedido_item_id"], []).append(dict(m))
+
+        items_by_pedido: dict[int, list] = {}
+        for row in items_rows:
+            item = dict(row)
+            item["modificaciones"] = mods_by_item.get(item["id"], [])
+            items_by_pedido.setdefault(item["pedido_id"], []).append(item)
+
+        hist_by_pedido: dict[int, list] = {}
+        for h in conn.execute(
+            f"SELECT pedido_id, estado, cambiado_en, cambiado_por, detalle "
+            f"FROM pedido_estado_historial WHERE pedido_id IN ({ph}) "
+            f"ORDER BY cambiado_en ASC, id ASC",
+            pedido_ids
+        ).fetchall():
+            hist_by_pedido.setdefault(h["pedido_id"], []).append(dict(h))
+
+        for p in pedidos:
+            p["items"] = items_by_pedido.get(p["id"], [])
+            p["historial_estados"] = hist_by_pedido.get(p["id"], [])
+
+    return pedidos
 
 
 def cambiar_estado_pedido(pedido_id: int, nuevo_estado: str,

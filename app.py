@@ -103,6 +103,7 @@ from data.database import (
     eliminar_mesa,
     crear_pedido,
     obtener_pedidos,
+    obtener_pedidos_con_detalle,
     obtener_pedido,
     cambiar_estado_pedido,
     pagar_pedido,
@@ -157,6 +158,8 @@ app.secret_key = _secret_key
 # ── Configuración de sesión ────────────────────────────────────────────────────
 _SESSION_HOURS = int(os.environ.get("SESSION_LIFETIME_HOURS", "8"))
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=_SESSION_HOURS)
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
 
 # ── Rate limiting (en memoria, simple) ──────────────────────────────────────────
 _MAX_ATTEMPTS = int(os.environ.get("MAX_LOGIN_ATTEMPTS", "5"))
@@ -190,6 +193,17 @@ def icono(nombre, categoria=None):
 
 def color_prod(nombre):
     return COLORES_PROD.get(nombre, "#B0BEC5")
+
+
+@app.after_request
+def _set_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    if request.is_secure:
+        response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+    return response
 
 
 def _normalizar_texto(texto):
@@ -554,6 +568,33 @@ def index():
     return redirect(url_for("panadero_pronostico"))
 
 
+@app.route("/health")
+def health_check():
+    return jsonify({"status": "healthy"}), 200
+
+@app.route("/ready")
+def readiness_check():
+    try:
+        from data.database import get_connection
+        with get_connection() as conn:
+            conn.execute("SELECT 1")
+        return jsonify({"status": "ready"}), 200
+    except Exception as e:
+        return jsonify({"status": "not_ready", "error": str(e)}), 503
+
+@app.errorhandler(404)
+def pagina_no_encontrada(e):
+    if request.path.startswith('/api/'):
+        return jsonify({"ok": False, "error": "Recurso no encontrado"}), 404
+    return render_template("error.html", codigo=404, mensaje="Página no encontrada"), 404
+
+@app.errorhandler(500)
+def error_interno(e):
+    app.logger.error(f"Error interno: {e}")
+    if request.path.startswith('/api/'):
+        return jsonify({"ok": False, "error": "Error interno del servidor"}), 500
+    return render_template("error.html", codigo=500, mensaje="Error interno del servidor"), 500
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -645,18 +686,7 @@ def cajero_ventas():
 @app.route("/cajero/pedidos")
 @login_required
 def cajero_pedidos():
-    pedidos = obtener_pedidos()
-    # Enriquecer con items
-    for p in pedidos:
-        detalle = obtener_pedido(p["id"])
-        p["items"] = detalle["items"] if detalle else []
-        p["historial_estados"] = detalle.get("historial_estados", []) if detalle else []
-        p["creado_en"] = detalle.get("creado_en", p.get("creado_en")) if detalle else p.get("creado_en")
-        p["pagado_en"] = detalle.get("pagado_en", p.get("pagado_en")) if detalle else p.get("pagado_en")
-        p["pagado_por"] = detalle.get("pagado_por", p.get("pagado_por")) if detalle else p.get("pagado_por")
-        p["metodo_pago"] = detalle.get("metodo_pago", p.get("metodo_pago")) if detalle else p.get("metodo_pago")
-        p["monto_recibido"] = detalle.get("monto_recibido", p.get("monto_recibido")) if detalle else p.get("monto_recibido")
-        p["cambio"] = detalle.get("cambio", p.get("cambio")) if detalle else p.get("cambio")
+    pedidos = obtener_pedidos_con_detalle()
     caja = obtener_resumen_caja_dia()
     return render_template("cajero_pedidos.html",
                            pedidos=pedidos,
@@ -699,10 +729,7 @@ def mesero_pedido(mesa_id):
 @app.route("/mesero/pedidos")
 @login_required
 def mesero_pedidos():
-    pedidos = obtener_pedidos()
-    for p in pedidos:
-        detalle = obtener_pedido(p["id"])
-        p["items"] = detalle["items"] if detalle else []
+    pedidos = obtener_pedidos_con_detalle()
     return render_template("mesero_pedidos.html",
                            pedidos=pedidos,
                            layout="mesero", active_page="pedidos")
@@ -810,17 +837,7 @@ def panadero_operaciones():
     mesas = obtener_resumen_mesas()
     ventas_resumen = obtener_resumen_ventas_dia()
     ventas_total = obtener_total_ventas_dia()
-    pedidos = obtener_pedidos()
-    for p in pedidos:
-        detalle = obtener_pedido(p["id"])
-        p["items"] = detalle["items"] if detalle else []
-        p["historial_estados"] = detalle.get("historial_estados", []) if detalle else []
-        p["creado_en"] = detalle.get("creado_en", p.get("creado_en")) if detalle else p.get("creado_en")
-        p["pagado_en"] = detalle.get("pagado_en", p.get("pagado_en")) if detalle else p.get("pagado_en")
-        p["pagado_por"] = detalle.get("pagado_por", p.get("pagado_por")) if detalle else p.get("pagado_por")
-        p["metodo_pago"] = detalle.get("metodo_pago", p.get("metodo_pago")) if detalle else p.get("metodo_pago")
-        p["monto_recibido"] = detalle.get("monto_recibido", p.get("monto_recibido")) if detalle else p.get("monto_recibido")
-        p["cambio"] = detalle.get("cambio", p.get("cambio")) if detalle else p.get("cambio")
+    pedidos = obtener_pedidos_con_detalle()
     proxima_mesa = (max((mesa["numero"] for mesa in mesas), default=0) + 1) if mesas else 1
     return render_template("panadero_operaciones.html",
                            stats=stats,
