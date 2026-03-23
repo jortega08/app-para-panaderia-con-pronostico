@@ -2774,31 +2774,28 @@ def validar_items_contra_produccion_panaderia(items: list[dict], fecha: str | No
 def obtener_stock_disponible_hoy(fecha: str | None = None) -> dict[str, int]:
     """
     Retorna el stock disponible REAL por producto para la fecha indicada.
-    Fórmula: producido_hoy - ventas_hoy - comprometido_pedidos_activos
-    - ventas_hoy: ventas en tabla ventas (POS + pedidos pagados)
+    Usa la misma fuente que el inventario: registros_diarios.vendido (ingresado manualmente
+    por el panadero), y descuenta además los pedidos activos aún no cobrados.
+
+    Fórmula: producido - vendido_manual - comprometido_pedidos_activos
+    - vendido_manual: registros_diarios.vendido (mismo valor que muestra el inventario)
     - comprometido_activos: pedidos en estado pendiente/en_preparacion/listo
+
     Solo incluye productos con registro de producción para hoy.
+    Productos sin registro = sin límite (no se validan).
     """
     fecha = fecha or datetime.now().strftime("%Y-%m-%d")
     with get_connection() as conn:
-        # 1. Producción del día por producto
+        # 1. Producción y vendido manual del día (fuente única, igual al inventario)
         prod_rows = conn.execute(
-            "SELECT producto, SUM(producido) as producido FROM registros_diarios WHERE fecha = ? GROUP BY producto",
+            "SELECT producto, SUM(producido) as producido, SUM(vendido) as vendido "
+            "FROM registros_diarios WHERE fecha = ? GROUP BY producto",
             (fecha,)
         ).fetchall()
         if not prod_rows:
             return {}
 
-        producidos = {r["producto"]: int(r["producido"] or 0) for r in prod_rows}
-
-        # 2. Ventas ya registradas (POS + pedidos cobrados)
-        venta_rows = conn.execute(
-            "SELECT producto, SUM(cantidad) as vendido FROM ventas WHERE fecha = ? GROUP BY producto",
-            (fecha,)
-        ).fetchall()
-        vendidos = {r["producto"]: int(r["vendido"] or 0) for r in venta_rows}
-
-        # 3. Pedidos activos (aún no cobrados): pendiente, en_preparacion, listo
+        # 2. Pedidos activos (aún no cobrados): pendiente, en_preparacion, listo
         pedido_ids = [
             row["id"] for row in conn.execute(
                 "SELECT id FROM pedidos WHERE fecha = ? AND estado IN ('pendiente', 'en_preparacion', 'listo')",
@@ -2813,10 +2810,12 @@ def obtener_stock_disponible_hoy(fecha: str | None = None) -> dict[str, int]:
                 p = item["producto"]
                 comprometidos[p] = comprometidos.get(p, 0) + int(item["cantidad"] or 0)
 
-        # 4. Calcular disponible real
+        # 3. Calcular disponible = producido - vendido_manual - comprometido_activos
         disponibles: dict[str, int] = {}
-        for producto, producido in producidos.items():
-            vendido = vendidos.get(producto, 0)
+        for r in prod_rows:
+            producto = r["producto"]
+            producido = int(r["producido"] or 0)
+            vendido = int(r["vendido"] or 0)
             comprometido = comprometidos.get(producto, 0)
             disponibles[producto] = max(producido - vendido - comprometido, 0)
 
