@@ -1,10 +1,11 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block title_extra %} - Punto de Venta{% endblock %}
 {% block content %}
 <style>
 .cajero-layout.cajero-pos-shell {
     height: 100dvh;
     overflow: hidden;
+    background: var(--shell-backdrop);
 }
 .cajero-layout.cajero-pos-shell .main-content {
     display: flex;
@@ -13,19 +14,544 @@
 }
 .page-container.pos-page.cajero-pos-page {
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
-    gap: 18px;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    gap: 16px;
     height: 100%;
     min-height: 0;
     max-width: none;
 }
-.page-container.pos-page.cajero-pos-page .pos-layout {
-    height: auto;
+.pos-hero-shell,
+.pos-top-sellers,
+.pos-quick-library {
+    background: rgba(255, 255, 255, 0.78);
+    border: 1px solid rgba(139, 85, 19, 0.08);
+    border-radius: 22px;
+    box-shadow: 0 14px 40px rgba(44, 24, 16, 0.08);
+    backdrop-filter: blur(10px);
+}
+.pos-hero-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) auto;
+    gap: 18px;
+    padding: 18px 20px;
+}
+.pos-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+.pos-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.92);
+    border: 1px solid rgba(139,85,19,0.08);
+    box-shadow: 0 8px 20px rgba(44,24,16,0.06);
+}
+.pos-brand-mark {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    display: block;
+    object-fit: contain;
+    padding: 5px;
+    background: linear-gradient(135deg, rgba(193,120,23,0.18), rgba(212,114,42,0.26));
+    box-shadow: inset 0 0 0 1px rgba(139,85,19,0.06);
+}
+.pos-brand-name {
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--text);
+}
+.pos-eyebrow::before {
+    content: '';
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: var(--success);
+    box-shadow: 0 0 0 6px rgba(56, 142, 60, 0.12);
+}
+.pos-title {
+    font-size: clamp(28px, 4vw, 40px);
+    line-height: 1.02;
+    letter-spacing: -0.04em;
+    margin-bottom: 10px;
+}
+.pos-summary {
+    max-width: 44ch;
+    color: var(--text-sec);
+    font-size: 14px;
+}
+.pos-shortcuts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+.pos-shortcut {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 8px 10px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.9);
+    color: var(--text-sec);
+    font-size: 12px;
+    font-weight: 600;
+}
+.pos-shortcut kbd {
+    font: inherit;
+    padding: 2px 6px;
+    border-radius: 7px;
+    border: 1px solid rgba(139,85,19,0.15);
+    background: var(--bg-alt);
+    color: var(--text);
+}
+.pos-hero-actions {
+    display: grid;
+    gap: 12px;
+    align-content: start;
+    min-width: 240px;
+}
+.pos-shortcuts-dock {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+    border-radius: 18px;
+    border: 1px solid rgba(139,85,19,0.08);
+    background: rgba(255,255,255,0.84);
+    box-shadow: 0 10px 22px rgba(44,24,16,0.05);
+}
+.pos-shortcuts-label {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+.pos-hero-actions .btn {
+    justify-content: flex-start;
+    width: 100%;
+}
+.pos-quick-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.18fr);
+    gap: 16px;
     min-height: 0;
 }
-.page-container.pos-page.cajero-pos-page .pos-products,
-.page-container.pos-page.cajero-pos-page .cart-panel {
+.btn-cash {
+    background: linear-gradient(135deg, #c17817 0%, #d4722a 52%, #e08b37 100%);
+    color: #fff;
+    box-shadow: 0 10px 22px rgba(212,114,42,0.22);
+}
+.btn-cash:hover { filter: brightness(1.02); }
+.btn-ghost {
+    background: rgba(255,255,255,0.88);
+    color: var(--text-sec);
+    border: 1px solid var(--border);
+}
+.pos-top-sellers,
+.pos-quick-library {
+    height: 100%;
+    padding: 16px 18px;
+}
+.pos-section-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+.pos-section-head strong {
+    display: block;
+    font-size: 16px;
+    color: var(--text);
+}
+.pos-section-head span {
+    display: block;
+    margin-top: 4px;
+    color: var(--text-sec);
+    font-size: 13px;
+}
+.pos-section-meta {
+    color: var(--text-muted);
+    font-size: 12px;
+    white-space: nowrap;
+}
+.top3-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+.top3-card {
+    position: relative;
+    overflow: hidden;
+    border-radius: 18px;
+    border: 1px solid rgba(139,85,19,0.08);
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(250,243,235,0.98) 100%);
+    padding: 14px;
+    box-shadow: 0 8px 20px rgba(44,24,16,0.06);
+    transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+.top3-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 26px rgba(44,24,16,0.11);
+    border-color: rgba(212,114,42,0.22);
+}
+.top3-rank {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    background: rgba(212,114,42,0.12);
+    color: var(--primary-dark);
+    font-weight: 800;
+    margin-bottom: 10px;
+}
+.top3-name {
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 4px;
+}
+.top3-units {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin-bottom: 10px;
+}
+.top3-action {
+    width: 100%;
+    justify-content: center;
+}
+.top3-empty,
+.quick-group-empty,
+.cart-empty {
+    display: grid;
+    place-items: center;
+    text-align: center;
+    padding: 24px 18px;
+    color: var(--text-sec);
+}
+.top3-empty svg,
+.quick-group-empty svg,
+.cart-empty svg {
+    width: 92px;
+    height: 92px;
+    opacity: 0.72;
+    margin-bottom: 10px;
+}
+.pos-quick-library {
+    display: grid;
+    gap: 12px;
+}
+.quick-library-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.quick-tab {
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.86);
+    color: var(--text-sec);
+    border-radius: 999px;
+    padding: 9px 13px;
+    font-size: 13px;
+    font-weight: 600;
+    transition: all 180ms ease;
+}
+.quick-tab.active,
+.quick-tab:hover {
+    background: rgba(212,114,42,0.12);
+    border-color: rgba(212,114,42,0.22);
+    color: var(--primary-dark);
+}
+.quick-group-panel {
+    border-radius: 18px;
+    border: 1px solid rgba(139,85,19,0.08);
+    background: rgba(255,255,255,0.82);
+    padding: 14px;
+}
+.quick-group-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+    align-items: center;
+}
+.quick-group-head strong { font-size: 15px; }
+.quick-group-head span { display: block; color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+.quick-group-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+.quick-product {
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+    border-radius: 16px;
+    border: 1px solid rgba(139,85,19,0.08);
+    background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(250,244,236,0.96));
+    cursor: pointer;
+    text-align: left;
+    transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+.quick-product:hover {
+    transform: translateY(-2px);
+    border-color: rgba(212,114,42,0.22);
+    box-shadow: 0 10px 24px rgba(44,24,16,0.08);
+}
+.quick-product strong { color: var(--text); font-size: 14px; }
+.quick-product small { color: var(--text-muted); font-size: 12px; }
+.quick-product .quick-product-price { color: var(--primary-dark); font-weight: 800; }
+.pos-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 390px;
     min-height: 0;
+    height: 100%;
+    gap: 16px;
+    width: 100%;
+}
+.pos-products {
+    padding: 4px 0 4px 0;
+    overflow-y: auto;
+    min-width: 0;
+}
+.pos-products .page-title {
+    margin-bottom: 4px;
+}
+.pos-products .text-muted {
+    color: var(--text-muted);
+}
+.product-filters-panel {
+    display: grid;
+    gap: 12px;
+    margin-top: 8px;
+    margin-bottom: 14px;
+}
+.product-filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.product-card {
+    position: relative;
+}
+.product-card.is-just-added {
+    animation: productPunch 260ms ease;
+}
+@keyframes productPunch {
+    0% { transform: scale(1); }
+    50% { transform: scale(0.98); box-shadow: 0 14px 28px rgba(212,114,42,0.14); }
+    100% { transform: scale(1); }
+}
+.cart-panel {
+    background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(250,243,235,0.98));
+    border: 1px solid rgba(139,85,19,0.08);
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-width: 0;
+    width: 100%;
+    border-radius: 20px;
+    box-shadow: 0 14px 30px rgba(44,24,16,0.08);
+    overflow: hidden;
+}
+.cart-panel .pos-quick-library {
+    padding: 14px 14px 10px;
+    border-radius: 0;
+    border: none;
+    border-bottom: 1px solid rgba(139,85,19,0.08);
+    box-shadow: none;
+    background: rgba(255,248,241,0.96);
+}
+.cart-header {
+    background: linear-gradient(135deg, var(--primary-dark), var(--accent));
+    color: #FFF;
+    padding: 16px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.cart-count { font-size: 13px; color: rgba(255,255,255,0.82); transition: transform 180ms ease; }
+.cart-count.pulse { animation: cartCountPulse 260ms ease; }
+@keyframes cartCountPulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.12); }
+    100% { transform: scale(1); }
+}
+.cart-items {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 14px 0;
+}
+.cart-empty {
+    min-height: 220px;
+}
+.cart-empty-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 76px;
+    height: 76px;
+    border-radius: 22px;
+    background: rgba(212,114,42,0.08);
+    color: var(--primary-dark);
+    margin-bottom: 12px;
+}
+.cart-empty-title {
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 4px;
+}
+.cart-empty-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 14px;
+}
+.cart-footer {
+    padding: 14px 16px 16px;
+    border-top: 1px solid var(--divider);
+    background: rgba(255,255,255,0.92);
+}
+.cart-total-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 12px;
+}
+.cart-total-label {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+.cart-total-value {
+    font-size: 34px;
+    font-weight: 900;
+    letter-spacing: -0.04em;
+    font-variant-numeric: tabular-nums;
+    transition: transform 180ms ease;
+}
+.cart-total-value.bump {
+    animation: totalBump 220ms ease;
+}
+@keyframes totalBump {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+.cart-actions {
+    display: grid;
+    grid-template-columns: 1fr 1.1fr;
+    gap: 10px;
+}
+.cart-actions .btn-lg { justify-content: center; }
+.cart-primary-action {
+    grid-column: 1 / -1;
+}
+.cart-shortcut-note {
+    margin-top: 10px;
+    color: var(--text-muted);
+    font-size: 12px;
+    text-align: center;
+}
+.payment-summary-box {
+    border-radius: 18px;
+    border: 1px solid rgba(139,85,19,0.08);
+    background: rgba(255,249,241,0.92);
+    padding: 14px 16px;
+}
+.payment-summary-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 4px 0;
+}
+.payment-summary-row strong {
+    font-size: 18px;
+    font-variant-numeric: tabular-nums;
+}
+.payment-summary-box-soft {
+    margin-top: 12px;
+    background: rgba(255,255,255,0.92);
+}
+.payment-total-callout {
+    display: grid;
+    gap: 4px;
+    margin-top: 12px;
+    margin-bottom: 8px;
+    padding: 14px 16px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, rgba(193,120,23,0.1), rgba(212,114,42,0.05));
+    border: 1px solid rgba(212,114,42,0.12);
+}
+.payment-total-callout span {
+    color: var(--text-muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 800;
+}
+.payment-total-callout strong {
+    font-size: 34px;
+    line-height: 1;
+    letter-spacing: -0.04em;
+}
+.payment-keyline {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+}
+.payment-keyline .chip {
+    background: rgba(255,255,255,0.9);
+}
+.modal-card {
+    max-width: 720px;
+}
+.modal-footer .btn-primary-payment {
+    background: linear-gradient(135deg, #c17817 0%, #d4722a 100%);
+    color: #fff;
+}
+.btn-ripple {
+    position: absolute;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.34);
+    transform: scale(0);
+    animation: ripple 0.5s ease-out;
+    pointer-events: none;
+}
+@keyframes ripple { to { transform: scale(4); opacity: 0; } }
+
+@media (max-width: 1024px) {
+    .pos-layout {
+        grid-template-columns: minmax(0, 1fr) 340px;
+    }
+    .pos-quick-grid {
+        grid-template-columns: 1fr;
+    }
+    .top3-grid,
+    .quick-group-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
 }
 
 @media (max-width: 900px) {
@@ -43,50 +569,105 @@
         max-width: 100vw;
         height: auto;
         margin: 0;
-        padding: 16px 12px 24px;
+        padding: 14px 12px 24px;
     }
-    .page-container.pos-page.cajero-pos-page > * {
-        width: 100%;
-        max-width: 100%;
-    }
-    .page-container.pos-page.cajero-pos-page .pos-layout {
-        display: flex;
-        flex-direction: column;
-        width: 100%;
-        max-width: 100%;
-        min-width: 0;
-    }
-    .page-container.pos-page.cajero-pos-page .pos-products,
-    .page-container.pos-page.cajero-pos-page .cart-panel,
-    .page-container.pos-page.cajero-pos-page #cajaStatusCard,
-    .page-container.pos-page.cajero-pos-page .card {
-        width: 100% !important;
-        max-width: 100% !important;
-        min-width: 0 !important;
-        margin-left: 0;
-        margin-right: 0;
-    }
-    .page-container.pos-page.cajero-pos-page .product-grid {
+    .pos-hero-shell,
+    .pos-layout {
         grid-template-columns: 1fr;
     }
-    .page-container.pos-page.cajero-pos-page .cart-panel {
-        max-height: none;
-        border-left: none;
-        border-top: 1px solid var(--divider);
+    .pos-top-sellers,
+    .pos-quick-library,
+    .pos-hero-shell {
+        padding-left: 14px;
+        padding-right: 14px;
     }
+    .top3-grid,
+    .quick-group-grid {
+        grid-template-columns: 1fr;
+    }
+    .pos-layout .cart-panel {
+        border-radius: 20px;
+        margin-top: 16px;
+    }
+}
+
+@media (max-width: 640px) {
+    .pos-shortcuts {
+        grid-template-columns: 1fr;
+    }
+    .pos-hero-actions,
+    .cart-actions {
+        grid-template-columns: 1fr;
+    }
+    .pos-title { font-size: 30px; }
+    .cart-total-value { font-size: 30px; }
 }
 </style>
 
 <div class="page-container pos-page cajero-pos-page">
     <div id="cajaStatusCard"></div>
 
+    <section class="pos-hero-shell">
+        <div class="pos-hero-copy">
+            <div class="pos-brand">
+                <img src="{{ url_for('static', filename='brand/richs-logo.svg') }}" alt="RICHS" class="pos-brand-mark">
+                <span class="pos-brand-name">RICHS</span>
+            </div>
+            <div class="pos-eyebrow">Operacion diaria</div>
+            <h2 class="page-title pos-title">Punto de Venta RICHS</h2>
+            <p class="pos-summary">
+                Agrega productos y cobra rapido sin tapar el catalogo principal.
+            </p>
+        </div>
+        <div class="pos-hero-actions">
+            <div class="pos-shortcuts-dock">
+                <span class="pos-shortcuts-label">Atajos rapidos</span>
+                <div class="pos-shortcuts">
+                    <span class="pos-shortcut"><kbd>Enter</kbd> Cobrar</span>
+                    <span class="pos-shortcut"><kbd>Esc</kbd> Cerrar</span>
+                    <span class="pos-shortcut"><kbd>Ctrl</kbd>+<kbd>F</kbd> Buscar</span>
+                    <span class="pos-shortcut"><kbd>Alt</kbd>+<kbd>2</kbd> Efectivo</span>
+                </div>
+            </div>
+            <button type="button" class="btn btn-ghost" onclick="focusProductSearch()">
+                <span class="material-symbols-outlined">search</span>
+                Buscar producto
+            </button>
+            <button type="button" class="btn btn-ghost" onclick="setQuickGroup('favoritos')">
+                <span class="material-symbols-outlined">star</span>
+                Ver favoritos
+            </button>
+            <button type="button" class="btn btn-cash" onclick="quickCashCheckout()">
+                <span class="material-symbols-outlined">payments</span>
+                Cobrar efectivo
+            </button>
+        </div>
+    </section>
+
+    <section class="pos-top-sellers">
+        <div class="pos-section-head">
+            <div>
+                <strong>Top 3 mas vendidos hoy</strong>
+                <span>Productos fuertes para horas pico.</span>
+            </div>
+            <div class="pos-section-meta" id="top3Meta">Actualizacion automatica</div>
+        </div>
+        <div id="top3Banner" class="top3-grid">
+            <div class="top3-empty">
+                <span class="material-symbols-outlined">local_fire_department</span>
+                <strong style="margin-bottom:4px;">Cargando ventas del dia...</strong>
+                <span class="text-muted">Apenas haya movimiento, veras aqui los tres productos mas fuertes.</span>
+            </div>
+        </div>
+    </section>
+
     <div class="pos-layout">
         <div class="pos-products">
-            <h2 class="page-title">Punto de Venta</h2>
-            <p class="text-muted" style="margin-bottom: 16px;">Agrega productos a la cuenta y cobra desde caja.</p>
+            <h2 class="page-title">Catalogo rapido</h2>
+            <p class="text-muted" style="margin-bottom: 16px;">Busca un producto o filtra por familia para cargarlo con un toque.</p>
 
             <div class="product-filters-panel">
-                <input type="text" id="productSearch" class="form-input" placeholder="Buscar producto por nombre..."
+                <input type="text" id="productSearch" class="form-input" placeholder="Buscar pan, combo o bebida..."
                        oninput="applyProductFilters()">
                 <div class="product-filter-chips">
                     <button type="button" class="chip chip-filter chip-filter-active" data-category-btn="todos"
@@ -96,11 +677,6 @@
                             onclick="setCategoryFilter('{{ categoria|lower }}')">{{ categoria }}</button>
                     {% endfor %}
                 </div>
-            </div>
-
-            <div id="top3Banner" style="display:none;margin-bottom:12px;background:var(--color-surface);border:1px solid var(--color-border);border-radius:8px;padding:10px 14px">
-                <div style="font-size:.75rem;font-weight:600;opacity:.6;margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">Mas vendidos hoy</div>
-                <div id="top3Lista" style="display:flex;gap:12px;flex-wrap:wrap"></div>
             </div>
 
             <div class="product-grid">
@@ -117,7 +693,7 @@
                     <span class="material-symbols-outlined product-icon">{{ p.icono }}</span>
                     <span class="product-name">{{ p.nombre }}</span>
                     <span class="chip product-category-chip">{{ p.categoria }}</span>
-                    <span class="product-price">${{ '%.2f'|format(p.precio) }}</span>
+                    <span class="product-price">${{ '{:,.0f}'.format(p.precio or 0) }}</span>
                     <span class="stock-badge" id="stock_{{ p.id }}" style="display:none"></span>
                 </button>
                 {% endfor %}
@@ -125,27 +701,63 @@
         </div>
 
         <div class="cart-panel">
+            <section class="pos-quick-library">
+                <div class="quick-library-tabs">
+                    <button type="button" class="quick-tab active" data-quick-group="favoritos" onclick="setQuickGroup('favoritos')">Favoritos</button>
+                    <button type="button" class="quick-tab" data-quick-group="combos" onclick="setQuickGroup('combos')">Combos</button>
+                    <button type="button" class="quick-tab" data-quick-group="recurrentes" onclick="setQuickGroup('recurrentes')">Recurrentes</button>
+                </div>
+                <div class="quick-group-panel">
+                    <div class="quick-group-head">
+                        <div>
+                            <strong id="quickGroupTitle">Favoritos del turno</strong>
+                            <span id="quickGroupSubtitle">Basado en lo que mas agregas en esta caja.</span>
+                        </div>
+                        <div class="pos-section-meta" id="quickGroupCount">0 accesos rapidos</div>
+                    </div>
+                    <div id="quickGroupList" class="quick-group-grid">
+                        <div class="quick-group-empty">
+                            <span class="material-symbols-outlined">bolt</span>
+                            <strong style="margin-bottom:4px;">Preparando accesos rapidos...</strong>
+                            <span class="text-muted">Los botones de uso frecuente se ordenaran automaticamente para ti.</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
             <div class="cart-header">
-                <h3>Venta Actual</h3>
+                <h3>Venta actual</h3>
                 <span class="cart-count" id="cartCount">0 items</span>
             </div>
 
             <div class="cart-items" id="cartItems">
                 <div class="cart-empty">
-                    <p>La venta esta vacia</p>
-                    <p class="text-muted">Toca un producto para agregarlo</p>
+                    <div class="cart-empty-icon">
+                        <span class="material-symbols-outlined" style="font-size:34px;">shopping_cart</span>
+                    </div>
+                    <div class="cart-empty-title">La venta esta vacia</div>
+                    <p class="text-muted">Toca un producto, un favorito o un combo para empezar.</p>
+                    <div class="cart-empty-actions">
+                        <button type="button" class="btn btn-ghost btn-sm" onclick="focusProductSearch()">Buscar</button>
+                        <button type="button" class="btn btn-cash btn-sm" onclick="quickCashCheckout()">Cobrar efectivo</button>
+                    </div>
                 </div>
             </div>
 
             <div class="cart-footer">
                 <div class="cart-total-row">
-                    <span class="cart-total-label">TOTAL</span>
-                    <span class="cart-total-value" id="cartTotal">$0.00</span>
+                    <span class="cart-total-label">Total</span>
+                <span class="cart-total-value" id="cartTotal">$0</span>
                 </div>
                 <div class="cart-actions">
                     <button class="btn btn-danger-outline" onclick="clearCart()">Limpiar</button>
-                    <button class="btn btn-success btn-lg" onclick="openPaymentModal()">Cobrar</button>
+                    <button class="btn btn-cash cart-primary-action" onclick="quickCashCheckout()">
+                        Cobrar efectivo
+                    </button>
+                    <button class="btn btn-success btn-lg cart-primary-action" onclick="openPaymentModal()">
+                        Otras formas de cobro
+                    </button>
                 </div>
+                <div class="cart-shortcut-note">Enter cobra, Esc cierra modales, Ctrl+F enfoca la busqueda.</div>
             </div>
         </div>
     </div>
@@ -184,11 +796,11 @@
             <button class="modal-close" onclick="closePaymentModal()">&times;</button>
         </div>
         <div class="modal-body">
+            <div class="payment-total-callout">
+                <span>Total a cobrar</span>
+                <strong id="paymentTotal">$0</strong>
+            </div>
             <div class="payment-summary-box">
-                <div class="payment-summary-row">
-                    <span>Total a cobrar</span>
-                    <strong id="paymentTotal">$0.00</strong>
-                </div>
                 <div class="payment-summary-row">
                     <span>Items</span>
                     <strong id="paymentItems">0</strong>
@@ -205,7 +817,7 @@
                 </div>
                 <div>
                     <label class="form-label" for="paymentReceived">Monto recibido</label>
-                    <input id="paymentReceived" type="number" min="0" step="0.01" class="form-input" oninput="updatePaymentSummary()">
+                    <input id="paymentReceived" type="number" min="0" step="1" class="form-input" oninput="updatePaymentSummary()">
                     <div class="form-help">En transferencia se toma el total exacto.</div>
                 </div>
             </div>
@@ -213,17 +825,23 @@
             <div class="payment-summary-box payment-summary-box-soft">
                 <div class="payment-summary-row">
                     <span>Recibido</span>
-                    <strong id="paymentReceivedText">$0.00</strong>
+                    <strong id="paymentReceivedText">$0</strong>
                 </div>
                 <div class="payment-summary-row">
                     <span>Vueltas</span>
-                    <strong id="paymentChangeText">$0.00</strong>
+                    <strong id="paymentChangeText">$0</strong>
                 </div>
+            </div>
+            <div class="payment-keyline">
+                <span class="chip">Enter confirma</span>
+                <span class="chip">Esc cancela</span>
+                <span class="chip">Efectivo usa cambio automatico</span>
             </div>
         </div>
         <div class="modal-footer">
             <button class="btn btn-outline" onclick="closePaymentModal()">Cancelar</button>
-            <button class="btn btn-success" onclick="confirmPayment()">Confirmar Cobro</button>
+            <button class="btn btn-cash" id="paymentConfirmButton" onclick="confirmPayment()">Cobrar efectivo</button>
+            <button class="btn btn-success" id="paymentAltButton" onclick="confirmPayment()">Confirmar cobro</button>
         </div>
     </div>
 </div>
@@ -239,9 +857,47 @@ let selectedCategory = 'todos';
 let stockDisponible = {};
 const ADICIONALES = {{ adicionales | tojson }};
 const ADICIONALES_DISPONIBLES = ADICIONALES || [];
+const PRODUCT_CATALOG = [
+    {% for p in productos %}
+    {
+        id: {{ p.id }},
+        nombre: {{ p.nombre|tojson }},
+        precio: {{ p.precio }},
+        icono: {{ p.icono|tojson }},
+        categoria: {{ p.categoria|tojson }},
+        color: {{ p.color|tojson }},
+        stockMinimo: {{ p.stock_minimo or 0 }}
+    }{% if not loop.last %},{% endif %}
+    {% endfor %}
+];
+const QUICK_GROUP_META = {
+    favoritos: {
+        title: 'Favoritos del turno',
+        subtitle: 'Basado en lo que agregas con mas frecuencia en esta caja.'
+    },
+    combos: {
+        title: 'Combos y ofertas',
+        subtitle: 'Combinaciones del catalogo que aceleran la venta en mostrador.'
+    },
+    recurrentes: {
+        title: 'Ventas recurrentes',
+        subtitle: 'Lo que mas se mueve hoy en caja, ordenado automaticamente.'
+    }
+};
+const QUICK_GROUP_KEYWORDS = {
+    combos: ['combo', 'pack', 'promo', 'promocion', 'oferta', 'desayuno', 'combo'],
+    recurrentes: ['pan', 'croissant', 'arepa', 'empanada', 'cafe', 'jugo', 'torta', 'rollo']
+};
+let topProductStats = [];
+let activeQuickGroup = 'favoritos';
+const quickUseKey = 'richs_pos_quick_use';
+const quickCashButtonId = 'paymentConfirmButton';
+const quickAltButtonId = 'paymentAltButton';
 
 function money(value) {
-    return '$' + Number(value || 0).toFixed(2);
+    return window.AppUI
+        ? AppUI.formatMoney(value, 0)
+        : ('$' + Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 }));
 }
 
 function escapeHtml(value) {
@@ -252,6 +908,152 @@ function escapeHtml(value) {
         '"': '&quot;',
         "'": '&#39;',
     }[char]));
+}
+
+function normalizeText(value) {
+    return `${value == null ? '' : value}`.toLowerCase();
+}
+
+function getQuickUseStats() {
+    try {
+        return JSON.parse(localStorage.getItem(quickUseKey) || '{}') || {};
+    } catch (error) {
+        return {};
+    }
+}
+
+function saveQuickUseStats(stats) {
+    try {
+        localStorage.setItem(quickUseKey, JSON.stringify(stats || {}));
+    } catch (error) {}
+}
+
+function markQuickUse(nombre) {
+    const stats = getQuickUseStats();
+    const key = normalizeText(nombre);
+    stats[key] = Number(stats[key] || 0) + 1;
+    saveQuickUseStats(stats);
+}
+
+function getProductsByGroup(group) {
+    const stats = getQuickUseStats();
+    if (group === 'favoritos') {
+        return PRODUCT_CATALOG
+            .map((item) => ({ ...item, score: Number(stats[normalizeText(item.nombre)] || 0) }))
+            .sort((a, b) => b.score - a.score || a.nombre.localeCompare(b.nombre))
+            .filter((item) => item.score > 0)
+            .slice(0, 6);
+    }
+
+    if (group === 'combos') {
+        return PRODUCT_CATALOG
+            .filter((item) => QUICK_GROUP_KEYWORDS.combos.some((word) => normalizeText(item.nombre).includes(word) || normalizeText(item.categoria).includes(word)))
+            .slice(0, 6);
+    }
+
+    if (group === 'recurrentes') {
+        return topProductStats.length
+            ? topProductStats
+                  .map((entry) => {
+                      const product = PRODUCT_CATALOG.find((item) => normalizeText(item.nombre) === normalizeText(entry.producto));
+                      return product ? { ...product, units: Number(entry.unidades || 0) } : null;
+                  })
+                  .filter(Boolean)
+                  .slice(0, 6)
+            : PRODUCT_CATALOG
+                  .filter((item) => QUICK_GROUP_KEYWORDS.recurrentes.some((word) => normalizeText(item.nombre).includes(word) || normalizeText(item.categoria).includes(word)))
+                  .slice(0, 6);
+    }
+
+    return [];
+}
+
+function renderQuickGroup(group = activeQuickGroup) {
+    activeQuickGroup = group;
+    document.querySelectorAll('[data-quick-group]').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.quickGroup === group);
+    });
+
+    const meta = QUICK_GROUP_META[group] || QUICK_GROUP_META.favoritos;
+    document.getElementById('quickGroupTitle').textContent = meta.title;
+    document.getElementById('quickGroupSubtitle').textContent = meta.subtitle;
+
+    const items = getProductsByGroup(group);
+    document.getElementById('quickGroupCount').textContent = `${window.AppUI ? AppUI.formatNumber(items.length, 0) : items.length} accesos rapidos`;
+    const list = document.getElementById('quickGroupList');
+
+    if (!items.length) {
+        list.innerHTML = `
+            <div class="quick-group-empty">
+                <span class="material-symbols-outlined">auto_awesome</span>
+                <strong style="margin-bottom:4px;">Aun no hay items para mostrar</strong>
+                <span class="text-muted">Usa la caja y la lista se llenara con productos frecuentes y atajos utiles.</span>
+            </div>
+        `;
+        return;
+    }
+
+    list.innerHTML = items.map((item) => `
+        <button type="button" class="quick-product"
+                data-quick-product="${escapeHtml(item.nombre)}"
+                data-quick-price="${Number(item.precio)}"
+                data-quick-icon="${escapeHtml(item.icono || '')}"
+                data-quick-id="${Number(item.id)}"
+                data-quick-stock="${Number(item.stockMinimo || 0)}">
+            <strong>${escapeHtml(item.nombre)}</strong>
+            <small>${escapeHtml(item.categoria || 'Producto rapido')}</small>
+            <div class="quick-product-price">${money(item.precio)}</div>
+        </button>
+    `).join('');
+}
+
+function setQuickGroup(group) {
+    renderQuickGroup(group);
+}
+
+function focusProductSearch() {
+    const input = document.getElementById('productSearch');
+    if (!input) return;
+    input.focus();
+    input.select?.();
+}
+
+function quickCashCheckout() {
+    if (cart.length === 0) {
+        Toast.warning('Agrega productos a la venta primero.');
+        return;
+    }
+    const button = document.getElementById(quickCashButtonId);
+    if (button) button.textContent = 'Cobrar efectivo';
+    openPaymentModal('efectivo');
+}
+
+function updatePaymentActionLabels(method = 'efectivo') {
+    const cashButton = document.getElementById(quickCashButtonId);
+    const altButton = document.getElementById(quickAltButtonId);
+    if (cashButton) {
+        cashButton.textContent = method === 'efectivo' ? 'Cobrar efectivo' : 'Cobro rapido';
+    }
+    if (altButton) {
+        altButton.textContent = method === 'efectivo' ? 'Confirmar cobro' : 'Cobrar con otro metodo';
+    }
+}
+
+function highlightProductCard(productId) {
+    const card = Array.from(document.querySelectorAll('.product-card[data-product-id]')).find(
+        (item) => String(item.dataset.productId) === String(productId)
+    );
+    if (!card) return;
+    card.classList.add('is-just-added');
+    setTimeout(() => card.classList.remove('is-just-added'), 320);
+}
+
+function pulseCartCounter() {
+    const counter = document.getElementById('cartCount');
+    if (!counter) return;
+    counter.classList.remove('pulse');
+    void counter.offsetWidth;
+    counter.classList.add('pulse');
 }
 
 function setCategoryFilter(category) {
@@ -338,7 +1140,7 @@ function actualizarBadgesStock() {
             btn.classList.add('product-card-stock-out');
             btn.disabled = true;
         } else if (stockMinimo > 0 && restante <= stockMinimo) {
-            badge.textContent = `Quedan pocas unidades (${restante})`;
+        badge.textContent = `Quedan pocas unidades (${window.AppUI ? AppUI.formatNumber(restante, 0) : restante})`;
             badge.classList.add('stock-badge-low');
             btn.classList.add('product-card-stock-low');
         } else {
@@ -390,7 +1192,7 @@ function getInputAdicional(adicionalId) {
 function addToCart(nombre, precio, icono, productId, stockMinimo) {
     const restante = getStockRestante(nombre);
     if (restante <= 0) {
-        alert(`${nombre} no tiene stock disponible en este momento.`);
+        Toast.warning(`${nombre} no tiene stock disponible en este momento.`);
         return;
     }
 
@@ -404,8 +1206,12 @@ function addToCart(nombre, precio, icono, productId, stockMinimo) {
         stockMinimo: Number(stockMinimo || 0),
         modificaciones: [],
     });
+    markQuickUse(nombre);
+    highlightProductCard(productId);
+    pulseCartCounter();
     renderCart();
     actualizarBadgesStock();
+    renderQuickGroup(activeQuickGroup);
 }
 
 function updateQty(itemId, qty) {
@@ -418,7 +1224,7 @@ function updateQty(itemId, qty) {
     } else {
         const restante = getStockRestante(item.nombre, itemId);
         if (qty > item.cantidad && restante < (qty - item.cantidad)) {
-            alert(`Solo hay ${stockDisponible[item.nombre]} unidades disponibles de ${item.nombre}.`);
+        Toast.warning(`Solo hay ${window.AppUI ? AppUI.formatNumber(stockDisponible[item.nombre], 0) : stockDisponible[item.nombre]} unidades disponibles de ${item.nombre}.`);
             qty = item.cantidad + Math.max(restante, 0);
             if (qty <= 0) {
                 cart = cart.filter(entry => entry.id !== itemId);
@@ -429,22 +1235,28 @@ function updateQty(itemId, qty) {
         }
         item.cantidad = qty;
     }
+    pulseCartCounter();
     renderCart();
     actualizarBadgesStock();
+    renderQuickGroup(activeQuickGroup);
 }
 
 function removeFromCart(itemId) {
     cart = cart.filter(item => item.id !== itemId);
+    pulseCartCounter();
     renderCart();
     actualizarBadgesStock();
+    renderQuickGroup(activeQuickGroup);
 }
 
 function clearCart() {
     cart = [];
     cerrarModal();
     closePaymentModal();
+    pulseCartCounter();
     renderCart();
     actualizarBadgesStock();
+    renderQuickGroup(activeQuickGroup);
 }
 
 function obtenerAvisoStockItem(item) {
@@ -464,7 +1276,7 @@ function obtenerAvisoStockItem(item) {
     if (Number(item.stockMinimo || 0) > 0 && restante <= Number(item.stockMinimo || 0)) {
         return {
             clase: 'cart-stock-note-low',
-            texto: `Quedan pocas unidades (${restante}).`,
+                texto: `Quedan pocas unidades (${window.AppUI ? AppUI.formatNumber(restante, 0) : restante}).`,
         };
     }
 
@@ -494,11 +1306,18 @@ function renderCart() {
     if (cart.length === 0) {
         container.innerHTML = `
             <div class="cart-empty">
-                <p>La venta esta vacia</p>
-                <p class="text-muted">Toca un producto para agregarlo</p>
+                <div class="cart-empty-icon">
+                    <span class="material-symbols-outlined" style="font-size:34px;">shopping_cart</span>
+                </div>
+                <div class="cart-empty-title">La venta esta vacia</div>
+                <p class="text-muted">Toca un producto, un favorito o un combo para empezar.</p>
+                <div class="cart-empty-actions">
+                    <button type="button" class="btn btn-ghost btn-sm" onclick="focusProductSearch()">Buscar</button>
+                    <button type="button" class="btn btn-cash btn-sm" onclick="quickCashCheckout()">Cobrar efectivo</button>
+                </div>
             </div>`;
         countEl.textContent = '0 items';
-        totalEl.textContent = '$0.00';
+        totalEl.textContent = money(0);
         return;
     }
 
@@ -565,6 +1384,12 @@ function renderCart() {
     container.innerHTML = html;
     countEl.textContent = totalItems + (totalItems === 1 ? ' item' : ' items');
     totalEl.textContent = money(total);
+    countEl.classList.add('pulse');
+    totalEl.classList.add('bump');
+    setTimeout(() => {
+        countEl.classList.remove('pulse');
+        totalEl.classList.remove('bump');
+    }, 260);
 }
 
 function abrirModal(itemId) {
@@ -686,20 +1511,21 @@ function guardarMods() {
     renderCart();
 }
 
-function openPaymentModal() {
+function openPaymentModal(preferredMethod = 'efectivo') {
     if (cart.length === 0) {
-        alert('Agrega productos a la venta primero.');
+        Toast.warning('Agrega productos a la venta primero.');
         return;
     }
     if (!cajaActual || !cajaActual.arqueo_activo) {
-        alert('Debes abrir el arqueo de caja antes de cobrar.');
+        Toast.warning('Debes abrir el arqueo de caja antes de cobrar.');
         return;
     }
 
-    document.getElementById('paymentMethod').value = 'efectivo';
-    document.getElementById('paymentReceived').value = getCartTotal().toFixed(2);
+    document.getElementById('paymentMethod').value = preferredMethod === 'transferencia' ? 'transferencia' : 'efectivo';
+    document.getElementById('paymentReceived').value = window.AppUI ? AppUI.suggestedCash(getCartTotal()) : String(Math.ceil(getCartTotal()));
     updatePaymentSummary();
     document.getElementById('paymentModal').style.display = 'flex';
+    updatePaymentActionLabels(document.getElementById('paymentMethod').value);
 }
 
 function closePaymentModal() {
@@ -713,12 +1539,12 @@ function updatePaymentSummary() {
     const itemsCount = getCartCount();
 
     if (metodo === 'transferencia') {
-        receivedInput.value = total.toFixed(2);
+        receivedInput.value = window.AppUI ? AppUI.suggestedCash(total) : String(Math.ceil(total));
         receivedInput.disabled = true;
     } else {
         receivedInput.disabled = false;
         if (!receivedInput.value) {
-            receivedInput.value = total.toFixed(2);
+            receivedInput.value = window.AppUI ? AppUI.suggestedCash(total) : String(Math.ceil(total));
         }
     }
 
@@ -726,9 +1552,10 @@ function updatePaymentSummary() {
     const cambio = metodo === 'efectivo' ? Math.max(recibido - total, 0) : 0;
 
     document.getElementById('paymentTotal').textContent = money(total);
-    document.getElementById('paymentItems').textContent = itemsCount;
+    document.getElementById('paymentItems').textContent = window.AppUI ? AppUI.formatNumber(itemsCount, 0) : itemsCount;
     document.getElementById('paymentReceivedText').textContent = money(recibido);
     document.getElementById('paymentChangeText').textContent = money(cambio);
+    updatePaymentActionLabels(metodo);
 }
 
 async function confirmPayment() {
@@ -737,7 +1564,7 @@ async function confirmPayment() {
     const montoRecibido = Number(document.getElementById('paymentReceived').value || 0);
 
     if (metodo === 'efectivo' && montoRecibido + 1e-9 < total) {
-        alert('El monto recibido debe cubrir el total de la venta.');
+        Toast.warning('El monto recibido debe cubrir el total de la venta.');
         return;
     }
 
@@ -746,8 +1573,8 @@ async function confirmPayment() {
     if (faltantesPrevios.length) {
         const detalle = faltantesPrevios
             .map(item => `${item.producto}: disponibles ${item.disponible}, solicitadas ${item.requerido}`)
-            .join('\n');
-        alert('No puedes cobrar esta venta porque no hay stock suficiente:\n' + detalle);
+            .join(', ');
+        Toast.error('No puedes cobrar esta venta porque no hay stock suficiente: ' + detalle);
         actualizarBadgesStock();
         return;
     }
@@ -784,34 +1611,132 @@ async function confirmPayment() {
         renderCajaStatus();
         closePaymentModal();
         clearCart();
+        Toast.success(data.mensaje || 'Venta registrada correctamente.');
     } catch (err) {
-        alert(err.message || 'No se pudo registrar la venta.');
+        Toast.error(err.message || 'No se pudo registrar la venta.');
     }
 }
 
 renderCajaStatus();
 renderCart();
 applyProductFilters();
+renderQuickGroup(activeQuickGroup);
+
+document.getElementById('quickGroupList')?.addEventListener('click', function (event) {
+    const button = event.target.closest('[data-quick-product]');
+    if (!button) return;
+    const product = PRODUCT_CATALOG.find((item) => normalizeText(item.nombre) === normalizeText(button.dataset.quickProduct));
+    if (!product) return;
+    addToCart(product.nombre, product.precio, product.icono, product.id, product.stockMinimo || 0);
+});
+
+document.getElementById('top3Banner')?.addEventListener('click', function (event) {
+    const button = event.target.closest('[data-top-product]');
+    if (!button) return;
+    quickAddFromTop(button.dataset.topProduct);
+});
+
+document.addEventListener('keydown', function (event) {
+    const activeTag = (document.activeElement && document.activeElement.tagName) ? document.activeElement.tagName.toLowerCase() : '';
+    const isTyping = ['input', 'textarea', 'select'].includes(activeTag);
+
+    if (event.key === 'Escape') {
+        closePaymentModal();
+        cerrarModal();
+        return;
+    }
+
+    if (event.key === 'Enter' && document.getElementById('paymentModal').style.display === 'flex') {
+        event.preventDefault();
+        confirmPayment();
+        return;
+    }
+
+    if (event.ctrlKey && event.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        focusProductSearch();
+        return;
+    }
+
+    if (event.altKey && event.key === '1') {
+        event.preventDefault();
+        setQuickGroup('favoritos');
+        return;
+    }
+
+    if (event.altKey && event.key === '2') {
+        event.preventDefault();
+        quickCashCheckout();
+        return;
+    }
+
+    if (event.altKey && event.key === '3') {
+        event.preventDefault();
+        clearCart();
+        return;
+    }
+
+    if (event.key === 'Enter' && !isTyping) {
+        event.preventDefault();
+        if (cart.length > 0) {
+            quickCashCheckout();
+        }
+    }
+});
+
+function renderTop3(top) {
+    const panel = document.getElementById('top3Banner');
+    const meta = document.getElementById('top3Meta');
+    if (!panel) return;
+
+    if (!top.length) {
+        panel.innerHTML = `
+            <div class="top3-empty">
+                <span class="material-symbols-outlined">local_fire_department</span>
+                <strong style="margin-bottom:4px;">Sin ventas registradas aun</strong>
+                <span class="text-muted">Apenas empiecen los cobros, veras aqui los productos que mas se mueven hoy.</span>
+            </div>
+        `;
+        if (meta) meta.textContent = 'Esperando ventas';
+        return;
+    }
+
+    panel.innerHTML = top.slice(0, 3).map((item, index) => `
+        <article class="top3-card">
+            <div class="top3-rank">#${index + 1}</div>
+            <div class="top3-name">${escapeHtml(item.producto)}</div>
+            <div class="top3-units">${window.AppUI ? AppUI.formatNumber(Number(item.unidades || 0), 0) : Number(item.unidades || 0)} unidades hoy</div>
+            <button type="button" class="btn btn-cash btn-sm top3-action" data-top-product="${escapeHtml(item.producto)}">
+                Agregar rapido
+            </button>
+        </article>
+    `).join('');
+    if (meta) meta.textContent = `Actualizado ${new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+function quickAddFromTop(nombre) {
+    const card = PRODUCT_CATALOG.find((item) => normalizeText(item.nombre) === normalizeText(nombre));
+    if (!card) {
+        Toast.warning('No se encontro ese producto en el catalogo.');
+        return;
+    }
+    addToCart(card.nombre, card.precio, card.icono, card.id, card.stockMinimo || 0);
+}
 
 async function cargarTop3() {
     try {
-        const r = await fetch('/api/top-productos?limite=3');
+        const r = await fetch('/api/top-productos?limite=6', { cache: 'no-store' });
         if (!r.ok) return;
         const d = await r.json();
-        const top = d.top || [];
-        if (!top.length) return;
-        document.getElementById('top3Banner').style.display = 'block';
-        document.getElementById('top3Lista').innerHTML = top.map((item, index) => `
-            <span style="font-size:.85rem;background:var(--color-bg);border-radius:6px;padding:4px 10px;border:1px solid var(--color-border)">
-                <strong>#${index + 1}</strong> ${escapeHtml(item.producto)} <span style="opacity:.6">(${item.unidades} uds)</span>
-            </span>
-        `).join('');
+        topProductStats = d.top || [];
+        renderTop3(topProductStats);
+        renderQuickGroup(activeQuickGroup);
     } catch (e) {}
 }
 
 cargarStockDisponible();
 cargarTop3();
-setInterval(cargarStockDisponible, 60000);
-setInterval(cargarTop3, 120000);
+setInterval(cargarStockDisponible, 30000);
+setInterval(cargarTop3, 30000);
 </script>
 {% endblock %}

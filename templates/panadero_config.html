@@ -173,9 +173,9 @@ function saveProduct(productId) {
     const categoria = document.getElementById('prod-category-' + productId).value;
     const es_adicional = document.getElementById('prod-additional-' + productId).checked;
 
-    if (!nombre) { alert('Escribe el nombre del producto'); return; }
-    if (isNaN(precio) || precio < 0) { alert('Precio invalido'); return; }
-    if (!categoria) { alert('Selecciona una categoria'); return; }
+    if (!nombre) { Toast.warning('Escribe el nombre del producto'); return; }
+    if (isNaN(precio) || precio < 0) { Toast.warning('Precio invalido'); return; }
+    if (!categoria) { Toast.warning('Selecciona una categoria'); return; }
 
     fetch('/api/producto/' + productId, {
         method: 'PUT',
@@ -184,11 +184,11 @@ function saveProduct(productId) {
     })
     .then(r => r.json())
     .then(data => {
-        if (data.ok) location.reload();
-        else alert(data.error || 'No se pudo guardar el producto');
+        if (data.ok) { Toast.success('Producto guardado'); setTimeout(() => location.reload(), 600); }
+        else Toast.error(data.error || 'No se pudo guardar el producto');
     })
     .catch(err => {
-        alert(err.message || 'No se pudo guardar el producto');
+        Toast.error(err.message || 'No se pudo guardar el producto');
     });
 }
 
@@ -197,8 +197,8 @@ function addProduct() {
     const categoria = document.getElementById('newProdCategory').value;
     const precio = parseFloat(document.getElementById('newProdPrice').value);
     const esAdicional = document.getElementById('newProdAdditional').checked;
-    if (!nombre) { alert('Escribe el nombre'); return; }
-    if (isNaN(precio)) { alert('Precio invalido'); return; }
+    if (!nombre) { Toast.warning('Escribe el nombre'); return; }
+    if (isNaN(precio)) { Toast.warning('Precio invalido'); return; }
     fetch('/api/producto', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -206,29 +206,30 @@ function addProduct() {
     })
     .then(r => r.json())
     .then(data => {
-        if (data.ok) location.reload();
-        else alert(data.error || 'No se pudo agregar el producto');
+        if (data.ok) { Toast.success('Producto agregado'); setTimeout(() => location.reload(), 600); }
+        else Toast.error(data.error || 'No se pudo agregar el producto');
     });
 }
 
-function deleteProduct(productId, nombre) {
-    if (!confirm('Eliminar el producto "' + nombre + '"?')) return;
+async function deleteProduct(productId, nombre) {
+    const ok = await appConfirm('Eliminar el producto "' + nombre + '"?', { type: 'danger', title: 'Eliminar producto', confirmText: 'Eliminar' });
+    if (!ok) return;
     fetch('/api/producto/' + productId, {
         method: 'DELETE',
     })
     .then(r => r.json())
     .then(data => {
-        if (data.ok) location.reload();
-        else alert(data.error || 'No se pudo eliminar el producto');
+        if (data.ok) { Toast.success('Producto eliminado'); setTimeout(() => location.reload(), 600); }
+        else Toast.error(data.error || 'No se pudo eliminar el producto');
     })
     .catch(err => {
-        alert(err.message || 'No se pudo eliminar el producto');
+        Toast.error(err.message || 'No se pudo eliminar el producto');
     });
 }
 
 function addCategory() {
     const nombre = document.getElementById('newCategoryName').value.trim();
-    if (!nombre) { alert('Escribe el nombre de la categoria'); return; }
+    if (!nombre) { Toast.warning('Escribe el nombre de la categoria'); return; }
     fetch('/api/categoria-producto', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -236,8 +237,8 @@ function addCategory() {
     })
     .then(r => r.json())
     .then(data => {
-        if (data.ok) location.reload();
-        else alert('Esa categoria ya existe');
+        if (data.ok) { Toast.success('Categoria agregada'); setTimeout(() => location.reload(), 600); }
+        else Toast.warning('Esa categoria ya existe');
     });
 }
 
@@ -248,7 +249,7 @@ function importCatalog() {
     const archivo = fileInput.files[0];
 
     if (!archivo) {
-        alert('Selecciona un archivo .xlsx o .csv');
+        Toast.warning('Selecciona un archivo .xlsx o .csv');
         return;
     }
 
@@ -279,16 +280,17 @@ function importCatalog() {
 
         if (data.errores && data.errores.length) {
             feedback.textContent = resumen + '. Filas omitidas: ' + data.errores.length;
-            alert(resumen + '\n\nSe omitieron algunas filas:\n- ' + data.errores.join('\n- '));
+            Toast.warning(resumen + '. Se omitieron ' + data.errores.length + ' filas.');
         } else {
             feedback.textContent = resumen + '.';
+            Toast.success('Catalogo importado correctamente');
         }
 
         setTimeout(() => location.reload(), 700);
     })
     .catch(err => {
         feedback.textContent = err.message;
-        alert(err.message);
+        Toast.error(err.message);
     })
     .finally(() => {
         btn.disabled = false;
@@ -300,7 +302,7 @@ function addUser() {
     const nombre = document.getElementById('newUserName').value.trim();
     const pin = document.getElementById('newUserPin').value.trim();
     const rol = document.getElementById('newUserRol').value;
-    if (!nombre || !pin) { alert('Llena nombre y PIN'); return; }
+    if (!nombre || !pin) { Toast.warning('Llena nombre y PIN'); return; }
     fetch('/api/usuario', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -308,15 +310,15 @@ function addUser() {
     })
     .then(r => r.json())
     .then(data => {
-        if (data.ok) location.reload();
-        else alert('No se pudo agregar');
+        if (data.ok) { Toast.success('Usuario agregado'); setTimeout(() => location.reload(), 600); }
+        else Toast.error('No se pudo agregar');
     });
 }
 
 function saveCashCode() {
     const codigo = document.getElementById('cashCode').value.trim();
     if (codigo.length < 4) {
-        alert('El codigo debe tener al menos 4 caracteres.');
+        Toast.warning('El codigo debe tener al menos 4 caracteres.');
         return;
     }
     fetch('/api/config/codigo-caja', {
@@ -326,21 +328,20 @@ function saveCashCode() {
     })
     .then(r => r.json())
     .then(data => {
-        if (!data.ok) {
-            alert(data.error || 'No se pudo guardar el codigo');
-            return;
-        }
+        if (data.ok) Toast.success('Codigo guardado');
+        else Toast.error(data.error || 'No se pudo guardar el codigo');
     })
     .catch(err => {
-        alert(err.message || 'No se pudo guardar el codigo');
+        Toast.error(err.message || 'No se pudo guardar el codigo');
     });
 }
 
-function deleteUser(id, nombre) {
-    if (!confirm('Eliminar a ' + nombre + '?')) return;
+async function deleteUser(id, nombre) {
+    const ok = await appConfirm('Eliminar a ' + nombre + '?', { type: 'danger', title: 'Eliminar usuario', confirmText: 'Eliminar' });
+    if (!ok) return;
     fetch('/api/usuario/' + id, { method: 'DELETE' })
     .then(r => r.json())
-    .then(data => { if (data.ok) location.reload(); });
+    .then(data => { if (data.ok) { Toast.success('Usuario eliminado'); setTimeout(() => location.reload(), 600); } });
 }
 </script>
 {% endblock %}

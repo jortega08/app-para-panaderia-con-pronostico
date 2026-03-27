@@ -270,24 +270,18 @@ let chartHistorialDiaSemana = null;
 let chartHistorialHora = null;
 let chartHistorialOperacion = null;
 
-const moneyFormatter = new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    currencyDisplay: 'narrowSymbol',
-    maximumFractionDigits: 0,
-});
-const compactMoneyFormatter = new Intl.NumberFormat('es-CO', {
+const compactMoneyFormatter = new Intl.NumberFormat('en-US', {
     notation: 'compact',
     maximumFractionDigits: 1,
 });
-const numberFormatter = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 });
+const numberFormatter = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
 const dateFormatter = new Intl.DateTimeFormat('es-CO', { day: '2-digit', month: 'short' });
 const todayStr = {{ hoy_str|tojson }};
 
-function money(value) { return moneyFormatter.format(Number(value || 0)); }
-function compactMoney(value) { return compactMoneyFormatter.format(Number(value || 0)); }
+function money(value) { return `$${numberFormatter.format(Number(value || 0))}`; }
+function compactMoney(value) { return `$${compactMoneyFormatter.format(Number(value || 0))}`; }
 function number(value, decimals = 0) {
-    return Number(value || 0).toLocaleString('es-CO', {
+    return Number(value || 0).toLocaleString('en-US', {
         minimumFractionDigits: decimals,
         maximumFractionDigits: decimals,
     });

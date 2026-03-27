@@ -44,7 +44,7 @@
                 <span class="material-symbols-outlined product-icon">{{ p.icono }}</span>
                 <span class="product-name">{{ p.nombre }}</span>
                 <span class="chip product-category-chip">{{ p.categoria }}</span>
-                <span class="product-price">${{ '%.2f'|format(p.precio) }}</span>
+                <span class="product-price">${{ '{:,.0f}'.format(p.precio or 0) }}</span>
                 <span class="stock-badge" id="stock-{{ p.id }}" style="display:none"></span>
             </button>
             {% endfor %}
@@ -74,7 +74,7 @@
         <div class="cart-footer">
             <div class="cart-total-row">
                 <span class="cart-total-label">TOTAL</span>
-                <span class="cart-total-value" id="cartTotal">$0.00</span>
+            <span class="cart-total-value" id="cartTotal">$0</span>
             </div>
             <div class="cart-actions">
                 <a href="{{ url_for('mesero_mesas') }}" class="btn btn-outline">Volver</a>
@@ -218,6 +218,12 @@ function escapeHtml(texto) {
         .replace(/'/g, '&#39;');
 }
 
+function money(value) {
+    return window.AppUI
+        ? AppUI.formatMoney(value, 0)
+        : ('$' + Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 }));
+}
+
 function getAdicionalById(adicionalId) {
     return (ADICIONALES_DISPONIBLES.length ? ADICIONALES_DISPONIBLES : ADICIONALES)
         .find(a => String(a.id) === String(adicionalId)) || null;
@@ -253,7 +259,7 @@ function getStockRestante(nombre, excluirItemId = null) {
 function addToCart(nombre, precio, icono, productId, stockMinimo) {
     const restante = getStockRestante(nombre);
     if (restante <= 0) {
-        alert(`${nombre} no tiene stock disponible en este momento.`);
+        Toast.warning(`${nombre} no tiene stock disponible en este momento.`);
         return;
     }
     const id = Date.now() + Math.random();
@@ -281,7 +287,7 @@ function updateQty(itemId, qty) {
     } else {
         const restante = getStockRestante(item.nombre, itemId);
         if (qty > item.cantidad && restante < (qty - item.cantidad)) {
-            alert(`Solo hay ${stockDisponible[item.nombre]} unidades disponibles de ${item.nombre}.`);
+            Toast.warning(`Solo hay ${stockDisponible[item.nombre]} unidades disponibles de ${item.nombre}.`);
             qty = item.cantidad + Math.max(restante, 0);
             if (qty <= 0) {
                 cart = cart.filter(i => i.id !== itemId);
@@ -365,7 +371,7 @@ function renderCart() {
                 <p class="text-muted">Toca un producto para agregarlo</p>
             </div>`;
         countEl.textContent = '0 items';
-        totalEl.textContent = '$0.00';
+        totalEl.textContent = money(0);
         return;
     }
 
@@ -382,7 +388,7 @@ function renderCart() {
             modsHtml += '<div class="cart-item-mods">';
             adicionales.forEach(m => {
                 const totalExtra = (m.cantidad || 1) * m.precio_extra;
-                modsHtml += `<span class="mod-tag mod-tag-adicional">+ ${escapeHtml(m.descripcion)} x${m.cantidad || 1} ($${totalExtra.toFixed(2)})</span>`;
+                modsHtml += `<span class="mod-tag mod-tag-adicional">+ ${escapeHtml(m.descripcion)} x${m.cantidad || 1} (${money(totalExtra)})</span>`;
             });
             modsHtml += '</div>';
         }
@@ -405,7 +411,7 @@ function renderCart() {
                     <span class="material-symbols-outlined cart-item-icon">${item.icono}</span>
                     <div>
                         <div class="cart-item-name">${item.nombre}</div>
-                        <div class="cart-item-price">$${item.precio.toFixed(2)} c/u</div>
+                        <div class="cart-item-price">${money(item.precio)} c/u</div>
                     </div>
                 </div>
                 <div class="cart-item-controls">
@@ -414,7 +420,7 @@ function renderCart() {
                            onchange="updateQty(${item.id}, parseInt(this.value))">
                     <button class="qty-btn qty-plus" onclick="updateQty(${item.id}, ${item.cantidad + 1})">+</button>
                 </div>
-                <div class="cart-item-subtotal">$${subtotal.toFixed(2)}</div>
+                <div class="cart-item-subtotal">${money(subtotal)}</div>
                 <button class="cart-item-remove" onclick="removeFromCart(${item.id})">&times;</button>
             </div>
             ${modsHtml}
@@ -425,7 +431,7 @@ function renderCart() {
 
     container.innerHTML = html;
     countEl.textContent = totalItems + (totalItems === 1 ? ' item' : ' items');
-    totalEl.textContent = '$' + total.toFixed(2);
+    totalEl.textContent = money(total);
 }
 
 function abrirModal(itemId) {
@@ -497,7 +503,7 @@ function renderAdicionalesModal(item) {
             <div class="mod-option mod-option-qty">
                 <div class="mod-option-main">
                     <span class="mod-option-name">${escapeHtml(adicional.nombre)}</span>
-                    <span class="mod-option-price">+ $${Number(adicional.precio || 0).toFixed(2)}</span>
+                    <span class="mod-option-price">+ ${money(Number(adicional.precio || 0))}</span>
                 </div>
                 <div class="mod-qty-controls">
                     <button type="button" class="qty-btn qty-minus" onclick="cambiarCantidadAdicional(${adicional.id}, -1)">-</button>
@@ -553,7 +559,7 @@ function guardarMods() {
 
 async function enviarPedido() {
     if (cart.length === 0) {
-        alert('Agrega productos al pedido primero.');
+        Toast.warning('Agrega productos al pedido primero.');
         return;
     }
 
@@ -563,7 +569,7 @@ async function enviarPedido() {
         const detalle = faltantes
             .map(item => `${item.producto}: disponibles ${item.disponible}, solicitadas ${item.requerido}`)
             .join('\n');
-        alert('No puedes enviar el pedido porque hay productos sin stock suficiente:\n' + detalle);
+        Toast.error('Productos sin stock suficiente: ' + detalle.replace(/\n/g, ', '));
         actualizarBadgesStock();
         return;
     }
@@ -594,9 +600,9 @@ async function enviarPedido() {
         const detalle = (data.faltantes || [])
             .map(item => `${item.producto}: disponibles ${item.disponible}, solicitadas ${item.requerido}`)
             .join('\n');
-        alert('Error al enviar el pedido: ' + (data.error || 'Intenta de nuevo.') + (detalle ? '\n' + detalle : ''));
+        Toast.error('Error al enviar el pedido: ' + (data.error || 'Intenta de nuevo.') + (detalle ? ' ' + detalle : ''));
     } catch (err) {
-        alert('Error de conexion: ' + err.message);
+        Toast.error('Error de conexion: ' + err.message);
     }
 }
 

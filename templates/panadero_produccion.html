@@ -565,7 +565,7 @@ async function guardarMetaOperativa(usarSugerido = false) {
         motivoInput.value = '';
         await Promise.all([cargarContextoProduccion(), cargarContextoProduccionMasivo()]);
     } catch (error) {
-        alert(error.message || 'No se pudo guardar la meta operativa.');
+        Toast.error(error.message || 'No se pudo guardar la meta operativa.');
     }
 }
 
@@ -654,14 +654,14 @@ function construirMensajeValidacionInsumos(data) {
     return lines.join('\n');
 }
 
-function debeContinuarConValidacionInsumos(data, feedbackSetter = null) {
+async function debeContinuarConValidacionInsumos(data, feedbackSetter = null) {
     if (!data.hay_riesgo) return true;
 
     if (typeof feedbackSetter === 'function') {
         feedbackSetter('Hay riesgo de insumos para esta tanda. Revisa el detalle antes de confirmar.', 'error');
     }
 
-    return window.confirm(construirMensajeValidacionInsumos(data));
+    return await appConfirm(construirMensajeValidacionInsumos(data), { type: 'warning', title: 'Confirmar' });
 }
 
 function updateQuickSummary(visibleRows = getQuickVisibleRows()) {
@@ -871,7 +871,7 @@ async function guardarRegistroRapido() {
 
     try {
         const validacion = await validarInsumosProduccion(lotes);
-        if (!debeContinuarConValidacionInsumos(validacion, setQuickFeedback)) {
+        if (!(await debeContinuarConValidacionInsumos(validacion, setQuickFeedback))) {
             setQuickFeedback('Guardado cancelado para que revises el inventario de insumos.', 'error');
             return;
         }
@@ -963,13 +963,13 @@ document.getElementById('productionBatchForm').addEventListener('submit', async 
 
     try {
         const validacion = await validarInsumosProduccion([{ producto, cantidad }]);
-        if (!debeContinuarConValidacionInsumos(validacion)) {
+        if (!(await debeContinuarConValidacionInsumos(validacion))) {
             return;
         }
         bypassProductionBatchSubmit = true;
         this.submit();
     } catch (error) {
-        alert(error.message || 'No se pudo validar el stock de insumos.');
+        Toast.error(error.message || 'No se pudo validar el stock de insumos.');
     }
 });
 

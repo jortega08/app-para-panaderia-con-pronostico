@@ -15,7 +15,7 @@
     <div class="metrics-row" id="metricsRow">
         <div class="metric-card">
             <div class="metric-label">Total Vendido</div>
-            <div class="metric-value text-success" id="metricDinero">$0.00</div>
+        <div class="metric-value text-success" id="metricDinero">$0</div>
         </div>
         <div class="metric-card">
             <div class="metric-label">Transacciones</div>
@@ -23,11 +23,11 @@
         </div>
         <div class="metric-card">
             <div class="metric-label">Efectivo</div>
-            <div class="metric-value text-primary" id="metricEfectivo">$0.00</div>
+        <div class="metric-value text-primary" id="metricEfectivo">$0</div>
         </div>
         <div class="metric-card">
             <div class="metric-label">Transferencia</div>
-            <div class="metric-value text-warning" id="metricTransferencia">$0.00</div>
+        <div class="metric-value text-warning" id="metricTransferencia">$0</div>
         </div>
     </div>
 
@@ -107,7 +107,9 @@ let arqueosActuales = {{ historial_arqueos|default([])|tojson }};
 let movimientosActuales = {{ movimientos_caja|default([])|tojson }};
 
 function money(value) {
-    return '$' + Number(value || 0).toFixed(2);
+    return window.AppUI
+        ? AppUI.formatMoney(value, 0)
+        : ('$' + Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 }));
 }
 
 function formatHoraCompleta(valor) {
@@ -145,7 +147,7 @@ function loadData() {
 
 function updateMetrics(t, caja) {
     document.getElementById('metricDinero').textContent = money(t.dinero);
-    document.getElementById('metricTrans').textContent = Number(t.transacciones || 0);
+    document.getElementById('metricTrans').textContent = Number(t.transacciones || 0).toLocaleString('es-CO');
     document.getElementById('metricEfectivo').textContent = money((caja || {}).ventas_efectivo || 0);
     document.getElementById('metricTransferencia').textContent = money((caja || {}).ventas_transferencia || 0);
 }
@@ -334,7 +336,7 @@ function renderCaja() {
                 <div class="card-body caja-open-grid">
                     <div>
                         <label class="form-label" for="montoApertura">Monto inicial en caja</label>
-                        <input id="montoApertura" type="number" min="0" step="0.01" class="form-input" placeholder="100000">
+                <input id="montoApertura" type="number" min="0" step="1" class="form-input" placeholder="100000">
                         <div class="form-help">Incluye billetes, monedas y base inicial.</div>
                     </div>
                     <div>
@@ -379,7 +381,7 @@ function renderCaja() {
             </div>
             <div>
                 <label class="form-label" for="movMonto">Monto</label>
-                <input id="movMonto" type="number" min="0" step="0.01" class="form-input" placeholder="15000">
+                <input id="movMonto" type="number" min="0" step="1" class="form-input" placeholder="15000">
             </div>
             <div>
                 <label class="form-label" for="movNotas">Notas</label>
@@ -397,7 +399,7 @@ function renderCaja() {
             <div class="caja-form-grid">
                 <div>
                     <label class="form-label" for="montoCierre">Efectivo contado al cierre</label>
-                    <input id="montoCierre" type="number" min="0" step="0.01" class="form-input" placeholder="${(caja.efectivo_en_caja || 0).toFixed(2)}">
+                <input id="montoCierre" type="number" min="0" step="1" class="form-input" placeholder="${Math.ceil(caja.efectivo_en_caja || 0)}">
                     <div class="form-help">Efectivo esperado segun sistema: ${money(caja.efectivo_en_caja || 0)}</div>
                 </div>
                 <div>
@@ -490,7 +492,7 @@ async function abrirCaja() {
     const monto = Number(document.getElementById('montoApertura')?.value || 0);
     const notas = document.getElementById('notasApertura')?.value || '';
     if (Number.isNaN(monto) || monto < 0) {
-        alert('Ingresa un monto de apertura valido.');
+        Toast.warning('Ingresa un monto de apertura valido.');
         return;
     }
 
@@ -503,9 +505,10 @@ async function abrirCaja() {
         const data = await res.json();
         if (!res.ok || !data.ok) throw new Error(data.error || 'No se pudo abrir la caja');
         cajaActual = data.caja || cajaActual;
+        Toast.success('Caja abierta correctamente');
         loadData();
     } catch (err) {
-        alert(err.message || 'No se pudo abrir la caja.');
+        Toast.error(err.message || 'No se pudo abrir la caja.');
     }
 }
 
@@ -516,11 +519,11 @@ async function registrarMovimientoCaja() {
     const notas = document.getElementById('movNotas')?.value || '';
 
     if (!concepto.trim()) {
-        alert('Escribe el concepto del movimiento.');
+        Toast.warning('Escribe el concepto del movimiento.');
         return;
     }
     if (Number.isNaN(monto) || monto <= 0) {
-        alert('Ingresa un monto valido para el movimiento.');
+        Toast.warning('Ingresa un monto valido para el movimiento.');
         return;
     }
 
@@ -535,9 +538,10 @@ async function registrarMovimientoCaja() {
         document.getElementById('movConcepto').value = '';
         document.getElementById('movMonto').value = '';
         document.getElementById('movNotas').value = '';
+        Toast.success('Movimiento registrado');
         loadData();
     } catch (err) {
-        alert(err.message || 'No se pudo registrar el movimiento.');
+        Toast.error(err.message || 'No se pudo registrar el movimiento.');
     }
 }
 
@@ -546,14 +550,15 @@ async function cerrarCaja() {
     const notasCierre = document.getElementById('notasCierre')?.value || '';
     const codigoVerificacion = document.getElementById('codigoCierre')?.value || '';
     if (Number.isNaN(montoCierre) || montoCierre < 0) {
-        alert('Ingresa un monto valido para el cierre.');
+        Toast.warning('Ingresa un monto valido para el cierre.');
         return;
     }
     if (!codigoVerificacion.trim()) {
-        alert('Ingresa el codigo de verificacion.');
+        Toast.warning('Ingresa el codigo de verificacion.');
         return;
     }
-    if (!confirm('Se cerrara la caja del dia. Deseas continuar?')) return;
+    const confirmar = await appConfirm('Se cerrara la caja del dia. Deseas continuar?', { type: 'warning', title: 'Cerrar caja' });
+    if (!confirmar) return;
 
     try {
         const res = await fetch('/api/caja/cerrar', {
@@ -567,9 +572,10 @@ async function cerrarCaja() {
         });
         const data = await res.json();
         if (!res.ok || !data.ok) throw new Error(data.error || 'No se pudo cerrar la caja');
+        Toast.success('Caja cerrada correctamente');
         loadData();
     } catch (err) {
-        alert(err.message || 'No se pudo cerrar la caja.');
+        Toast.error(err.message || 'No se pudo cerrar la caja.');
     }
 }
 
@@ -578,11 +584,11 @@ async function reabrirCaja() {
     const motivo = document.getElementById('motivoReapertura')?.value || '';
 
     if (!codigo.trim()) {
-        alert('Ingresa el codigo de verificacion.');
+        Toast.warning('Ingresa el codigo de verificacion.');
         return;
     }
     if (!motivo.trim()) {
-        alert('Registra la novedad de reapertura.');
+        Toast.warning('Registra la novedad de reapertura.');
         return;
     }
 
@@ -599,7 +605,7 @@ async function reabrirCaja() {
         if (!res.ok || !data.ok) throw new Error(data.error || 'No se pudo reabrir la caja');
         loadData();
     } catch (err) {
-        alert(err.message || 'No se pudo reabrir la caja.');
+        Toast.error(err.message || 'No se pudo reabrir la caja.');
     }
 }
 

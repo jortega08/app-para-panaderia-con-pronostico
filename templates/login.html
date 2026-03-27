@@ -3,13 +3,19 @@
 <div class="login-page">
     <div class="login-card">
         <div class="login-accent"></div>
-        <div class="login-logo"><span class="material-symbols-outlined">bakery_dining</span></div>
-        <h1 class="login-title">PANADERIA</h1>
-        <p class="login-subtitle">Sistema de Ventas y Pronostico</p>
+        <div class="login-brand-lockup">
+            <div class="login-logo-shell">
+                <img src="{{ url_for('static', filename='brand/richs-logo.svg') }}" alt="RICHS" class="login-logo">
+            </div>
+            <div class="login-brand-copy">
+                <h1 class="login-title">RICHS</h1>
+                <p class="login-subtitle">POS, pronostico y operacion diaria</p>
+            </div>
+        </div>
 
         <div class="login-divider"></div>
 
-        <p class="login-instruction">Ingresa tu PIN:</p>
+        <p class="login-instruction">Ingresa tu PIN para abrir tu turno.</p>
 
         <form method="POST" action="{{ url_for('login') }}" id="loginForm">
             <input type="hidden" name="pin" id="pinInput">
@@ -37,7 +43,7 @@
             </div>
         </form>
 
-        <p class="login-hint">Ingresa tu PIN de acceso</p>
+        <p class="login-hint">Acceso rapido para cajeros, panaderos y personal de servicio.</p>
     </div>
 </div>
 

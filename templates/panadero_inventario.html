@@ -396,7 +396,7 @@
                 <div class="recipe-catalog-item">
                     <h4 class="recipe-catalog-name">{{ adicional.nombre }}</h4>
                     <div class="recipe-process-grid">
-                        <span class="chip">Precio: ${{ '%.2f'|format(adicional.precio) }}</span>
+                                <span class="chip">Precio: ${{ '{:,.0f}'.format(adicional.precio or 0) }}</span>
                         <span class="chip {% if adicional.tiene_configuracion %}text-success{% endif %}">
                             {% if adicional.tiene_configuracion %}Configurado{% else %}Sin configuracion{% endif %}
                         </span>
@@ -438,7 +438,7 @@ function actualizarStock(insumoId) {
     const input = document.getElementById('stock-' + insumoId);
     const stock = parseFloat(input.value);
     if (isNaN(stock) || stock < 0) {
-        alert('Valor invalido');
+        Toast.warning('Valor invalido');
         return;
     }
     fetch('/api/insumo/' + insumoId + '/stock', {
@@ -449,7 +449,7 @@ function actualizarStock(insumoId) {
     .then(r => r.json())
     .then(data => {
         if (data.ok) location.reload();
-        else alert('Error al actualizar');
+        else Toast.error('Error al actualizar');
     });
 }
 
@@ -458,7 +458,7 @@ function agregarInsumo() {
     const unidad = document.getElementById('nuevoInsumoUnidad').value.trim();
     const stock = parseFloat(document.getElementById('nuevoInsumoStock').value) || 0;
     const stock_minimo = parseFloat(document.getElementById('nuevoInsumoMin').value) || 0;
-    if (!nombre) { alert('Nombre requerido'); return; }
+    if (!nombre) { Toast.warning('Nombre requerido'); return; }
 
     fetch('/api/insumo', {
         method: 'POST',
@@ -468,7 +468,7 @@ function agregarInsumo() {
     .then(r => r.json())
     .then(data => {
         if (data.ok) location.reload();
-        else alert('Error: insumo ya existe o datos invalidos');
+        else Toast.error('Error: insumo ya existe o datos invalidos');
     });
 }
 
@@ -1035,10 +1035,10 @@ function actualizarVistaReceta() {
     preview.innerHTML = bloques.join('');
 }
 
-function guardarRecetaProducto() {
+async function guardarRecetaProducto() {
     const producto = (document.getElementById('recetaProducto') || {}).value;
     if (!producto) {
-        alert('Selecciona un producto.');
+        Toast.warning('Selecciona un producto.');
         return;
     }
 
@@ -1048,14 +1048,15 @@ function guardarRecetaProducto() {
         ingredientes = recogerIngredientesReceta();
         componentes = recogerComponentesReceta();
     } catch (err) {
-        alert(err.message);
+        Toast.error(err.message);
         return;
     }
 
     const ficha = recogerFichaReceta();
 
     if (!ingredientes.length && !componentes.length && !fichaTieneContenido(ficha)) {
-        if (!confirm('La composicion del producto quedara vacia. Deseas continuar?')) return;
+        const ok = await appConfirm('La composicion del producto quedara vacia. Deseas continuar?', { type: 'warning' });
+        if (!ok) return;
     }
 
     fetch('/api/receta/' + encodeURIComponent(producto), {
@@ -1066,10 +1067,10 @@ function guardarRecetaProducto() {
     .then(r => r.json())
     .then(data => {
         if (data.ok) location.reload();
-        else alert('No se pudo guardar la receta');
+        else Toast.error('No se pudo guardar la receta');
     })
     .catch(() => {
-        alert('No se pudo guardar la receta');
+        Toast.error('No se pudo guardar la receta');
     });
 }
 
@@ -1089,7 +1090,7 @@ function agregarAdicionalInventario() {
     const nombre = document.getElementById('nuevoAdicionalNombre').value.trim();
     const precio = parseFloat(document.getElementById('nuevoAdicionalPrecio').value) || 0;
     if (!nombre) {
-        alert('Escribe el nombre del adicional.');
+        Toast.warning('Escribe el nombre del adicional.');
         return;
     }
 
@@ -1101,10 +1102,10 @@ function agregarAdicionalInventario() {
     .then(r => r.json())
     .then(data => {
         if (data.ok) location.reload();
-        else alert(data.error || 'No se pudo crear el adicional.');
+        else Toast.error(data.error || 'No se pudo crear el adicional.');
     })
     .catch(() => {
-        alert('No se pudo crear el adicional.');
+        Toast.error('No se pudo crear el adicional.');
     });
 }
 
@@ -1349,12 +1350,12 @@ function guardarConfiguracionAdicional() {
     const precioInput = document.getElementById('adicionalPrecioEditor');
     const nombreInput = document.getElementById('adicionalNombreEditor');
     if (!select || !precioInput || !select.value || !nombreInput) {
-        alert('Selecciona un adicional.');
+        Toast.warning('Selecciona un adicional.');
         return;
     }
     const nombre = nombreInput.value.trim();
     if (!nombre) {
-        alert('Escribe el nombre del adicional.');
+        Toast.warning('Escribe el nombre del adicional.');
         return;
     }
 
@@ -1364,7 +1365,7 @@ function guardarConfiguracionAdicional() {
         insumos = recogerInsumosAdicional();
         componentes = recogerComponentesAdicional();
     } catch (err) {
-        alert(err.message);
+        Toast.error(err.message);
         return;
     }
 
@@ -1378,22 +1379,23 @@ function guardarConfiguracionAdicional() {
     .then(r => r.json())
     .then(data => {
         if (data.ok) location.reload();
-        else alert(data.error || 'No se pudo guardar la configuracion del adicional.');
+        else Toast.error(data.error || 'No se pudo guardar la configuracion del adicional.');
     })
     .catch(() => {
-        alert('No se pudo guardar la configuracion del adicional.');
+        Toast.error('No se pudo guardar la configuracion del adicional.');
     });
 }
 
-function eliminarAdicionalActual() {
+async function eliminarAdicionalActual() {
     const select = document.getElementById('adicionalEditor');
     if (!select || !select.value) {
-        alert('Selecciona un adicional.');
+        Toast.warning('Selecciona un adicional.');
         return;
     }
     const adicional = obtenerAdicionalCatalogo(select.value);
     const nombre = adicional ? adicional.nombre : 'este adicional';
-    if (!confirm('Eliminar "' + nombre + '"?')) return;
+    const ok = await appConfirm('Eliminar "' + nombre + '"?', { type: 'warning' });
+    if (!ok) return;
 
     fetch('/api/adicional/' + encodeURIComponent(select.value), {
         method: 'DELETE',
@@ -1401,10 +1403,10 @@ function eliminarAdicionalActual() {
     .then(r => r.json())
     .then(data => {
         if (data.ok) location.reload();
-        else alert(data.error || 'No se pudo eliminar el adicional.');
+        else Toast.error(data.error || 'No se pudo eliminar el adicional.');
     })
     .catch(err => {
-        alert(err.message || 'No se pudo eliminar el adicional.');
+        Toast.error(err.message || 'No se pudo eliminar el adicional.');
     });
 }
 
@@ -1415,7 +1417,7 @@ function importInventory() {
     const archivo = fileInput.files[0];
 
     if (!archivo) {
-        alert('Selecciona un archivo .xlsx o .csv');
+        Toast.warning('Selecciona un archivo .xlsx o .csv');
         return;
     }
 
@@ -1446,7 +1448,7 @@ function importInventory() {
 
         if (data.errores && data.errores.length) {
             feedback.textContent = resumen + '. Filas omitidas: ' + data.errores.length;
-            alert(resumen + '\n\nSe omitieron algunas filas:\n- ' + data.errores.join('\n- '));
+            Toast.warning(resumen + '. Se omitieron ' + data.errores.length + ' filas.');
         } else {
             feedback.textContent = resumen + '.';
         }
@@ -1455,7 +1457,7 @@ function importInventory() {
     })
     .catch(err => {
         feedback.textContent = err.message;
-        alert(err.message);
+        Toast.error(err.message);
     })
     .finally(() => {
         btn.disabled = false;

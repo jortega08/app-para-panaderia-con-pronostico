@@ -25,7 +25,7 @@
         <div class="metric-card">
             <div class="metric-icon"><span class="material-symbols-outlined">paid</span></div>
             <div class="metric-label">Total Cobrado</div>
-            <div class="metric-value text-success">${{ '%.2f'|format(stats.total_cobrado) }}</div>
+            <div class="metric-value text-success">${{ '{:,.0f}'.format(stats.total_cobrado or 0) }}</div>
         </div>
         <div class="metric-card">
             <div class="metric-icon"><span class="material-symbols-outlined">check_circle</span></div>
@@ -65,7 +65,7 @@
                             {% else %}{{ mesa.estado_mesa|capitalize }}{% endif %}
                         </span>
                         {% if mesa.total_mesa > 0 %}
-                        <div class="mesa-total" style="font-size: 14px;">${{ '%.2f'|format(mesa.total_mesa) }}</div>
+            <div class="mesa-total" style="font-size: 14px;">${{ '{:,.0f}'.format(mesa.total_mesa or 0) }}</div>
                         {% endif %}
                     </div>
                     {% endfor %}
@@ -86,12 +86,12 @@
                     <span class="material-symbols-outlined detail-icon">{{ icono(r.producto) }}</span>
                     <span class="detail-name">{{ r.producto }}</span>
                     <span class="detail-qty">{{ r.total_cantidad }} unidades</span>
-                    <span class="detail-total">${{ '%.2f'|format(r.total_dinero) }}</span>
+                    <span class="detail-total">${{ '{:,.0f}'.format(r.total_dinero or 0) }}</span>
                 </div>
                 {% endfor %}
                 <div style="padding-top: 12px; border-top: 2px solid var(--divider); display: flex; justify-content: space-between;">
                     <strong>Total del dia</strong>
-                    <strong class="text-success" style="font-size: 18px;">${{ '%.2f'|format(ventas_total.dinero) }}</strong>
+                <strong class="text-success" style="font-size: 18px;">${{ '{:,.0f}'.format(ventas_total.dinero or 0) }}</strong>
                 </div>
                 {% else %}
                 <p class="text-muted text-center" style="padding: 20px;">Sin ventas pagadas hoy</p>
@@ -194,7 +194,7 @@
                                 {% endif %}
                             </span>
                         </div>
-                        <span class="pedido-total" style="font-size: 16px;">${{ '%.2f'|format(p.total) }}</span>
+                <span class="pedido-total" style="font-size: 16px;">${{ '{:,.0f}'.format(p.total or 0) }}</span>
                     </div>
                     <div class="pedido-detail-grid">
                         <div class="pedido-detail-card">
@@ -203,7 +203,7 @@
                                 <div class="pedido-meta-row"><span>Pedido tomado</span><strong>{{ p.creado_en or (p.fecha ~ ' ' ~ p.hora) }}</strong></div>
                                 <div class="pedido-meta-row"><span>Mesa</span><strong>{{ p.mesa_nombre or ('Mesa ' ~ (p.mesa_numero or '?')) }}</strong></div>
                                 <div class="pedido-meta-row"><span>Mesero</span><strong>{{ p.mesero or '-' }}</strong></div>
-                                <div class="pedido-meta-row"><span>Total</span><strong>${{ '%.2f'|format(p.total) }}</strong></div>
+                            <div class="pedido-meta-row"><span>Total</span><strong>${{ '{:,.0f}'.format(p.total or 0) }}</strong></div>
                                 {% if p.pagado_en %}
                                 <div class="pedido-meta-row"><span>Cobrado</span><strong>{{ p.pagado_en }}</strong></div>
                                 {% endif %}
@@ -239,13 +239,13 @@
                         {% for item in p["items"] %}
                         <div class="pedido-item-row">
                             <span><span class="material-symbols-outlined cart-item-icon">{{ icono(item.producto) }}</span> {{ item.cantidad }}x {{ item.producto }}</span>
-                            <span class="text-muted">${{ '%.2f'|format(item.subtotal) }}</span>
+                            <span class="text-muted">${{ '{:,.0f}'.format(item.subtotal or 0) }}</span>
                         </div>
                         {% if item.modificaciones %}
                         <div class="pedido-item-mods">
                             {% for m in item.modificaciones %}
                             {% if m.tipo == 'adicional' %}
-                            <span class="mod-tag mod-tag-adicional">+ {{ m.descripcion }} x{{ m.cantidad }} (${{ '%.2f'|format(m.precio_extra) }})</span>
+                                        <span class="mod-tag mod-tag-adicional">+ {{ m.descripcion }} x{{ m.cantidad }} (${{ '{:,.0f}'.format(m.precio_extra or 0) }})</span>
                             {% else %}
                             <span class="mod-tag mod-tag-exclusion"><span class="material-symbols-outlined">cancel</span> {{ m.descripcion }}</span>
                             {% endif %}
@@ -259,8 +259,8 @@
                         <div class="pedido-section-title">Detalle del cobro</div>
                         <div class="pedido-meta-list">
                             <div class="pedido-meta-row"><span>Metodo de pago</span><strong>{{ (p.metodo_pago or 'pendiente')|capitalize }}</strong></div>
-                            <div class="pedido-meta-row"><span>Monto recibido</span><strong>${{ '%.2f'|format(p.monto_recibido or 0) }}</strong></div>
-                            <div class="pedido-meta-row"><span>Vueltas</span><strong>${{ '%.2f'|format(p.cambio or 0) }}</strong></div>
+                            <div class="pedido-meta-row"><span>Monto recibido</span><strong>${{ '{:,.0f}'.format(p.monto_recibido or 0) }}</strong></div>
+                            <div class="pedido-meta-row"><span>Vueltas</span><strong>${{ '{:,.0f}'.format(p.cambio or 0) }}</strong></div>
                             <div class="pedido-meta-row"><span>Cajero</span><strong>{{ p.pagado_por or '-' }}</strong></div>
                         </div>
                     </div>
@@ -286,7 +286,7 @@ function agregarMesaOperacion() {
     const nombre = nombreInput.value.trim();
 
     if (!numero || numero <= 0) {
-        alert('Ingresa un numero de mesa valido.');
+        Toast.warning('Ingresa un numero de mesa valido.');
         numeroInput.focus();
         return;
     }
@@ -307,7 +307,7 @@ function agregarMesaOperacion() {
         location.reload();
     })
     .catch(error => {
-        alert(error.message);
+        Toast.error(error.message);
     });
 }
 

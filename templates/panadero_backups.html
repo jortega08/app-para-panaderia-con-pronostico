@@ -5,7 +5,7 @@
     <div class="page-header">
         <h1 class="page-title"><span class="material-symbols-outlined">backup</span> Respaldos de Base de Datos</h1>
         <div class="page-header-right">
-            <button class="btn btn-success" onclick="crearBackup()"><span class="material-symbols-outlined">backup</span> Crear Respaldo Ahora</button>
+            <button class="btn btn-success" onclick="crearBackup(this)"><span class="material-symbols-outlined">backup</span> Crear Respaldo Ahora</button>
         </div>
     </div>
 
@@ -62,7 +62,7 @@
         <div class="card-header">
             <span class="material-symbols-outlined">assignment</span> Historial de Respaldos
             {% if backups|length > 10 %}
-            <button class="btn btn-sm btn-outline" style="float: right;" onclick="limpiarAntiguos()">
+            <button class="btn btn-sm btn-outline" style="float: right;" onclick="limpiarAntiguos(this)">
                 Limpiar antiguos
             </button>
             {% endif %}
@@ -87,10 +87,10 @@
                         <td>{{ b.tamano_mb }} MB</td>
                         <td class="text-muted">{{ b.nota or '-' }}</td>
                         <td>
-                            <button class="btn btn-sm btn-accent" onclick="restaurar('{{ b.timestamp }}', '{{ b.fecha }} {{ b.hora[:5] }}')">
+                            <button class="btn btn-sm btn-accent" onclick="restaurar(this, '{{ b.timestamp }}', '{{ b.fecha }} {{ b.hora[:5] }}')">
                                 <span class="material-symbols-outlined">restore</span> Restaurar
                             </button>
-                            <button class="btn btn-sm btn-danger-outline" onclick="eliminarBackup('{{ b.timestamp }}')">
+                            <button class="btn btn-sm btn-danger-outline" onclick="eliminarBackup(this, '{{ b.timestamp }}')">
                                 <span class="material-symbols-outlined">delete</span> Eliminar
                             </button>
                         </td>
@@ -99,76 +99,120 @@
                 </tbody>
             </table>
             {% else %}
-            <p class="text-muted text-center" style="padding: 30px;">No hay respaldos disponibles. Cree uno ahora.</p>
+            <div class="empty-state compact-empty-state">
+                <div class="empty-state-illustration">
+                    <svg viewBox="0 0 120 120" aria-hidden="true">
+                        <rect x="24" y="34" width="72" height="52" rx="16" fill="rgba(193,120,23,0.11)" stroke="rgba(139,85,19,0.2)" stroke-width="3"/>
+                        <path d="M42 55h36M42 68h36M42 81h24" stroke="#C17817" stroke-width="4" stroke-linecap="round"/>
+                        <path d="M60 18v18m0 0l-10-10m10 10 10-10" stroke="rgba(47,107,99,0.6)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </div>
+                <div class="empty-state-title">Aun no hay respaldos creados</div>
+                <div class="empty-state-text">Haz el primer respaldo manual y deja lista la rutina de recuperacion antes de necesitarla.</div>
+                <button class="btn btn-accent" type="button" onclick="crearBackup(this)">Crear primer respaldo</button>
+            </div>
             {% endif %}
         </div>
     </div>
 </div>
 
 <script>
-function crearBackup() {
-    const nota = prompt('Nota para el respaldo (opcional):') || 'Backup manual';
-    fetch('/api/backup', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({nota}),
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.ok) {
-            alert('Respaldo creado exitosamente!');
-            location.reload();
-        } else {
-            alert('Error: ' + (data.error || 'No se pudo crear el respaldo'));
-        }
+async function crearBackup(button) {
+    const nota = await appPrompt({
+        title: 'Crear respaldo manual',
+        message: 'Agrega una nota corta para identificar este respaldo. Si lo dejas vacio, guardaremos "Backup manual".',
+        label: 'Nota del respaldo',
+        placeholder: 'Ej: antes de ajustar inventario',
+        defaultValue: 'Backup manual',
+        confirmText: 'Crear respaldo',
     });
+    if (nota === null) return;
+
+    AppUI.setButtonLoading(button, true, 'Creando respaldo...');
+    try {
+        const r = await fetch('/api/backup', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({nota: (nota || '').trim() || 'Backup manual'}),
+        });
+        const data = await r.json();
+        if (!data.ok) {
+            throw new Error(data.error || 'No se pudo crear el respaldo');
+        }
+        Toast.success('Respaldo creado exitosamente!', 4400, 'Respaldo listo');
+        location.reload();
+    } catch (error) {
+        Toast.error('Error: ' + (error.message || 'No se pudo crear el respaldo'));
+    } finally {
+        AppUI.setButtonLoading(button, false);
+    }
 }
 
-function restaurar(timestamp, label) {
-    if (!confirm('ATENCION: Restaurar reemplazara la base de datos actual con el respaldo del ' + label + '.\n\nSe creara un backup de seguridad automatico antes de restaurar.\n\nContinuar?')) return;
+async function restaurar(button, timestamp, label) {
+    const ok = await appConfirm('ATENCION: Restaurar reemplazara la base de datos actual con el respaldo del ' + label + '. Se creara un backup de seguridad automatico antes de restaurar. Continuar?', { type: 'danger', title: 'Confirmar', confirmText: 'Restaurar' });
+    if (!ok) return;
 
-    fetch('/api/backup/restaurar', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({timestamp}),
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.ok) {
-            alert('Base de datos restaurada exitosamente!\nSe recomienda reiniciar la aplicacion.');
-            location.reload();
-        } else {
-            alert('Error: ' + (data.error || 'No se pudo restaurar'));
+    AppUI.setButtonLoading(button, true, 'Restaurando...');
+    try {
+        const r = await fetch('/api/backup/restaurar', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({timestamp}),
+        });
+        const data = await r.json();
+        if (!data.ok) {
+            throw new Error(data.error || 'No se pudo restaurar');
         }
-    });
+        Toast.success('Base de datos restaurada exitosamente! Se recomienda reiniciar la aplicacion.', 5200, 'Restauracion completada');
+        location.reload();
+    } catch (error) {
+        Toast.error('Error: ' + (error.message || 'No se pudo restaurar'));
+    } finally {
+        AppUI.setButtonLoading(button, false);
+    }
 }
 
-function eliminarBackup(timestamp) {
-    if (!confirm('Eliminar este respaldo?')) return;
+async function eliminarBackup(button, timestamp) {
+    const ok = await appConfirm('Eliminar este respaldo?', { type: 'danger', title: 'Eliminar', confirmText: 'Eliminar' });
+    if (!ok) return;
 
-    fetch('/api/backup/' + timestamp, {
-        method: 'DELETE',
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.ok) location.reload();
-        else alert('Error al eliminar');
-    });
+    AppUI.setButtonLoading(button, true, 'Eliminando...');
+    try {
+        const r = await fetch('/api/backup/' + timestamp, {
+            method: 'DELETE',
+        });
+        const data = await r.json();
+        if (!data.ok) {
+            throw new Error(data.error || 'Error al eliminar');
+        }
+        location.reload();
+    } catch (error) {
+        Toast.error(error.message || 'Error al eliminar');
+    } finally {
+        AppUI.setButtonLoading(button, false);
+    }
 }
 
-function limpiarAntiguos() {
-    if (!confirm('Eliminar respaldos de mas de 30 dias? Se conservaran los 5 mas recientes.')) return;
+async function limpiarAntiguos(button) {
+    const ok = await appConfirm('Eliminar respaldos de mas de 30 dias? Se conservaran los 5 mas recientes.', { type: 'danger', title: 'Eliminar', confirmText: 'Eliminar' });
+    if (!ok) return;
 
-    fetch('/api/backup/limpiar', {
-        method: 'POST',
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.ok) {
-            alert('Se eliminaron ' + data.eliminados + ' respaldos antiguos.');
-            location.reload();
+    AppUI.setButtonLoading(button, true, 'Limpiando...');
+    try {
+        const r = await fetch('/api/backup/limpiar', {
+            method: 'POST',
+        });
+        const data = await r.json();
+        if (!data.ok) {
+            throw new Error(data.error || 'No se pudieron limpiar respaldos');
         }
-    });
+        Toast.success('Se eliminaron ' + data.eliminados + ' respaldos antiguos.', 4400, 'Limpieza completada');
+        location.reload();
+    } catch (error) {
+        Toast.error(error.message || 'No se pudieron limpiar respaldos');
+    } finally {
+        AppUI.setButtonLoading(button, false);
+    }
 }
 </script>
 {% endblock %}

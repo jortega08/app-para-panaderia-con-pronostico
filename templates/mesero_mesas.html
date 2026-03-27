@@ -16,15 +16,15 @@
             {% elif mesa.estado_mesa == 'pendiente' %}
             <span class="mesa-badge mesa-badge-pendiente">Recibido</span>
             <div class="mesa-info">{{ mesa.num_pedidos }} pedido{{ 's' if mesa.num_pedidos != 1 else '' }}</div>
-            <div class="mesa-total">${{ '%.2f'|format(mesa.total_mesa) }}</div>
+            <div class="mesa-total">${{ '{:,.0f}'.format(mesa.total_mesa or 0) }}</div>
             {% elif mesa.estado_mesa == 'en_preparacion' %}
             <span class="mesa-badge mesa-badge-preparacion">En Preparacion</span>
             <div class="mesa-info">{{ mesa.num_pedidos }} pedido{{ 's' if mesa.num_pedidos != 1 else '' }}</div>
-            <div class="mesa-total">${{ '%.2f'|format(mesa.total_mesa) }}</div>
+            <div class="mesa-total">${{ '{:,.0f}'.format(mesa.total_mesa or 0) }}</div>
             {% elif mesa.estado_mesa == 'listo' %}
             <span class="mesa-badge mesa-badge-listo">Listo para cobrar</span>
             <div class="mesa-info">{{ mesa.num_pedidos }} pedido{{ 's' if mesa.num_pedidos != 1 else '' }}</div>
-            <div class="mesa-total">${{ '%.2f'|format(mesa.total_mesa) }}</div>
+            <div class="mesa-total">${{ '{:,.0f}'.format(mesa.total_mesa or 0) }}</div>
             {% endif %}
         </a>
         {% endfor %}

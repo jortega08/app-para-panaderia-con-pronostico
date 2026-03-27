@@ -4,13 +4,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Panaderia{% block title_extra %}{% endblock %}</title>
+    <title>RICHS{% block title_extra %}{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
 </head>
 
 <body class="{{ layout|default('') }}-layout">
+    {% set richs_logo = url_for('static', filename='brand/richs-logo.svg') %}
 
     {% if layout == 'panadero' %}
     <header class="mobile-shell-header">
@@ -18,49 +22,76 @@
             <span class="material-symbols-outlined">menu</span>
         </button>
         <div class="mobile-shell-brand">
-            <span class="material-symbols-outlined">bakery_dining</span>
-            <span>Richs</span>
+            <img src="{{ richs_logo }}" alt="RICHS" class="brand-mark brand-mark-mobile">
+            <span class="brand-wordmark-shell">
+                <strong>RICHS</strong>
+                <small>Panaderia artesanal</small>
+            </span>
         </div>
-        <a href="{{ url_for('logout') }}" class="mobile-header-action">Salir</a>
+        <div style="display:flex;align-items:center;gap:8px;">
+            <button class="notif-bell" onclick="toggleNotifPanel()" aria-label="Notificaciones">
+                <span class="material-symbols-outlined">notifications</span>
+                <span class="notif-bell-badge" id="notifBadgeMobile" hidden>0</span>
+            </button>
+            <a href="{{ url_for('logout') }}" class="mobile-header-action">Salir</a>
+        </div>
     </header>
     <div class="mobile-nav-overlay" onclick="closeAppSidebar()"></div>
     <aside class="sidebar">
         <div class="sidebar-brand">
-            <span class="sidebar-logo material-symbols-outlined">bakery_dining</span>
-            <span class="sidebar-name">PANADERIA RICHS</span>
+            <img src="{{ richs_logo }}" alt="RICHS" class="brand-mark brand-mark-sidebar">
+            <div class="sidebar-brand-copy">
+                <span class="sidebar-name">RICHS</span>
+                <span class="brand-supporting-copy">Panaderia artesanal</span>
+            </div>
         </div>
-        <div class="sidebar-user">{{ session.usuario.nombre }}</div>
+        <div class="sidebar-user">
+            {{ session.usuario.nombre }}
+            <button class="notif-bell" onclick="toggleNotifPanel()" aria-label="Notificaciones" style="margin-left:8px;">
+                <span class="material-symbols-outlined">notifications</span>
+                <span class="notif-bell-badge" id="notifBadgeDesktop" hidden>0</span>
+            </button>
+        </div>
         <nav class="sidebar-nav">
-            <a href="{{ url_for('panadero_pronostico') }}" class="{% if active_page == 'pronostico' %}active{% endif %}">
-                <span class="material-symbols-outlined">signal_cellular_alt</span> Pronóstico de producción
-            </a>
-            <a href="{{ url_for('panadero_produccion') }}" class="{% if active_page == 'produccion' %}active{% endif %}">
-                <span class="material-symbols-outlined">add_notes</span> Registrar Producción
-            </a>
-            <a href="{{ url_for('panadero_ventas') }}" class="{% if active_page == 'ventas' %}active{% endif %}">
-                <span class="material-symbols-outlined">paid</span> Ventas de Hoy
-            </a>
-            <a href="{{ url_for('panadero_operaciones') }}" class="{% if active_page == 'operaciones' %}active{% endif %}">
-                <span class="material-symbols-outlined">build</span> Operaciones
-            </a>
-            <a href="{{ url_for('panadero_historial') }}" class="{% if active_page == 'historial' %}active{% endif %}">
-                <span class="material-symbols-outlined">finance</span> Historial
-            </a>
-            <a href="{{ url_for('panadero_inventario') }}" class="{% if active_page == 'inventario' %}active{% endif %}">
-                <span class="material-symbols-outlined">inventory_2</span> Inventario
-            </a>
-            <a href="{{ url_for('panadero_backups') }}" class="{% if active_page == 'backups' %}active{% endif %}">
-                <span class="material-symbols-outlined">backup</span> Respaldos
-            </a>
-            <a href="{{ url_for('panadero_config') }}" class="{% if active_page == 'config' %}active{% endif %}">
-                <span class="material-symbols-outlined">settings</span> Configuración
-            </a>
-            <a href="{{ url_for('panadero_cierre') }}" class="{% if active_page == 'cierre' %}active{% endif %}">
-                <span class="material-symbols-outlined">summarize</span> Cierre Diario
-            </a>
-            <a href="{{ url_for('panadero_audit') }}" class="{% if active_page == 'audit' %}active{% endif %}">
-                <span class="material-symbols-outlined">policy</span> Movimientos
-            </a>
+            <div class="sidebar-nav-group">
+                <span class="sidebar-nav-label">Operacion diaria</span>
+                <a href="{{ url_for('panadero_pronostico') }}" class="{% if active_page == 'pronostico' %}active{% endif %}">
+                    <span class="material-symbols-outlined">signal_cellular_alt</span> Pronostico
+                </a>
+                <a href="{{ url_for('panadero_produccion') }}" class="{% if active_page == 'produccion' %}active{% endif %}">
+                    <span class="material-symbols-outlined">add_notes</span> Produccion
+                </a>
+                <a href="{{ url_for('panadero_ventas') }}" class="{% if active_page == 'ventas' %}active{% endif %}">
+                    <span class="material-symbols-outlined">paid</span> Ventas de Hoy
+                </a>
+            </div>
+            <div class="sidebar-nav-group">
+                <span class="sidebar-nav-label">Gestion</span>
+                <a href="{{ url_for('panadero_inventario') }}" class="{% if active_page == 'inventario' %}active{% endif %}">
+                    <span class="material-symbols-outlined">inventory_2</span> Inventario
+                </a>
+                <a href="{{ url_for('panadero_historial') }}" class="{% if active_page == 'historial' %}active{% endif %}">
+                    <span class="material-symbols-outlined">finance</span> Historial
+                </a>
+                <a href="{{ url_for('panadero_operaciones') }}" class="{% if active_page == 'operaciones' %}active{% endif %}">
+                    <span class="material-symbols-outlined">build</span> Operaciones
+                </a>
+            </div>
+            <div class="sidebar-nav-group">
+                <span class="sidebar-nav-label">Sistema</span>
+                <a href="{{ url_for('panadero_config') }}" class="{% if active_page == 'config' %}active{% endif %}">
+                    <span class="material-symbols-outlined">settings</span> Configuracion
+                </a>
+                <a href="{{ url_for('panadero_backups') }}" class="{% if active_page == 'backups' %}active{% endif %}">
+                    <span class="material-symbols-outlined">backup</span> Respaldos
+                </a>
+                <a href="{{ url_for('panadero_cierre') }}" class="{% if active_page == 'cierre' %}active{% endif %}">
+                    <span class="material-symbols-outlined">summarize</span> Cierre Diario
+                </a>
+                <a href="{{ url_for('panadero_audit') }}" class="{% if active_page == 'audit' %}active{% endif %}">
+                    <span class="material-symbols-outlined">policy</span> Movimientos
+                </a>
+            </div>
         </nav>
         <div class="sidebar-footer">
             <div class="sidebar-date">{{ ahora.strftime('%d/%m/%Y') }}</div>
@@ -71,10 +102,22 @@
     <header class="topbar">
         <div class="topbar-main">
             <div class="topbar-left">
-                <span class="topbar-brand"><span class="material-symbols-outlined">bakery_dining</span> Panaderia Richs</span>
+                <span class="topbar-brand">
+                    <img src="{{ richs_logo }}" alt="RICHS" class="brand-mark brand-mark-topbar">
+                    <span class="brand-wordmark-shell">
+                        <strong>RICHS</strong>
+                        <small>Operacion de caja</small>
+                    </span>
+                </span>
                 <span class="topbar-user">{{ session.usuario.nombre }}</span>
             </div>
-            <a href="{{ url_for('logout') }}" class="topbar-logout">Salir</a>
+            <div style="display:flex;align-items:center;gap:10px;">
+                <button class="notif-bell" onclick="toggleNotifPanel()" aria-label="Notificaciones">
+                    <span class="material-symbols-outlined">notifications</span>
+                    <span class="notif-bell-badge" id="notifBadgeCajero" hidden>0</span>
+                </button>
+                <a href="{{ url_for('logout') }}" class="topbar-logout">Salir</a>
+            </div>
         </div>
         <nav class="topbar-nav">
             <a href="{{ url_for('cajero_pos') }}" class="{% if active_page == 'pos' %}active{% endif %}">
@@ -82,7 +125,7 @@
             </a>
             <a href="{{ url_for('cajero_pedidos') }}" class="{% if active_page == 'pedidos' %}active{% endif %}" id="cajeroPedidosLink">
                 <span class="material-symbols-outlined">assignment</span> Pedidos
-                <span class="nav-counter" id="pendingOrdersBadge" hidden>0</span>
+                <span class="nav-counter" id="pendingOrdersBadge" data-pending-orders-badge hidden>0</span>
             </a>
             <a href="{{ url_for('cajero_ventas') }}" class="{% if active_page == 'ventas' %}active{% endif %}">
                 <span class="material-symbols-outlined">bar_chart</span> Ventas de Hoy
@@ -93,10 +136,22 @@
     <header class="topbar topbar-mesero">
         <div class="topbar-main">
             <div class="topbar-left">
-                <span class="topbar-brand"><span class="material-symbols-outlined">bakery_dining</span> Panaderia Richs</span>
+                <span class="topbar-brand">
+                    <img src="{{ richs_logo }}" alt="RICHS" class="brand-mark brand-mark-topbar">
+                    <span class="brand-wordmark-shell">
+                        <strong>RICHS</strong>
+                        <small>Servicio en sala</small>
+                    </span>
+                </span>
                 <span class="topbar-user">{{ session.usuario.nombre }}</span>
             </div>
-            <a href="{{ url_for('logout') }}" class="topbar-logout">Salir</a>
+            <div style="display:flex;align-items:center;gap:10px;">
+                <button class="notif-bell" onclick="toggleNotifPanel()" aria-label="Notificaciones">
+                    <span class="material-symbols-outlined">notifications</span>
+                    <span class="notif-bell-badge" id="notifBadgeMesero" hidden>0</span>
+                </button>
+                <a href="{{ url_for('logout') }}" class="topbar-logout">Salir</a>
+            </div>
         </div>
         <nav class="topbar-nav">
             <a href="{{ url_for('mesero_mesas') }}" class="{% if active_page == 'mesas' %}active{% endif %}">
@@ -110,26 +165,783 @@
     {% endif %}
 
     <main class="main-content">
+        {% if layout == 'panadero' %}
+        <div class="panadero-quickdock-wrap">
+            <aside class="panadero-quickdock" aria-label="Accesos rapidos">
+                <div class="panadero-quickdock-title">Accesos rapidos</div>
+                <a href="{{ url_for('panadero_pronostico') }}" class="panadero-quickdock-link">
+                    <span class="material-symbols-outlined">rocket_launch</span>
+                    Meta de hoy
+                </a>
+                <a href="{{ url_for('panadero_produccion') }}" class="panadero-quickdock-link">
+                    <span class="material-symbols-outlined">counter_1</span>
+                    Hornada
+                </a>
+                <a href="{{ url_for('panadero_inventario') }}" class="panadero-quickdock-link">
+                    <span class="material-symbols-outlined">inventory</span>
+                    Insumos
+                </a>
+            </aside>
+        </div>
+        {% endif %}
         {% block content %}{% endblock %}
     </main>
 
+    {% if layout == 'panadero' %}
+    <nav class="mobile-bottom-nav" aria-label="Navegacion movil">
+        <a href="{{ url_for('panadero_pronostico') }}" class="mobile-bottom-link {% if active_page == 'pronostico' %}active{% endif %}">
+            <span class="material-symbols-outlined">signal_cellular_alt</span>
+            <span>Pronostico</span>
+        </a>
+        <a href="{{ url_for('panadero_produccion') }}" class="mobile-bottom-link {% if active_page == 'produccion' %}active{% endif %}">
+            <span class="material-symbols-outlined">bakery_dining</span>
+            <span>Produccion</span>
+        </a>
+        <a href="{{ url_for('panadero_inventario') }}" class="mobile-bottom-link {% if active_page == 'inventario' %}active{% endif %}">
+            <span class="material-symbols-outlined">inventory_2</span>
+            <span>Insumos</span>
+        </a>
+        <button type="button" class="mobile-bottom-link mobile-bottom-link-button" onclick="toggleNotifPanel()" aria-label="Alertas">
+            <span class="material-symbols-outlined">notifications</span>
+            <span>Alertas</span>
+            <span class="notif-bell-badge mobile-bottom-badge" id="notifBadgeBottomPanadero" hidden>0</span>
+        </button>
+    </nav>
+    {% elif layout == 'cajero' %}
+    <nav class="mobile-bottom-nav" aria-label="Navegacion movil">
+        <a href="{{ url_for('cajero_pos') }}" class="mobile-bottom-link {% if active_page == 'pos' %}active{% endif %}">
+            <span class="material-symbols-outlined">point_of_sale</span>
+            <span>POS</span>
+        </a>
+        <a href="{{ url_for('cajero_pedidos') }}" class="mobile-bottom-link {% if active_page == 'pedidos' %}active{% endif %}">
+            <span class="material-symbols-outlined">assignment</span>
+            <span>Pedidos</span>
+            <span class="mobile-bottom-badge" id="pendingOrdersBottomBadge" data-pending-orders-badge hidden>0</span>
+        </a>
+        <a href="{{ url_for('cajero_ventas') }}" class="mobile-bottom-link {% if active_page == 'ventas' %}active{% endif %}">
+            <span class="material-symbols-outlined">bar_chart</span>
+            <span>Ventas</span>
+        </a>
+        <button type="button" class="mobile-bottom-link mobile-bottom-link-button" onclick="toggleNotifPanel()" aria-label="Alertas">
+            <span class="material-symbols-outlined">notifications</span>
+            <span>Alertas</span>
+            <span class="notif-bell-badge mobile-bottom-badge" id="notifBadgeBottomCajero" hidden>0</span>
+        </button>
+    </nav>
+    {% elif layout == 'mesero' %}
+    <nav class="mobile-bottom-nav" aria-label="Navegacion movil">
+        <a href="{{ url_for('mesero_mesas') }}" class="mobile-bottom-link {% if active_page == 'mesas' %}active{% endif %}">
+            <span class="material-symbols-outlined">table_restaurant</span>
+            <span>Mesas</span>
+        </a>
+        <a href="{{ url_for('mesero_pedidos') }}" class="mobile-bottom-link {% if active_page == 'pedidos' %}active{% endif %}">
+            <span class="material-symbols-outlined">receipt_long</span>
+            <span>Pedidos</span>
+        </a>
+        <button type="button" class="mobile-bottom-link mobile-bottom-link-button" onclick="toggleNotifPanel()" aria-label="Alertas">
+            <span class="material-symbols-outlined">notifications</span>
+            <span>Alertas</span>
+            <span class="notif-bell-badge mobile-bottom-badge" id="notifBadgeBottomMesero" hidden>0</span>
+        </button>
+    </nav>
+    {% endif %}
+
+    <!-- Notification Panel -->
+    <div class="notif-panel-overlay" id="notifOverlay" onclick="toggleNotifPanel()"></div>
+    <div class="notif-panel" id="notifPanel">
+        <div class="notif-panel-header">
+            <span class="notif-panel-title">
+                <span class="material-symbols-outlined">notifications</span>
+                Notificaciones
+            </span>
+            <span class="notif-panel-meta" id="notifPanelMeta">Bandeja al dia</span>
+            <button class="notif-panel-close" onclick="toggleNotifPanel()">
+                <span class="material-symbols-outlined">close</span>
+            </button>
+        </div>
+        <div class="notif-panel-actions">
+            <button onclick="NotifCenter.markAllRead()">Marcar todo leido</button>
+            <button onclick="NotifCenter.clear()">Limpiar</button>
+        </div>
+        <div class="notif-list" id="notifList">
+            <div class="notif-empty">
+                <span class="material-symbols-outlined notif-empty-icon">notifications_off</span>
+                <div class="notif-empty-text">No hay notificaciones</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Flash messages → toasts -->
     {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
-    <div class="flash-container">
-        {% for category, message in messages %}
-        <div class="flash flash-{{ category }}">
-            {{ message }}
-            <button onclick="this.parentElement.remove()" class="flash-close">&times;</button>
-        </div>
-        {% endfor %}
-    </div>
     <script>
-        setTimeout(function () {
-            document.querySelectorAll('.flash').forEach(function (el) { el.remove(); });
-        }, 4000);
+        document.addEventListener('DOMContentLoaded', function() {
+            {% for category, message in messages %}
+            Toast.show('{{ message|e }}', '{{ category }}');
+            {% endfor %}
+        });
     </script>
     {% endif %}
     {% endwith %}
+
+    <script>
+    /* ══════════════════════════════════════════════
+       TOAST SYSTEM
+       ══════════════════════════════════════════════ */
+    const AppUI = {
+        escapeHtml(value) {
+            return String(value == null ? '' : value).replace(/[&<>"']/g, function(char) {
+                return {
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#39;',
+                }[char];
+            });
+        },
+        formatNumber(value, decimals) {
+            const digits = Math.max(0, Number.isFinite(Number(decimals)) ? Number(decimals) : 0);
+            return new Intl.NumberFormat('en-US', {
+                minimumFractionDigits: digits,
+                maximumFractionDigits: digits,
+            }).format(Number(value || 0));
+        },
+        formatMoney(value, decimals) {
+            return '$' + this.formatNumber(value, decimals == null ? 0 : decimals);
+        },
+        suggestedCash(value) {
+            return String(Math.max(0, Math.ceil(Number(value || 0))));
+        },
+        emptyIllustration(type) {
+            const art = {
+                basket: '<svg viewBox="0 0 120 120" aria-hidden="true"><rect x="24" y="42" width="72" height="48" rx="16" fill="rgba(193,120,23,0.12)" stroke="rgba(139,85,19,0.22)" stroke-width="3"/><path d="M39 42c2-14 10-22 21-22s19 8 21 22" fill="none" stroke="rgba(139,85,19,0.35)" stroke-width="4" stroke-linecap="round"/><path d="M42 56h36M42 68h36M42 80h24" stroke="#C17817" stroke-width="4" stroke-linecap="round"/></svg>',
+                bell: '<svg viewBox="0 0 120 120" aria-hidden="true"><path d="M60 24c-15 0-26 12-26 27v13c0 7-2 14-7 19h66c-5-5-7-12-7-19V51c0-15-11-27-26-27Z" fill="rgba(212,114,42,0.12)" stroke="rgba(139,85,19,0.24)" stroke-width="3"/><path d="M48 92c2 6 7 10 12 10s10-4 12-10" fill="none" stroke="#C17817" stroke-width="4" stroke-linecap="round"/><circle cx="78" cy="34" r="8" fill="#D32F2F"/></svg>',
+                tray: '<svg viewBox="0 0 120 120" aria-hidden="true"><path d="M18 72h84l-10 24H28z" fill="rgba(47,107,99,0.12)" stroke="rgba(47,107,99,0.24)" stroke-width="3"/><path d="M38 72a22 22 0 1 1 44 0" fill="none" stroke="#2F6B63" stroke-width="4" stroke-linecap="round"/><circle cx="42" cy="42" r="8" fill="rgba(193,120,23,0.16)"/><circle cx="78" cy="42" r="8" fill="rgba(212,114,42,0.18)"/></svg>',
+                calendar: '<svg viewBox="0 0 120 120" aria-hidden="true"><rect x="22" y="26" width="76" height="70" rx="18" fill="rgba(193,120,23,0.11)" stroke="rgba(139,85,19,0.22)" stroke-width="3"/><path d="M22 48h76" stroke="#C17817" stroke-width="4"/><path d="M40 18v16M80 18v16" stroke="rgba(139,85,19,0.42)" stroke-width="4" stroke-linecap="round"/><rect x="37" y="58" width="14" height="14" rx="4" fill="#D4722A"/><rect x="56" y="58" width="14" height="14" rx="4" fill="rgba(212,114,42,0.35)"/><rect x="75" y="58" width="14" height="14" rx="4" fill="rgba(47,107,99,0.26)"/></svg>',
+                crate: '<svg viewBox="0 0 120 120" aria-hidden="true"><rect x="24" y="32" width="72" height="56" rx="16" fill="rgba(193,120,23,0.11)" stroke="rgba(139,85,19,0.22)" stroke-width="3"/><path d="M24 52h72M42 32v56M60 32v56M78 32v56" stroke="rgba(139,85,19,0.22)" stroke-width="3"/><path d="M42 68h36" stroke="#C17817" stroke-width="4" stroke-linecap="round"/></svg>',
+            };
+            return art[type] || art.crate;
+        },
+        renderEmptyState(options) {
+            const safe = options || {};
+            const button = safe.actionLabel
+                ? (safe.actionHref
+                    ? '<a class="btn btn-accent" href="' + this.escapeHtml(safe.actionHref) + '">' + this.escapeHtml(safe.actionLabel) + '</a>'
+                    : '<button type="button" class="btn btn-accent" onclick="' + this.escapeHtml(safe.action || '') + '">' + this.escapeHtml(safe.actionLabel) + '</button>')
+                : '';
+            return '' +
+                '<div class="empty-state">' +
+                    '<div class="empty-state-illustration">' + this.emptyIllustration(safe.type || 'crate') + '</div>' +
+                    '<div class="empty-state-title">' + this.escapeHtml(safe.title || 'Sin informacion disponible') + '</div>' +
+                    '<div class="empty-state-text">' + this.escapeHtml(safe.description || 'Apenas haya datos, este espacio te ayudara a tomar la siguiente accion.') + '</div>' +
+                    button +
+                '</div>';
+        },
+        setButtonLoading(button, isLoading, loadingText) {
+            if (!button) return;
+            if (isLoading) {
+                if (!button.dataset.originalHtml) {
+                    button.dataset.originalHtml = button.innerHTML;
+                }
+                if (!button.dataset.originalDisabled) {
+                    button.dataset.originalDisabled = button.disabled ? 'true' : 'false';
+                }
+                button.disabled = true;
+                button.classList.add('is-loading');
+                button.innerHTML = '<span class="inline-spinner" aria-hidden="true"></span><span>' + this.escapeHtml(loadingText || button.dataset.loadingText || 'Procesando...') + '</span>';
+                return;
+            }
+            button.classList.remove('is-loading');
+            if (button.dataset.originalHtml) {
+                button.innerHTML = button.dataset.originalHtml;
+                delete button.dataset.originalHtml;
+            }
+            button.disabled = button.dataset.originalDisabled === 'true';
+            delete button.dataset.originalDisabled;
+        },
+        pulseElement(selector) {
+            const element = typeof selector === 'string' ? document.querySelector(selector) : selector;
+            if (!element) return;
+            element.classList.remove('pulse');
+            void element.offsetWidth;
+            element.classList.add('pulse');
+        },
+    };
+    window.AppUI = AppUI;
+
+    const SoundFX = {
+        ctx: null,
+        init() {
+            const unlock = () => this.unlock();
+            window.addEventListener('pointerdown', unlock, { once: true, passive: true });
+            window.addEventListener('keydown', unlock, { once: true });
+        },
+        ensureContext() {
+            if (this.ctx) return this.ctx;
+            const AudioCtor = window.AudioContext || window.webkitAudioContext;
+            if (!AudioCtor) return null;
+            this.ctx = new AudioCtor();
+            return this.ctx;
+        },
+        unlock() {
+            const ctx = this.ensureContext();
+            if (!ctx) return;
+            if (ctx.state === 'suspended') {
+                ctx.resume().catch(function() {});
+            }
+        },
+        play(kind) {
+            const ctx = this.ensureContext();
+            if (!ctx) return;
+            if (ctx.state === 'suspended') {
+                ctx.resume().catch(function() {});
+            }
+            const patterns = kind === 'alert'
+                ? [
+                    { freq: 480, duration: 0.09, gain: 0.04, type: 'triangle' },
+                    { freq: 360, duration: 0.12, gain: 0.03, type: 'triangle', offset: 0.11 },
+                ]
+                : [
+                    { freq: 660, duration: 0.08, gain: 0.028, type: 'sine' },
+                    { freq: 880, duration: 0.1, gain: 0.022, type: 'sine', offset: 0.08 },
+                ];
+            const start = ctx.currentTime + 0.02;
+            patterns.forEach(function(note) {
+                const oscillator = ctx.createOscillator();
+                const gain = ctx.createGain();
+                oscillator.type = note.type || 'sine';
+                oscillator.frequency.setValueAtTime(note.freq, start + (note.offset || 0));
+                gain.gain.setValueAtTime(0.0001, start + (note.offset || 0));
+                gain.gain.exponentialRampToValueAtTime(note.gain || 0.03, start + (note.offset || 0) + 0.01);
+                gain.gain.exponentialRampToValueAtTime(0.0001, start + (note.offset || 0) + (note.duration || 0.09));
+                oscillator.connect(gain);
+                gain.connect(ctx.destination);
+                oscillator.start(start + (note.offset || 0));
+                oscillator.stop(start + (note.offset || 0) + (note.duration || 0.09) + 0.03);
+            });
+        },
+    };
+
+    const Toast = {
+        container: null,
+        icons: {
+            success: 'check_circle',
+            error: 'error',
+            warning: 'warning',
+            info: 'info',
+            order: 'receipt_long',
+        },
+        titles: {
+            success: 'Listo',
+            error: 'Error',
+            warning: 'Atencion',
+            info: 'Actualizacion',
+            order: 'Nuevo pedido',
+        },
+        init() {
+            this.container = document.getElementById('toastContainer');
+        },
+        normalize(payload, type, duration, title) {
+            if (typeof payload === 'object' && payload !== null) {
+                const normalizedType = ['danger', 'alert'].includes(payload.type) ? 'error' : (payload.type || type || 'info');
+                return {
+                    type: normalizedType,
+                    title: Object.prototype.hasOwnProperty.call(payload, 'title') ? payload.title : (title || this.titles[normalizedType] || 'Actualizacion'),
+                    description: payload.description || payload.message || payload.text || '',
+                    duration: payload.duration || duration || (normalizedType === 'error' ? 6200 : 4400),
+                    sound: Object.prototype.hasOwnProperty.call(payload, 'sound') ? payload.sound : (normalizedType === 'error' ? 'alert' : ''),
+                };
+            }
+            const normalizedType = ['danger', 'alert'].includes(type) ? 'error' : (type || 'info');
+            return {
+                type: normalizedType,
+                title: title === '' ? '' : (title || this.titles[normalizedType] || 'Actualizacion'),
+                description: payload || '',
+                duration: duration || (normalizedType === 'error' ? 6200 : 4400),
+                sound: normalizedType === 'error' ? 'alert' : '',
+            };
+        },
+        show(payload, type, duration, title) {
+            if (!this.container) this.init();
+            const options = this.normalize(payload, type, duration, title);
+            const toast = document.createElement('div');
+            toast.className = 'toast toast-' + options.type;
+            toast.innerHTML =
+                '<div class="toast-icon"><span class="material-symbols-outlined">' + (this.icons[options.type] || 'info') + '</span></div>' +
+                '<div class="toast-body">' +
+                    (options.title ? '<div class="toast-title">' + AppUI.escapeHtml(options.title) + '</div>' : '') +
+                    '<div class="toast-message">' + AppUI.escapeHtml(options.description) + '</div>' +
+                '</div>' +
+                '<button class="toast-close" type="button" aria-label="Cerrar" onclick="Toast.dismiss(this.parentElement)">&times;</button>' +
+                '<div class="toast-progress" style="animation-duration:' + options.duration + 'ms"></div>';
+
+            this.container.appendChild(toast);
+            if (options.sound) {
+                SoundFX.play(options.sound);
+            }
+
+            const timer = setTimeout(function() { Toast.dismiss(toast); }, options.duration);
+            toast._timer = timer;
+            return toast;
+        },
+        dismiss(toast) {
+            if (!toast || toast.classList.contains('toast-out')) return;
+            clearTimeout(toast._timer);
+            toast.classList.add('toast-out');
+            setTimeout(function() { toast.remove(); }, 300);
+        },
+        success(message, duration, title) { return this.show(message, 'success', duration, title); },
+        error(message, duration, title) { return this.show(message, 'error', duration, title); },
+        warning(message, duration, title) { return this.show(message, 'warning', duration, title); },
+        info(message, duration, title) { return this.show(message, 'info', duration, title); }
+    };
+    window.Toast = Toast;
+
+    /* ══════════════════════════════════════════════
+       NOTIFICATION CENTER
+       ══════════════════════════════════════════════ */
+    const NotifCenter = {
+        items: [],
+        maxItems: 50,
+        storageKey: 'panaderia_notifs',
+
+        init() {
+            try {
+                const stored = localStorage.getItem(this.storageKey);
+                if (stored) this.items = JSON.parse(stored);
+            } catch(e) {}
+            this.render();
+            this.updateBadges();
+        },
+
+        defaultTitle(type) {
+            return {
+                success: 'Operacion completada',
+                error: 'Alerta del sistema',
+                warning: 'Revision recomendada',
+                info: 'Novedad operativa',
+                order: 'Nuevo pedido',
+                stock: 'Revision de inventario',
+                production: 'Produccion actualizada',
+            }[type] || 'Novedad operativa';
+        },
+
+        add(payload, type, silent) {
+            const options = typeof payload === 'object' && payload !== null
+                ? {
+                    title: payload.title,
+                    description: payload.description || payload.message || payload.text || '',
+                    type: payload.type || type || 'info',
+                    silent: Object.prototype.hasOwnProperty.call(payload, 'silent') ? payload.silent : silent,
+                    duration: payload.duration,
+                    sound: Object.prototype.hasOwnProperty.call(payload, 'sound')
+                        ? payload.sound
+                        : ((payload.type || type) === 'order' ? 'order' : (['error', 'alert'].includes(payload.type || type) ? 'alert' : '')),
+                }
+                : {
+                    title: this.defaultTitle(type || 'info'),
+                    description: payload,
+                    type: type || 'info',
+                    silent: silent,
+                    duration: null,
+                    sound: type === 'order' ? 'order' : (type === 'error' ? 'alert' : ''),
+                };
+
+            const item = {
+                id: Date.now() + Math.random(),
+                title: options.title || this.defaultTitle(options.type),
+                description: options.description || '',
+                type: options.type || 'info',
+                time: new Date().toISOString(),
+                read: false
+            };
+            this.items.unshift(item);
+            if (this.items.length > this.maxItems) this.items.pop();
+            this.save();
+            this.render();
+            this.updateBadges();
+            if (!options.silent) {
+                Toast.show({
+                    title: item.title,
+                    description: item.description,
+                    type: item.type,
+                    duration: options.duration,
+                    sound: options.sound,
+                });
+            } else if (options.sound) {
+                SoundFX.play(options.sound);
+            }
+            return item;
+        },
+
+        markAllRead() {
+            this.items.forEach(function(i) { i.read = true; });
+            this.save();
+            this.render();
+            this.updateBadges();
+        },
+
+        clear() {
+            this.items = [];
+            this.save();
+            this.render();
+            this.updateBadges();
+        },
+
+        save() {
+            try {
+                localStorage.setItem(this.storageKey, JSON.stringify(this.items));
+            } catch(e) {}
+        },
+
+        unreadCount() {
+            return this.items.filter(function(i) { return !i.read; }).length;
+        },
+
+        updateBadges() {
+            var count = this.unreadCount();
+            var badges = document.querySelectorAll('.notif-bell-badge');
+            badges.forEach(function(b) {
+                if (count > 0) {
+                    b.hidden = false;
+                    b.textContent = count > 9 ? '9+' : String(count);
+                } else {
+                    b.hidden = true;
+                }
+            });
+            var meta = document.getElementById('notifPanelMeta');
+            if (meta) {
+                meta.textContent = count > 0 ? count + ' sin leer' : 'Bandeja al dia';
+            }
+        },
+
+        timeAgo(iso) {
+            var diff = (Date.now() - new Date(iso).getTime()) / 1000;
+            if (diff < 60) return 'Ahora';
+            if (diff < 3600) return Math.floor(diff / 60) + ' min';
+            if (diff < 86400) return Math.floor(diff / 3600) + ' h';
+            return Math.floor(diff / 86400) + ' d';
+        },
+
+        iconClass(type) {
+            var map = { order: 'is-order', stock: 'is-stock', production: 'is-production', alert: 'is-alert', error: 'is-alert', warning: 'is-stock', success: 'is-production', info: 'is-info' };
+            return map[type] || 'is-info';
+        },
+
+        iconName(type) {
+            var map = { order: 'receipt_long', stock: 'inventory_2', production: 'bakery_dining', alert: 'warning', error: 'error', warning: 'warning', success: 'check_circle', info: 'info' };
+            return map[type] || 'info';
+        },
+
+        render() {
+            var list = document.getElementById('notifList');
+            if (!list) return;
+
+            if (this.items.length === 0) {
+                list.innerHTML = AppUI.renderEmptyState({
+                    type: 'bell',
+                    title: 'Sin novedades por ahora',
+                    description: 'Los pedidos nuevos, alertas criticas y avisos operativos apareceran en esta bandeja.'
+                });
+                return;
+            }
+
+            var self = this;
+            var html = this.items.map(function(item) {
+                return '<div class="notif-item ' + (item.read ? '' : 'is-unread') + '" onclick="NotifCenter.markRead(\'' + item.id + '\')">' +
+                    '<div class="notif-item-icon ' + self.iconClass(item.type) + '"><span class="material-symbols-outlined">' + self.iconName(item.type) + '</span></div>' +
+                    '<div class="notif-item-body">' +
+                        '<div class="notif-item-title">' + AppUI.escapeHtml(item.title || self.defaultTitle(item.type)) + '</div>' +
+                        '<div class="notif-item-text">' + AppUI.escapeHtml(item.description || '') + '</div>' +
+                        '<div class="notif-item-time">' + self.timeAgo(item.time) + '</div>' +
+                    '</div>' +
+                '</div>';
+            }).join('');
+            list.innerHTML = html;
+        },
+
+        markRead(id) {
+            var item = this.items.find(function(i) { return String(i.id) === String(id); });
+            if (item) {
+                item.read = true;
+                this.save();
+                this.render();
+                this.updateBadges();
+            }
+        }
+    };
+    window.NotifCenter = NotifCenter;
+    window.SoundFX = SoundFX;
+
+    const FieldGuide = {
+        init() {
+            const fields = document.querySelectorAll('input.form-input, select.form-input, textarea.form-input');
+            fields.forEach((field) => {
+                if (field.type === 'hidden' || field.dataset.skipValidation === 'true') return;
+                field.addEventListener('blur', () => {
+                    field.dataset.touched = 'true';
+                    this.update(field, true);
+                });
+                field.addEventListener('input', () => {
+                    if (field.dataset.touched === 'true') {
+                        this.update(field, false);
+                    }
+                });
+                field.addEventListener('change', () => {
+                    if (field.dataset.touched === 'true') {
+                        this.update(field, false);
+                    }
+                });
+            });
+
+            document.querySelectorAll('form').forEach((form) => {
+                form.addEventListener('submit', () => {
+                    form.querySelectorAll('input.form-input, select.form-input, textarea.form-input').forEach((field) => {
+                        if (field.type === 'hidden' || field.dataset.skipValidation === 'true') return;
+                        field.dataset.touched = 'true';
+                        this.update(field, true);
+                    });
+                });
+            });
+        },
+        shouldDecorate(field) {
+            if (!field) return false;
+            const value = (field.value || '').trim();
+            return !!value || !!field.required;
+        },
+        message(field) {
+            if (field.validity.valueMissing) return 'Este campo es obligatorio para continuar.';
+            if (field.validity.typeMismatch) return 'Revisa el formato de este dato.';
+            if (field.validity.rangeUnderflow) return 'El valor debe ser mayor o igual al minimo permitido.';
+            if (field.validity.rangeOverflow) return 'El valor supera el maximo permitido.';
+            if (field.validity.stepMismatch) return 'Usa el formato numerico esperado.';
+            if (field.validity.patternMismatch) return 'El dato no coincide con el formato esperado.';
+            return field.dataset.errorText || 'Revisa este campo antes de continuar.';
+        },
+        feedbackFor(field) {
+            const wrapper = field.closest('.form-group') || field.parentElement;
+            const key = field.id || field.name || 'field';
+            let feedback = wrapper.querySelector('.field-feedback[data-for="' + key + '"]');
+            if (!feedback) {
+                feedback = document.createElement('div');
+                feedback.className = 'field-feedback';
+                feedback.dataset.for = key;
+                feedback.hidden = true;
+                wrapper.appendChild(feedback);
+            }
+            return feedback;
+        },
+        clear(field) {
+            const wrapper = field.closest('.form-group') || field.parentElement;
+            const feedback = this.feedbackFor(field);
+            field.classList.remove('is-valid', 'is-invalid', 'shake');
+            wrapper.classList.remove('has-valid', 'has-invalid');
+            feedback.hidden = true;
+            feedback.textContent = '';
+            field.removeAttribute('aria-invalid');
+        },
+        update(field, forceShake) {
+            if (!this.shouldDecorate(field)) {
+                this.clear(field);
+                return;
+            }
+
+            const wrapper = field.closest('.form-group') || field.parentElement;
+            const feedback = this.feedbackFor(field);
+            const valid = field.checkValidity();
+
+            field.classList.toggle('is-valid', valid);
+            field.classList.toggle('is-invalid', !valid);
+            wrapper.classList.toggle('has-valid', valid);
+            wrapper.classList.toggle('has-invalid', !valid);
+            field.setAttribute('aria-invalid', valid ? 'false' : 'true');
+
+            feedback.hidden = false;
+            feedback.className = 'field-feedback ' + (valid ? 'is-success' : 'is-error');
+            feedback.textContent = valid
+                ? (field.dataset.successText || 'Dato listo.')
+                : this.message(field);
+
+            if (!valid && forceShake) {
+                field.classList.remove('shake');
+                void field.offsetWidth;
+                field.classList.add('shake');
+            }
+        },
+    };
+
+    function toggleNotifPanel() {
+        var panel = document.getElementById('notifPanel');
+        var overlay = document.getElementById('notifOverlay');
+        var isOpen = panel.classList.contains('is-open');
+        panel.classList.toggle('is-open');
+        overlay.classList.toggle('is-open');
+        document.body.classList.toggle('notif-open', !isOpen);
+        if (!isOpen) NotifCenter.render();
+    }
+
+    /* ══════════════════════════════════════════════
+       CONFIRM DIALOG (replaces native confirm)
+       ══════════════════════════════════════════════ */
+    function appConfirm(message, options) {
+        options = options || {};
+        return new Promise(function(resolve) {
+            var type = options.type || 'warning';
+            var iconMap = { warning: 'warning', danger: 'delete_forever', info: 'help' };
+            var overlay = document.createElement('div');
+            overlay.className = 'confirm-overlay';
+            overlay.innerHTML =
+                '<div class="confirm-card">' +
+                    '<div class="confirm-header">' +
+                        '<div class="confirm-header-icon is-' + type + '"><span class="material-symbols-outlined">' + (iconMap[type] || 'help') + '</span></div>' +
+                        '<div class="confirm-title">' + (options.title || 'Confirmar accion') + '</div>' +
+                    '</div>' +
+                    '<div class="confirm-body">' + message + '</div>' +
+                    '<div class="confirm-footer">' +
+                        '<button class="btn btn-outline btn-sm" id="confirmNo">' + (options.cancelText || 'Cancelar') + '</button>' +
+                        '<button class="btn btn-' + (type === 'danger' ? 'danger-outline' : 'accent') + ' btn-sm" id="confirmYes">' + (options.confirmText || 'Confirmar') + '</button>' +
+                    '</div>' +
+                '</div>';
+            document.body.appendChild(overlay);
+
+            overlay.querySelector('#confirmYes').onclick = function() { overlay.remove(); resolve(true); };
+            overlay.querySelector('#confirmNo').onclick = function() { overlay.remove(); resolve(false); };
+            overlay.addEventListener('click', function(e) { if (e.target === overlay) { overlay.remove(); resolve(false); } });
+        });
+    }
+
+    function appPrompt(options) {
+        options = options || {};
+        return new Promise(function(resolve) {
+            var overlay = document.createElement('div');
+            overlay.className = 'confirm-overlay';
+            overlay.innerHTML =
+                '<div class="confirm-card prompt-card">' +
+                    '<div class="confirm-header">' +
+                        '<div class="confirm-header-icon is-info"><span class="material-symbols-outlined">edit</span></div>' +
+                        '<div class="confirm-title">' + AppUI.escapeHtml(options.title || 'Completa este dato') + '</div>' +
+                    '</div>' +
+                    '<div class="confirm-body">' +
+                        (options.message ? '<div class="prompt-copy">' + AppUI.escapeHtml(options.message) + '</div>' : '') +
+                        '<label class="form-label" for="appPromptInput">' + AppUI.escapeHtml(options.label || 'Valor') + '</label>' +
+                        '<input id="appPromptInput" class="form-input app-dialog-input" type="' + AppUI.escapeHtml(options.inputType || 'text') + '" value="' + AppUI.escapeHtml(options.defaultValue || '') + '" placeholder="' + AppUI.escapeHtml(options.placeholder || '') + '">' +
+                    '</div>' +
+                    '<div class="confirm-footer">' +
+                        '<button class="btn btn-outline btn-sm" id="promptCancel">' + AppUI.escapeHtml(options.cancelText || 'Cancelar') + '</button>' +
+                        '<button class="btn btn-accent btn-sm" id="promptConfirm">' + AppUI.escapeHtml(options.confirmText || 'Guardar') + '</button>' +
+                    '</div>' +
+                '</div>';
+            document.body.appendChild(overlay);
+
+            var input = overlay.querySelector('#appPromptInput');
+            setTimeout(function() {
+                input.focus();
+                input.select();
+            }, 20);
+
+            function close(value) {
+                overlay.remove();
+                resolve(value);
+            }
+
+            overlay.querySelector('#promptConfirm').onclick = function() { close(input.value); };
+            overlay.querySelector('#promptCancel').onclick = function() { close(null); };
+            overlay.addEventListener('click', function(e) { if (e.target === overlay) { close(null); } });
+            input.addEventListener('keydown', function(event) {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    close(input.value);
+                } else if (event.key === 'Escape') {
+                    event.preventDefault();
+                    close(null);
+                }
+            });
+        });
+    }
+
+    /* ══════════════════════════════════════════════
+       RIPPLE EFFECT ON BUTTONS
+       ══════════════════════════════════════════════ */
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest('.btn');
+        if (!btn) return;
+        var rect = btn.getBoundingClientRect();
+        var ripple = document.createElement('span');
+        ripple.className = 'btn-ripple';
+        var size = Math.max(rect.width, rect.height);
+        ripple.style.width = ripple.style.height = size + 'px';
+        ripple.style.left = (e.clientX - rect.left - size / 2) + 'px';
+        ripple.style.top = (e.clientY - rect.top - size / 2) + 'px';
+        btn.appendChild(ripple);
+        setTimeout(function() { ripple.remove(); }, 500);
+    });
+
+    /* ══════════════════════════════════════════════
+       COUNTER ANIMATION FOR KPIS
+       ══════════════════════════════════════════════ */
+    function animateCounters() {
+        document.querySelectorAll('.metric-value[data-target]').forEach(function(el) {
+            var target = parseFloat(el.getAttribute('data-target'));
+            var prefix = el.getAttribute('data-prefix') || '';
+            var suffix = el.getAttribute('data-suffix') || '';
+            var decimals = (String(target).split('.')[1] || '').length;
+            var duration = 800;
+            var start = 0;
+            var startTime = null;
+
+            function step(ts) {
+                if (!startTime) startTime = ts;
+                var progress = Math.min((ts - startTime) / duration, 1);
+                var eased = 1 - Math.pow(1 - progress, 3);
+                var current = start + (target - start) * eased;
+                el.textContent = prefix + AppUI.formatNumber(current, decimals) + suffix;
+                if (progress < 1) requestAnimationFrame(step);
+            }
+            requestAnimationFrame(step);
+        });
+    }
+
+    /* ══════════════════════════════════════════════
+       CARD STAGGER ANIMATION
+       ══════════════════════════════════════════════ */
+    function animateCards() {
+        var observer = new IntersectionObserver(function(entries) {
+            entries.forEach(function(entry) {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('card-animate');
+                    observer.unobserve(entry.target);
+                }
+            });
+        }, { threshold: 0.1 });
+
+        document.querySelectorAll('.metric-card, .forecast-card').forEach(function(card) {
+            observer.observe(card);
+        });
+    }
+
+    /* ══════════════════════════════════════════════
+       INIT
+       ══════════════════════════════════════════════ */
+    document.addEventListener('DOMContentLoaded', function() {
+        document.body.classList.add('js-ui-ready');
+        Toast.init();
+        NotifCenter.init();
+        SoundFX.init();
+        FieldGuide.init();
+        animateCards();
+        animateCounters();
+        window.Toast = Toast;
+        window.NotifCenter = NotifCenter;
+        window.appConfirm = appConfirm;
+        window.appPrompt = appPrompt;
+        window.toggleNotifPanel = toggleNotifPanel;
+        window.AppUI = AppUI;
+    });
+    </script>
 
     {% if layout == 'panadero' %}
     <script>
@@ -142,7 +954,7 @@
         }
 
         window.addEventListener('resize', function () {
-            if (window.innerWidth > 900) {
+            if (window.innerWidth > 1024) {
                 closeAppSidebar();
             }
         });
@@ -150,6 +962,8 @@
         document.addEventListener('keydown', function (event) {
             if (event.key === 'Escape') {
                 closeAppSidebar();
+                var panel = document.getElementById('notifPanel');
+                if (panel.classList.contains('is-open')) toggleNotifPanel();
             }
         });
 
@@ -163,27 +977,62 @@
     <script>
         (function () {
             const badge = document.getElementById('pendingOrdersBadge');
-            if (!badge) return;
+            const mobileBadge = document.getElementById('pendingOrdersBottomBadge');
+            if (!badge && !mobileBadge) return;
+
+            let knownPendingIds = new Set();
+            let initialized = false;
+
+            function syncPendingBadges(total) {
+                [badge, mobileBadge].forEach(function(target) {
+                    if (!target) return;
+                    if (total > 0) {
+                        target.hidden = false;
+                        target.textContent = total > 9 ? '9+' : String(total);
+                    } else {
+                        target.hidden = true;
+                        target.textContent = '0';
+                    }
+                });
+            }
 
             async function actualizarBadgePedidos() {
                 try {
                     const res = await fetch('/api/pedidos?estado=pendiente', { cache: 'no-store' });
                     const data = await res.json();
-                    const total = Array.isArray(data) ? data.length : 0;
-                    if (total > 0) {
-                        badge.hidden = false;
-                        badge.textContent = total > 9 ? '9+' : String(total);
-                    } else {
-                        badge.hidden = true;
-                        badge.textContent = '0';
+                    const pedidos = Array.isArray(data) ? data : [];
+                    const total = pedidos.length;
+                    const nextIds = new Set(pedidos.map(function(item) { return String(item.id || ''); }));
+                    const nuevos = initialized
+                        ? pedidos.filter(function(item) { return !knownPendingIds.has(String(item.id || '')); })
+                        : [];
+
+                    syncPendingBadges(total);
+
+                    if (nuevos.length) {
+                        AppUI.pulseElement(badge);
+                        AppUI.pulseElement(mobileBadge);
+                        const reciente = nuevos[0] || pedidos[0] || {};
+                        const mesa = reciente.mesa_numero ? ('Mesa ' + reciente.mesa_numero) : 'Mostrador';
+                        const mesero = reciente.mesero ? (' · ' + reciente.mesero) : '';
+                        const cola = total > 1 ? (' · ' + total + ' en cola') : '';
+                        NotifCenter.add({
+                            title: nuevos.length > 1 ? (nuevos.length + ' pedidos nuevos') : 'Nuevo pedido pendiente',
+                            description: mesa + mesero + cola,
+                            type: 'order',
+                            sound: 'order',
+                        });
                     }
+
+                    knownPendingIds = nextIds;
+                    initialized = true;
                 } catch (error) {
                     console.error('No se pudo actualizar el badge de pedidos', error);
                 }
             }
 
             actualizarBadgePedidos();
-            setInterval(actualizarBadgePedidos, 15000);
+            setInterval(actualizarBadgePedidos, 5000);
         })();
     </script>
     {% endif %}

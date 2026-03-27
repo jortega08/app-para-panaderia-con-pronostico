@@ -170,6 +170,29 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=_SESSION_HOURS)
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 
+
+def _safe_display_number(value):
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _format_display_number(value, decimals=0):
+    number = _safe_display_number(value)
+    pattern = f"{{:,.{max(0, int(decimals))}f}}"
+    return pattern.format(number)
+
+
+@app.template_filter("display_integer")
+def display_integer_filter(value):
+    return _format_display_number(value, 0)
+
+
+@app.template_filter("display_decimal1")
+def display_decimal1_filter(value):
+    return _format_display_number(value, 1)
+
 # ── Rate limiting (en memoria, simple) ──────────────────────────────────────────
 _MAX_ATTEMPTS = int(os.environ.get("MAX_LOGIN_ATTEMPTS", "5"))
 _LOCKOUT_MINUTES = int(os.environ.get("LOGIN_LOCKOUT_MINUTES", "5"))
@@ -2998,6 +3021,20 @@ def _get_local_ip():
         return "127.0.0.1"
 
 
+def _format_ui_number(value, decimals: int = 0) -> str:
+    """Formato visible para la UI con separadores de miles legibles."""
+    try:
+        number = float(value or 0)
+    except (TypeError, ValueError):
+        number = 0.0
+    decimals = max(0, int(decimals or 0))
+    return f"{number:,.{decimals}f}"
+
+
+def _format_ui_money(value, decimals: int = 0) -> str:
+    return f"${_format_ui_number(value, decimals)}"
+
+
 @app.context_processor
 def utility_processor():
     """Variables globales disponibles en todos los templates."""
@@ -3005,6 +3042,8 @@ def utility_processor():
         "ahora": datetime.now(),
         "icono": icono,
         "color_prod": color_prod,
+        "number_ui": _format_ui_number,
+        "money_ui": _format_ui_money,
     }
 
 

@@ -33,19 +33,19 @@
                         {% endif %}
                     </span>
                 </div>
-                <span class="pedido-total">${{ '%.2f'|format(p.total) }}</span>
+                <span class="pedido-total">${{ '{:,.0f}'.format(p.total or 0) }}</span>
             </div>
             <div class="pedido-items">
                 {% for item in p["items"] %}
                 <div class="pedido-item-row">
                     <span><span class="material-symbols-outlined cart-item-icon">{{ icono(item.producto) }}</span> {{ item.cantidad }}x {{ item.producto }}</span>
-                    <span class="text-muted">${{ '%.2f'|format(item.subtotal) }}</span>
+                    <span class="text-muted">${{ '{:,.0f}'.format(item.subtotal or 0) }}</span>
                 </div>
                 {% if item.modificaciones %}
                 <div class="pedido-item-mods">
                     {% for m in item.modificaciones %}
                     {% if m.tipo == 'adicional' %}
-                    <span class="mod-tag mod-tag-adicional">+ {{ m.descripcion }} (${{ '%.2f'|format(m.precio_extra) }})</span>
+                    <span class="mod-tag mod-tag-adicional">+ {{ m.descripcion }} (${{ '{:,.0f}'.format(m.precio_extra or 0) }})</span>
                     {% else %}
                     <span class="mod-tag mod-tag-exclusion"><span class="material-symbols-outlined">cancel</span> {{ m.descripcion }}</span>
                     {% endif %}
