@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-container">
     <div class="page-header">
-        <h1 class="page-title"><span class="material-symbols-outlined">assignment</span> Pedidos de Hoy</h1>
+        <h1 class="page-title"><span class="material-symbols-outlined">assignment</span> Mis Pedidos de Hoy</h1>
         <div class="page-header-right">
             <button class="btn btn-outline btn-sm" onclick="location.reload()"><span class="material-symbols-outlined">autorenew</span> Actualizar</button>
         </div>
@@ -25,9 +25,9 @@
                     <span class="pedido-mesa"><span class="material-symbols-outlined">table_restaurant</span> Mesa {{ p.mesa_numero or '?' }}</span>
                     <span class="pedido-hora">{{ p.hora[:5] }}</span>
                     <span class="pedido-badge pedido-badge-{{ p.estado }}">
-                        {% if p.estado == 'pendiente' %}Pendiente
+                        {% if p.estado == 'pendiente' %}Recibido
                         {% elif p.estado == 'en_preparacion' %}En Preparacion
-                        {% elif p.estado == 'listo' %}Listo para servir
+                        {% elif p.estado == 'listo' %}Listo para cobrar
                         {% elif p.estado == 'pagado' %}Pagado
                         {% elif p.estado == 'cancelado' %}Cancelado
                         {% endif %}
@@ -56,6 +56,13 @@
             </div>
             {% if p.notas %}
             <div class="pedido-notas"><span class="material-symbols-outlined">edit_note</span> {{ p.notas }}</div>
+            {% endif %}
+            {% if p.estado not in ('pagado', 'cancelado') %}
+            <div style="margin-top: 14px;">
+                <a class="btn btn-outline btn-sm" href="{{ url_for('mesero_pedido', mesa_id=p.mesa_id) }}">
+                    Editar pedido
+                </a>
+            </div>
             {% endif %}
         </div>
         {% endfor %}

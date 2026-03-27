@@ -61,6 +61,7 @@ input, select { font-family: inherit; }
     overflow-y: auto;
     max-height: 100vh;
     padding-bottom: 30px;
+    min-width: 0;
 }
 .mobile-shell-header,
 .mobile-nav-overlay {
@@ -116,8 +117,9 @@ input, select { font-family: inherit; }
     padding: 12px 0;
 }
 .sidebar-nav a {
-    display: inline-flex;
+    display: flex;
     align-items: center;
+    width: 100%;
     gap: 0.45rem;
     color: var(--sidebar-text);
     padding: 14px 24px;
@@ -258,6 +260,13 @@ input, select { font-family: inherit; }
 .page-container.cajero-ventas-page {
     max-width: none;
 }
+
+@media (min-width: 901px) {
+    .panadero-layout .page-container {
+        max-width: none;
+    }
+}
+
 .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
 .page-header-right { display: flex; align-items: center; gap: 12px; }
 .page-title { font-size: 24px; font-weight: 700; color: var(--text); }

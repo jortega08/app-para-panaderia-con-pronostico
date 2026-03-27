@@ -145,21 +145,18 @@ class _PGCursor:
 
         is_insert = pg_sql.strip().upper().startswith("INSERT")
         if is_insert and "RETURNING" not in pg_sql.upper() and "ON CONFLICT DO NOTHING" not in pg_sql.upper():
-            # Agregar RETURNING id para obtener lastrowid
-            pg_sql_returning = pg_sql.rstrip().rstrip(";") + " RETURNING id"
+            self._cur.execute(pg_sql, params or ())
+            self.rowcount = self._cur.rowcount
+            self.lastrowid = None
             try:
-                self._cur.execute(pg_sql_returning, params or ())
-                row = self._cur.fetchone()
+                aux_cur = self._cur.connection.cursor()
+                aux_cur.execute("SELECT LASTVAL()")
+                row = aux_cur.fetchone()
                 self.lastrowid = row[0] if row else None
+                aux_cur.close()
             except Exception:
-                # Si RETURNING falla (ej. tabla sin 'id'), ejecutar sin RETURNING
-                self._cur.execute(pg_sql, params or ())
-                try:
-                    self._cur.execute("SELECT LASTVAL()")
-                    r = self._cur.fetchone()
-                    self.lastrowid = r[0] if r else None
-                except Exception:
-                    self.lastrowid = None
+                self.lastrowid = None
+            return self
         else:
             self._cur.execute(pg_sql, params or ())
 

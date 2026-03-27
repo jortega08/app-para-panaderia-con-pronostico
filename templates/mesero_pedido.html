@@ -4,7 +4,18 @@
 <div class="pos-layout">
     <div class="pos-products">
         <h2 class="page-title">Mesa {{ mesa.numero }} - {{ mesa.nombre }}</h2>
-        <p class="text-muted" style="margin-bottom: 16px;">Toca un producto para agregarlo al pedido</p>
+        <p class="text-muted" style="margin-bottom: 16px;">
+            {% if pedido_editable %}
+            Edita tu pedido abierto y guárdalo cuando quede listo para cobrar.
+            {% else %}
+            Toca un producto para agregarlo al pedido.
+            {% endif %}
+        </p>
+        {% if pedido_editable %}
+        <div class="chip chip-filter-active" style="display:inline-flex; margin-bottom:16px;">
+            Editando pedido #{{ pedido_editable.id }}
+        </div>
+        {% endif %}
 
         <div class="product-filters-panel">
             <input type="text" id="productSearch" class="form-input" placeholder="Buscar producto por nombre..."
@@ -67,7 +78,9 @@
             </div>
             <div class="cart-actions">
                 <a href="{{ url_for('mesero_mesas') }}" class="btn btn-outline">Volver</a>
-                <button class="btn btn-success btn-lg" onclick="enviarPedido()">Enviar pedido</button>
+                <button class="btn btn-success btn-lg" id="submitPedidoBtn" onclick="enviarPedido()">
+                    {% if pedido_editable %}Guardar cambios{% else %}Enviar pedido{% endif %}
+                </button>
             </div>
         </div>
     </div>
@@ -107,9 +120,38 @@ let selectedCategory = 'todos';
 const MESA_ID = {{ mesa.id }};
 const ADICIONALES = {{ adicionales | tojson }};
 const ADICIONALES_DISPONIBLES = ADICIONALES || [];
+const PEDIDO_EDITABLE = {{ pedido_editable|default(None)|tojson }};
+const PRODUCT_META = {{ productos|tojson }};
+const PRODUCT_META_BY_NAME = Object.fromEntries((PRODUCT_META || []).map(p => [String(p.nombre || ''), p]));
+let pedidoEditableId = PEDIDO_EDITABLE ? Number(PEDIDO_EDITABLE.id) : null;
 
 // Stock disponible por producto (se carga al inicio y se actualiza)
 let stockDisponible = {};
+
+function inicializarPedidoEditable() {
+    if (!PEDIDO_EDITABLE || !Array.isArray(PEDIDO_EDITABLE.items)) return;
+    cart = PEDIDO_EDITABLE.items.map((item, idx) => {
+        const meta = PRODUCT_META_BY_NAME[String(item.producto || '')] || {};
+        return {
+            id: Number(item.id || 0) || (Date.now() + idx),
+            productId: meta.id || null,
+            nombre: item.producto,
+            precio: Number(item.precio_unitario || meta.precio || 0),
+            icono: meta.icono || 'restaurant',
+            cantidad: Number(item.cantidad || 1),
+            stockMinimo: Number(meta.stock_minimo || 0),
+            modificaciones: Array.isArray(item.modificaciones)
+                ? item.modificaciones.map(mod => ({
+                    tipo: mod.tipo,
+                    descripcion: mod.descripcion,
+                    cantidad: Number(mod.cantidad || 1),
+                    precio_extra: Number(mod.precio_extra || 0),
+                }))
+                : [],
+        };
+    });
+    document.getElementById('notasPedido').value = PEDIDO_EDITABLE.notas || '';
+}
 
 async function cargarStockDisponible() {
     try {
@@ -542,7 +584,7 @@ async function enviarPedido() {
         const res = await fetch('/api/pedido', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({mesa_id: MESA_ID, items, notas}),
+            body: JSON.stringify({mesa_id: MESA_ID, pedido_id: pedidoEditableId, items, notas}),
         });
         const data = await res.json();
         if (data.ok) {
@@ -558,6 +600,8 @@ async function enviarPedido() {
     }
 }
 
+inicializarPedidoEditable();
+renderCart();
 applyProductFilters();
 cargarStockDisponible();
 setInterval(cargarStockDisponible, 60000);

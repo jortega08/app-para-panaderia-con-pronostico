@@ -37,9 +37,9 @@
                 <label>Filtrar:</label>
                 <select id="filtroEstado" class="form-input form-input-sm" style="width: auto;" onchange="filtrarPedidos()">
                     <option value="todos" selected>Todos</option>
-                    <option value="pendiente">Pendientes</option>
+                    <option value="pendiente">Recibidos</option>
                     <option value="en_preparacion">En Preparacion</option>
-                    <option value="listo">Listos</option>
+                    <option value="listo">Listos para cobrar</option>
                     <option value="pagado">Pagados</option>
                     <option value="cancelado">Cancelados</option>
                 </select>
@@ -86,9 +86,9 @@
                     <span class="pedido-hora">Creado {{ (p['creado_en'] or (p['fecha'] ~ ' ' ~ p['hora'])) }}</span>
                     <span class="pedido-mesero">Mesero: {{ p['mesero'] }}</span>
                     <span class="pedido-badge pedido-badge-{{ p['estado'] }}">
-                        {% if p['estado'] == 'pendiente' %}Pendiente
+                        {% if p['estado'] == 'pendiente' %}Recibido
                         {% elif p['estado'] == 'en_preparacion' %}En Preparacion
-                        {% elif p['estado'] == 'listo' %}Listo
+                        {% elif p['estado'] == 'listo' %}Listo para cobrar
                         {% elif p['estado'] == 'pagado' %}Pagado
                         {% elif p['estado'] == 'cancelado' %}Cancelado
                         {% endif %}
@@ -119,9 +119,9 @@
                             <div class="pedido-timeline-dot"></div>
                             <div>
                                 <div class="pedido-timeline-title">
-                                    {% if h['estado'] == 'pendiente' %}Pedido creado
+                                    {% if h['estado'] == 'pendiente' %}Pedido recibido
                                     {% elif h['estado'] == 'en_preparacion' %}En preparacion
-                                    {% elif h['estado'] == 'listo' %}Pedido listo
+                                    {% elif h['estado'] == 'listo' %}Listo para cobrar
                                     {% elif h['estado'] == 'pagado' %}Pedido pagado
                                     {% elif h['estado'] == 'cancelado' %}Pedido cancelado
                                     {% else %}{{ h['estado'] }}
@@ -174,10 +174,10 @@
 
             <div class="pedido-actions">
                 {% if p['estado'] == 'pendiente' %}
-                <button class="btn btn-sm btn-accent" onclick="cambiarEstado({{ p['id'] }}, 'en_preparacion')">En Preparacion</button>
+                <button class="btn btn-sm btn-accent" onclick="cambiarEstado({{ p['id'] }}, 'listo')">Marcar listo para cobrar</button>
                 <button class="btn btn-sm btn-danger-outline" onclick="cambiarEstado({{ p['id'] }}, 'cancelado')">Cancelar</button>
                 {% elif p['estado'] == 'en_preparacion' %}
-                <button class="btn btn-sm btn-success" onclick="cambiarEstado({{ p['id'] }}, 'listo')">Marcar Listo</button>
+                <button class="btn btn-sm btn-success" onclick="cambiarEstado({{ p['id'] }}, 'listo')">Marcar listo para cobrar</button>
                 {% elif p['estado'] == 'listo' %}
                 <button class="btn btn-sm btn-success btn-lg" onclick="openChargeModal({{ p['id'] }}, {{ p['total'] }})">Cobrar - ${{ '%.2f'|format(p['total']) }}</button>
                 {% endif %}
@@ -197,7 +197,17 @@
         <div class="modal-body">
             <div class="payment-summary-box">
                 <div class="payment-summary-row"><span>Pedido</span><strong id="chargePedidoId">#-</strong></div>
-                <div class="payment-summary-row"><span>Total</span><strong id="chargeTotal">$0.00</strong></div>
+                <div class="payment-summary-row"><span>Total pedido</span><strong id="chargeTotal">$0.00</strong></div>
+                <div class="payment-summary-row"><span>Cobrar ahora</span><strong id="chargeNowTotal">$0.00</strong></div>
+            </div>
+            <div style="display:flex; gap:8px; margin-bottom:14px;">
+                <button type="button" class="btn btn-outline btn-sm" id="chargeModeFullBtn" onclick="setChargeMode('full')">Cobro completo</button>
+                <button type="button" class="btn btn-outline btn-sm" id="chargeModeSplitBtn" onclick="setChargeMode('split')">Dividir cuenta</button>
+            </div>
+            <div id="chargeSplitSection" class="payment-summary-box payment-summary-box-soft" style="display:none; margin-bottom:14px;">
+                <div class="payment-summary-row"><span>Selecciona qué cobrar ahora</span><strong id="splitSelectedTotal">$0.00</strong></div>
+                <div class="form-help" style="margin-top:8px;">Lo que no selecciones queda pendiente en el pedido original.</div>
+                <div id="splitItemsList" style="display:grid; gap:10px; margin-top:12px;"></div>
             </div>
             <div class="two-col-form">
                 <div>
@@ -227,10 +237,19 @@
 
 <script>
 let cajaActiva = {{ caja|default({})|tojson }};
-let chargeContext = { pedidoId: null, total: 0 };
+let chargeContext = { pedidoId: null, total: 0, pedido: null, mode: 'full' };
 
 function money(value) {
     return '$' + Number(value || 0).toFixed(2);
+}
+
+function escapeHtml(texto) {
+    return String(texto || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 function filtrarPedidos() {
@@ -261,36 +280,127 @@ function cambiarEstado(pedidoId, nuevoEstado) {
     .catch(err => alert('Error de conexion: ' + err.message));
 }
 
-function openChargeModal(pedidoId, total) {
+async function openChargeModal(pedidoId, total) {
     if (!cajaActiva || !cajaActiva.arqueo_activo) {
         alert('Debes abrir la caja antes de cobrar pedidos.');
         return;
     }
-    chargeContext = { pedidoId, total: Number(total) };
+    chargeContext = { pedidoId, total: Number(total), pedido: null, mode: 'full' };
     document.getElementById('chargePedidoId').textContent = '#' + pedidoId;
     document.getElementById('chargeTotal').textContent = money(total);
+    document.getElementById('chargeNowTotal').textContent = money(total);
+    document.getElementById('splitItemsList').innerHTML = '<div class="text-muted">Cargando items...</div>';
+    document.getElementById('splitSelectedTotal').textContent = money(0);
     document.getElementById('chargeMethod').value = 'efectivo';
     document.getElementById('chargeReceived').value = Number(total).toFixed(2);
-    updateChargeSummary();
     document.getElementById('chargeModal').style.display = 'flex';
+
+    try {
+        const res = await fetch('/api/pedido/' + pedidoId);
+        const data = await res.json();
+        if (!res.ok || data.error) {
+            throw new Error(data.error || 'No se pudo cargar el pedido');
+        }
+        chargeContext.pedido = data;
+        renderSplitItems();
+        setChargeMode('full');
+    } catch (err) {
+        closeChargeModal();
+        alert(err.message || 'No se pudo abrir el cobro.');
+    }
 }
 
 function closeChargeModal() {
     document.getElementById('chargeModal').style.display = 'none';
+    chargeContext = { pedidoId: null, total: 0, pedido: null, mode: 'full' };
+}
+
+function setChargeMode(mode) {
+    chargeContext.mode = mode === 'split' ? 'split' : 'full';
+    document.getElementById('chargeSplitSection').style.display = chargeContext.mode === 'split' ? '' : 'none';
+    document.getElementById('chargeModeFullBtn').classList.toggle('btn-accent', chargeContext.mode === 'full');
+    document.getElementById('chargeModeSplitBtn').classList.toggle('btn-accent', chargeContext.mode === 'split');
+    updateChargeSummary();
+}
+
+function renderSplitItems() {
+    const container = document.getElementById('splitItemsList');
+    const pedido = chargeContext.pedido;
+    if (!pedido || !pedido.items || !pedido.items.length) {
+        container.innerHTML = '<div class="text-muted">No hay items para dividir.</div>';
+        return;
+    }
+
+    container.innerHTML = pedido.items.map(item => {
+        const qty = Number(item.cantidad || 0);
+        const unitario = qty > 0 ? Number(item.subtotal || 0) / qty : 0;
+        const mods = (item.modificaciones || []).map(mod => {
+            if (mod.tipo === 'adicional') {
+                return `+ ${escapeHtml(mod.descripcion)} x${Number(mod.cantidad || 1)}`;
+            }
+            return `Sin ${escapeHtml(mod.descripcion)}`;
+        }).join(' · ');
+        return `
+            <div class="pedido-detail-card" style="padding:12px;">
+                <div class="pedido-item-row" style="margin-bottom:8px;">
+                    <span>${qty}x ${escapeHtml(item.producto)}</span>
+                    <strong>${money(item.subtotal || 0)}</strong>
+                </div>
+                ${mods ? `<div class="text-muted" style="font-size:12px; margin-bottom:8px;">${mods}</div>` : ''}
+                <div class="pedido-meta-row">
+                    <span>Cantidad a cobrar ahora</span>
+                    <input
+                        type="number"
+                        min="0"
+                        max="${qty}"
+                        step="1"
+                        value="0"
+                        class="form-input form-input-sm"
+                        data-split-item-id="${item.id}"
+                        data-split-max="${qty}"
+                        data-split-unit="${unitario}"
+                        style="width: 92px;"
+                        oninput="updateChargeSummary()">
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function getSplitSelections() {
+    return Array.from(document.querySelectorAll('[data-split-item-id]'))
+        .map(input => ({
+            item_id: Number(input.dataset.splitItemId),
+            cantidad: Math.max(0, Math.min(Number(input.value || 0), Number(input.dataset.splitMax || 0))),
+        }))
+        .filter(item => item.cantidad > 0);
+}
+
+function getChargeTotal() {
+    if (chargeContext.mode !== 'split') return Number(chargeContext.total || 0);
+    return getSplitSelections()
+        .reduce((sum, item) => {
+            const input = document.querySelector(`[data-split-item-id="${item.item_id}"]`);
+            const unitario = Number((input || {}).dataset?.splitUnit || 0);
+            return sum + (item.cantidad * unitario);
+        }, 0);
 }
 
 function updateChargeSummary() {
     const metodo = document.getElementById('chargeMethod').value;
     const input = document.getElementById('chargeReceived');
+    const totalCobro = getChargeTotal();
+    document.getElementById('chargeNowTotal').textContent = money(totalCobro);
+    document.getElementById('splitSelectedTotal').textContent = money(totalCobro);
     if (metodo === 'transferencia') {
-        input.value = chargeContext.total.toFixed(2);
+        input.value = totalCobro.toFixed(2);
         input.disabled = true;
     } else {
         input.disabled = false;
-        if (!input.value) input.value = chargeContext.total.toFixed(2);
+        if (!input.value || Number(input.value || 0) < totalCobro) input.value = totalCobro.toFixed(2);
     }
     const recibido = Number(input.value || 0);
-    const cambio = metodo === 'efectivo' ? Math.max(recibido - chargeContext.total, 0) : 0;
+    const cambio = metodo === 'efectivo' ? Math.max(recibido - totalCobro, 0) : 0;
     document.getElementById('chargeReceivedText').textContent = money(recibido);
     document.getElementById('chargeChangeText').textContent = money(cambio);
 }
@@ -298,21 +408,39 @@ function updateChargeSummary() {
 async function confirmCharge() {
     const metodo = document.getElementById('chargeMethod').value;
     const recibido = Number(document.getElementById('chargeReceived').value || 0);
-    if (metodo === 'efectivo' && recibido + 1e-9 < chargeContext.total) {
+    const totalCobro = getChargeTotal();
+    if (chargeContext.mode === 'split' && totalCobro <= 0) {
+        alert('Selecciona al menos una parte del pedido para dividir la cuenta.');
+        return;
+    }
+    if (metodo === 'efectivo' && recibido + 1e-9 < totalCobro) {
         alert('El monto recibido debe cubrir el total del pedido.');
         return;
     }
 
     try {
-        const res = await fetch('/api/pedido/' + chargeContext.pedidoId + '/estado', {
-            method: 'PUT',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                estado: 'pagado',
-                metodo_pago: metodo,
-                monto_recibido: recibido,
-            }),
-        });
+        let res;
+        if (chargeContext.mode === 'split' && totalCobro + 0.01 < Number(chargeContext.total || 0)) {
+            res = await fetch('/api/pedido/' + chargeContext.pedidoId + '/split-pay', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    selecciones: getSplitSelections(),
+                    metodo_pago: metodo,
+                    monto_recibido: recibido,
+                }),
+            });
+        } else {
+            res = await fetch('/api/pedido/' + chargeContext.pedidoId + '/estado', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    estado: 'pagado',
+                    metodo_pago: metodo,
+                    monto_recibido: recibido,
+                }),
+            });
+        }
         const data = await res.json();
         if (!res.ok || !data.ok) {
             const faltantes = (data.faltantes || []).map(item => `- ${item.producto}: faltan ${item.faltante}`).join('\n');
