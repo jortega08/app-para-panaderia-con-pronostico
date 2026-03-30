@@ -31,7 +31,7 @@
 </style>
 <div class="page-container cajero-pedidos-page">
     <div class="page-header">
-        <h1 class="page-title">Pedidos del Dia</h1>
+        <h1 class="page-title">Pedidos del Día</h1>
         <div class="page-header-right">
             <div class="filter-group">
                 <label>Filtrar:</label>
@@ -87,7 +87,7 @@
                     <span class="pedido-mesero">Mesero: {{ p['mesero'] }}</span>
                     <span class="pedido-badge pedido-badge-{{ p['estado'] }}">
                         {% if p['estado'] == 'pendiente' %}Recibido
-                        {% elif p['estado'] == 'en_preparacion' %}En Preparacion
+                        {% elif p['estado'] == 'en_preparacion' %}En Preparación
                         {% elif p['estado'] == 'listo' %}Listo para cobrar
                         {% elif p['estado'] == 'pagado' %}Pagado
                         {% elif p['estado'] == 'cancelado' %}Cancelado
@@ -264,6 +264,7 @@ function filtrarPedidos() {
 async function cambiarEstado(pedidoId, nuevoEstado) {
     let msg = 'Cambiar estado del pedido #' + pedidoId + '?';
     let opts = { type: 'warning', title: 'Confirmar' };
+    let motivoCancelacion = '';
     if (nuevoEstado === 'cancelado') {
         msg = 'Cancelar el pedido #' + pedidoId + '?';
         opts = { type: 'danger', title: 'Confirmar', confirmText: 'Cancelar' };
@@ -271,10 +272,26 @@ async function cambiarEstado(pedidoId, nuevoEstado) {
     const ok = await appConfirm(msg, opts);
     if (!ok) return;
 
+    if (nuevoEstado === 'cancelado') {
+        const motivo = await appPrompt({
+            title: 'Motivo de cancelacion',
+            message: 'Este motivo le llegara al admin en la notificacion y quedara en el historial del pedido.',
+            label: 'Motivo',
+            placeholder: 'Ej: cliente se retiro, error en el pedido...',
+            confirmText: 'Guardar motivo',
+        });
+        if (motivo === null) return;
+        motivoCancelacion = String(motivo || '').trim();
+        if (!motivoCancelacion) {
+            Toast.warning('Indica el motivo de la cancelacion para continuar.');
+            return;
+        }
+    }
+
     fetch('/api/pedido/' + pedidoId + '/estado', {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({estado: nuevoEstado}),
+        body: JSON.stringify({estado: nuevoEstado, motivo_cancelacion: motivoCancelacion}),
     })
     .then(res => res.json())
     .then(data => {

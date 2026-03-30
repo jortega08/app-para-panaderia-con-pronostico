@@ -144,6 +144,48 @@
     justify-content: flex-start;
     width: 100%;
 }
+.pos-hero-tip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 16px;
+    border: 1px dashed rgba(139,85,19,0.14);
+    background: rgba(255,255,255,0.72);
+}
+.pos-hero-tip span {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+.pos-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between !important;
+    gap: 12px;
+}
+.btn-shortcut-stack {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    line-height: 1.06;
+}
+.btn-shortcut-main {
+    font-size: 14px;
+    font-weight: 700;
+}
+.btn-shortcut-hint {
+    margin-top: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+.btn-cash .btn-shortcut-hint,
+.btn-success .btn-shortcut-hint {
+    color: rgba(255,255,255,0.74);
+}
+.pos-action-btn-compact {
+    min-height: 56px;
+}
 .pos-quick-grid {
     display: grid;
     grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.18fr);
@@ -602,6 +644,94 @@
     .pos-title { font-size: 30px; }
     .cart-total-value { font-size: 30px; }
 }
+
+/* Flujo estable del POS: prioriza el layout funcional de caja y evita solapamientos. */
+.cajero-layout.cajero-pos-shell {
+    min-height: 100vh;
+    height: auto;
+    overflow: visible;
+}
+.cajero-layout.cajero-pos-shell .main-content {
+    display: block;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+.page-container.pos-page.cajero-pos-page {
+    display: grid;
+    grid-template-rows: none;
+    gap: 18px;
+    height: auto;
+    min-height: 0;
+    width: 100%;
+    max-width: none;
+    padding-bottom: 28px;
+}
+.pos-hero-shell,
+.pos-top-sellers,
+.pos-quick-library {
+    background: rgba(255, 255, 255, 0.94);
+    height: auto;
+    backdrop-filter: none;
+}
+.pos-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 390px);
+    align-items: start;
+    gap: 18px;
+    width: 100%;
+    height: auto;
+    min-height: 0;
+}
+.pos-products {
+    padding: 0;
+    overflow: visible;
+    min-width: 0;
+}
+.cart-panel {
+    align-self: start;
+    position: sticky;
+    top: 18px;
+    height: auto;
+    max-height: calc(100dvh - 110px);
+}
+.cart-panel .pos-quick-library {
+    flex: 0 0 auto;
+    height: auto;
+}
+.cart-items {
+    flex: 1 1 auto;
+    min-height: 200px;
+}
+
+@media (max-width: 1180px) {
+    .pos-layout {
+        grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+    }
+}
+
+@media (max-width: 980px) {
+    .page-container.pos-page.cajero-pos-page {
+        gap: 16px;
+    }
+    .pos-layout {
+        grid-template-columns: 1fr;
+    }
+    .cart-panel {
+        position: static;
+        max-height: none;
+    }
+}
+
+@media (max-width: 900px) {
+    .page-container.pos-page.cajero-pos-page {
+        display: grid;
+        width: 100%;
+        max-width: none;
+        margin: 0;
+        padding: 14px 12px 24px;
+    }
+}
 </style>
 
 <div class="page-container pos-page cajero-pos-page">
@@ -616,30 +746,32 @@
             <div class="pos-eyebrow">Operacion diaria</div>
             <h2 class="page-title pos-title">Punto de Venta RICHS</h2>
             <p class="pos-summary">
-                Agrega productos y cobra rapido sin tapar el catalogo principal.
+                Agrega productos y cobra rapido sin tapar el catálogo principal.
             </p>
         </div>
         <div class="pos-hero-actions">
-            <div class="pos-shortcuts-dock">
-                <span class="pos-shortcuts-label">Atajos rapidos</span>
-                <div class="pos-shortcuts">
-                    <span class="pos-shortcut"><kbd>Enter</kbd> Cobrar</span>
-                    <span class="pos-shortcut"><kbd>Esc</kbd> Cerrar</span>
-                    <span class="pos-shortcut"><kbd>Ctrl</kbd>+<kbd>F</kbd> Buscar</span>
-                    <span class="pos-shortcut"><kbd>Alt</kbd>+<kbd>2</kbd> Efectivo</span>
-                </div>
+            <div class="pos-hero-tip">
+                <span>Enter cobra</span>
+                <span>Ctrl+F busca</span>
+                <span>Esc cierra</span>
             </div>
-            <button type="button" class="btn btn-ghost" onclick="focusProductSearch()">
+            <button type="button" class="btn btn-ghost pos-action-btn" onclick="focusProductSearch()">
                 <span class="material-symbols-outlined">search</span>
-                Buscar producto
+                <span class="btn-shortcut-stack">
+                    <span class="btn-shortcut-main">Buscar producto</span>
+                    <span class="btn-shortcut-hint">Ctrl+F</span>
+                </span>
             </button>
             <button type="button" class="btn btn-ghost" onclick="setQuickGroup('favoritos')">
                 <span class="material-symbols-outlined">star</span>
                 Ver favoritos
             </button>
-            <button type="button" class="btn btn-cash" onclick="quickCashCheckout()">
+            <button type="button" class="btn btn-cash pos-action-btn" onclick="quickCashCheckout()">
                 <span class="material-symbols-outlined">payments</span>
-                Cobrar efectivo
+                <span class="btn-shortcut-stack">
+                    <span class="btn-shortcut-main">Cobrar</span>
+                    <span class="btn-shortcut-hint">Enter</span>
+                </span>
             </button>
         </div>
     </section>
@@ -664,7 +796,7 @@
     <div class="pos-layout">
         <div class="pos-products">
             <h2 class="page-title">Catalogo rapido</h2>
-            <p class="text-muted" style="margin-bottom: 16px;">Busca un producto o filtra por familia para cargarlo con un toque.</p>
+            <p class="text-muted" style="margin-bottom: 16px;">Busca un producto o filtra por familia para cargarlo con un toque. La tarjeta conserva la franja oficial del menú cuando aplica.</p>
 
             <div class="product-filters-panel">
                 <input type="text" id="productSearch" class="form-input" placeholder="Buscar pan, combo o bebida..."
@@ -686,6 +818,8 @@
                         style="--prod-color: {{ p.color }}"
                         data-category="{{ p.categoria|lower }}"
                         data-name="{{ p.nombre|lower }}"
+                        data-menu="{{ (p.menu or '')|lower }}"
+                        data-search="{{ (p.nombre ~ ' ' ~ p.categoria ~ ' ' ~ (p.menu or '') ~ ' ' ~ (p.descripcion or ''))|lower }}"
                         data-producto="{{ p.nombre }}"
                         data-product-id="{{ p.id }}"
                         data-stock-minimo="{{ p.stock_minimo or 0 }}">
@@ -693,6 +827,12 @@
                     <span class="material-symbols-outlined product-icon">{{ p.icono }}</span>
                     <span class="product-name">{{ p.nombre }}</span>
                     <span class="chip product-category-chip">{{ p.categoria }}</span>
+                    {% if p.menu %}
+                    <span class="text-muted" style="font-size: 12px;">{{ p.menu|replace('|', ' / ') }}</span>
+                    {% endif %}
+                    {% if p.descripcion %}
+                    <span class="text-muted" style="font-size: 12px; line-height: 1.35;">{{ p.descripcion }}</span>
+                    {% endif %}
                     <span class="product-price">${{ '{:,.0f}'.format(p.precio or 0) }}</span>
                     <span class="stock-badge" id="stock_{{ p.id }}" style="display:none"></span>
                 </button>
@@ -738,7 +878,7 @@
                     <p class="text-muted">Toca un producto, un favorito o un combo para empezar.</p>
                     <div class="cart-empty-actions">
                         <button type="button" class="btn btn-ghost btn-sm" onclick="focusProductSearch()">Buscar</button>
-                        <button type="button" class="btn btn-cash btn-sm" onclick="quickCashCheckout()">Cobrar efectivo</button>
+                        <button type="button" class="btn btn-cash btn-sm" onclick="quickCashCheckout()">Cobrar</button>
                     </div>
                 </div>
             </div>
@@ -750,14 +890,17 @@
                 </div>
                 <div class="cart-actions">
                     <button class="btn btn-danger-outline" onclick="clearCart()">Limpiar</button>
-                    <button class="btn btn-cash cart-primary-action" onclick="quickCashCheckout()">
-                        Cobrar efectivo
+                    <button class="btn btn-cash cart-primary-action pos-action-btn pos-action-btn-compact" onclick="quickCashCheckout()">
+                        <span class="btn-shortcut-stack">
+                            <span class="btn-shortcut-main">Cobrar</span>
+                            <span class="btn-shortcut-hint">Enter</span>
+                        </span>
                     </button>
-                    <button class="btn btn-success btn-lg cart-primary-action" onclick="openPaymentModal()">
-                        Otras formas de cobro
+                    <button class="btn btn-success btn-lg cart-primary-action" onclick="openPaymentModal('transferencia')">
+                        Elegir otro método
                     </button>
                 </div>
-                <div class="cart-shortcut-note">Enter cobra, Esc cierra modales, Ctrl+F enfoca la busqueda.</div>
+                <div class="cart-shortcut-note">Enter abre el cobro rápido, Esc cierra modales y Ctrl+F enfoca la búsqueda.</div>
             </div>
         </div>
     </div>
@@ -840,8 +983,12 @@
         </div>
         <div class="modal-footer">
             <button class="btn btn-outline" onclick="closePaymentModal()">Cancelar</button>
-            <button class="btn btn-cash" id="paymentConfirmButton" onclick="confirmPayment()">Cobrar efectivo</button>
-            <button class="btn btn-success" id="paymentAltButton" onclick="confirmPayment()">Confirmar cobro</button>
+            <button class="btn btn-cash pos-action-btn" id="paymentConfirmButton" onclick="confirmPayment()">
+                <span class="btn-shortcut-stack">
+                    <span class="btn-shortcut-main">Cobrar</span>
+                    <span class="btn-shortcut-hint">Enter</span>
+                </span>
+            </button>
         </div>
     </div>
 </div>
@@ -865,6 +1012,8 @@ const PRODUCT_CATALOG = [
         precio: {{ p.precio }},
         icono: {{ p.icono|tojson }},
         categoria: {{ p.categoria|tojson }},
+        menu: {{ (p.menu or '')|tojson }},
+        descripcion: {{ (p.descripcion or '')|tojson }},
         color: {{ p.color|tojson }},
         stockMinimo: {{ p.stock_minimo or 0 }}
     }{% if not loop.last %},{% endif %}
@@ -892,7 +1041,6 @@ let topProductStats = [];
 let activeQuickGroup = 'favoritos';
 const quickUseKey = 'richs_pos_quick_use';
 const quickCashButtonId = 'paymentConfirmButton';
-const quickAltButtonId = 'paymentAltButton';
 
 function money(value) {
     return window.AppUI
@@ -912,6 +1060,22 @@ function escapeHtml(value) {
 
 function normalizeText(value) {
     return `${value == null ? '' : value}`.toLowerCase();
+}
+
+function renderButtonShortcutLabel(label, hint = '') {
+    const safeLabel = escapeHtml(label);
+    const safeHint = hint ? `<span class="btn-shortcut-hint">${escapeHtml(hint)}</span>` : '';
+    return `
+        <span class="btn-shortcut-stack">
+            <span class="btn-shortcut-main">${safeLabel}</span>
+            ${safeHint}
+        </span>
+    `;
+}
+
+function setButtonShortcutLabel(button, label, hint = '') {
+    if (!button) return;
+    button.innerHTML = renderButtonShortcutLabel(label, hint);
 }
 
 function getQuickUseStats() {
@@ -1024,19 +1188,21 @@ function quickCashCheckout() {
         return;
     }
     const button = document.getElementById(quickCashButtonId);
-    if (button) button.textContent = 'Cobrar efectivo';
+    setButtonShortcutLabel(button, 'Cobrar', 'Enter');
     openPaymentModal('efectivo');
 }
 
 function updatePaymentActionLabels(method = 'efectivo') {
     const cashButton = document.getElementById(quickCashButtonId);
-    const altButton = document.getElementById(quickAltButtonId);
-    if (cashButton) {
-        cashButton.textContent = method === 'efectivo' ? 'Cobrar efectivo' : 'Cobro rapido';
-    }
-    if (altButton) {
-        altButton.textContent = method === 'efectivo' ? 'Confirmar cobro' : 'Cobrar con otro metodo';
-    }
+    if (!cashButton) return;
+
+    cashButton.classList.toggle('btn-cash', method === 'efectivo');
+    cashButton.classList.toggle('btn-success', method !== 'efectivo');
+    setButtonShortcutLabel(
+        cashButton,
+        method === 'efectivo' ? 'Cobrar efectivo' : 'Confirmar cobro',
+        'Enter'
+    );
 }
 
 function highlightProductCard(productId) {
@@ -1068,19 +1234,24 @@ function applyProductFilters() {
     const search = (document.getElementById('productSearch')?.value || '').trim().toLowerCase();
     document.querySelectorAll('.product-grid .product-card').forEach(card => {
         const matchesCategory = selectedCategory === 'todos' || card.dataset.category === selectedCategory;
-        const matchesSearch = !search || card.dataset.name.includes(search);
+        const matchesSearch = !search || (card.dataset.search || card.dataset.name || '').includes(search);
         card.style.display = matchesCategory && matchesSearch ? '' : 'none';
     });
 }
 
+function getItemExtraUnitTotal(item) {
+    return (item.modificaciones || []).reduce((sum, mod) => {
+        if (mod.tipo !== 'adicional') return sum;
+        return sum + (Number(mod.cantidad || 1) * Number(mod.precio_extra || 0));
+    }, 0);
+}
+
+function getItemUnitPrice(item) {
+    return Number(item.precio || 0) + getItemExtraUnitTotal(item);
+}
+
 function calcItemTotal(item) {
-    let extras = 0;
-    item.modificaciones.forEach(mod => {
-        if (mod.tipo === 'adicional') {
-            extras += (Number(mod.cantidad || 1) * Number(mod.precio_extra || 0));
-        }
-    });
-    return (Number(item.precio || 0) + extras) * Number(item.cantidad || 0);
+    return getItemUnitPrice(item) * Number(item.cantidad || 0);
 }
 
 function getCartTotal() {
@@ -1313,7 +1484,7 @@ function renderCart() {
                 <p class="text-muted">Toca un producto, un favorito o un combo para empezar.</p>
                 <div class="cart-empty-actions">
                     <button type="button" class="btn btn-ghost btn-sm" onclick="focusProductSearch()">Buscar</button>
-                    <button type="button" class="btn btn-cash btn-sm" onclick="quickCashCheckout()">Cobrar efectivo</button>
+                    <button type="button" class="btn btn-cash btn-sm" onclick="quickCashCheckout()">Cobrar</button>
                 </div>
             </div>`;
         countEl.textContent = '0 items';
@@ -1580,8 +1751,10 @@ async function confirmPayment() {
     }
 
     const items = cart.map(item => ({
+        producto_id: item.productId,
         producto: item.nombre,
         cantidad: item.cantidad,
+        precio: getItemUnitPrice(item),
         modificaciones: (item.modificaciones || []).map(mod => ({
             tipo: mod.tipo,
             descripcion: mod.descripcion,

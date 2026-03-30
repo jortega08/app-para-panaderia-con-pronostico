@@ -1,84 +1,135 @@
 ﻿{% extends "base.html" %}
 {% block title_extra %} - Ventas de Hoy{% endblock %}
 {% block content %}
-<div class="page-container {% if layout == 'cajero' %}cajero-ventas-page{% endif %}">
-    <div class="page-header">
-        <h2 class="page-title">Ventas de Hoy</h2>
-        <div class="page-header-right">
-            <span class="text-muted" id="lastUpdate">Cargando...</span>
-            <button class="btn btn-accent" onclick="loadData()">Actualizar</button>
+<div class="page-container cajero-ventas-page ventas-page">
+    <section class="sales-hero-card">
+        <div class="sales-hero-copy">
+            <div class="sales-eyebrow">Lectura comercial en vivo</div>
+            <h2 class="sales-title">Ventas de Hoy</h2>
+            <p class="sales-summary">
+                Revisa ingresos, caja, mix de pagos y productos desde una lectura clara para decidir rapido durante el turno.
+            </p>
+            <div class="sales-hero-tags">
+                <span class="sales-pill">Operacion de caja</span>
+                <span class="sales-pill sales-pill-soft" id="lastUpdate">Cargando...</span>
+                <span class="sales-pill sales-pill-soft">Datos en tiempo real</span>
+            </div>
+            <div class="sales-hero-actions">
+                <button class="btn btn-accent" onclick="loadData()">
+                    <span class="material-symbols-outlined">refresh</span>
+                    Actualizar
+                </button>
+                <span class="sales-hero-note">La vista se refresca sin perder contexto operativo.</span>
+            </div>
         </div>
-    </div>
+        <div class="sales-hero-sidebar">
+            <div class="sales-hero-summary-card">
+                <div class="sales-hero-summary-title">
+                    <span>Lectura rapida</span>
+                    <span class="material-symbols-outlined">trending_up</span>
+                </div>
+                <div class="sales-kpi-grid sales-kpi-grid-hero" id="metricsRow">
+                    <div class="metric-card sales-metric-card">
+                        <div class="metric-label">Total vendido</div>
+                        <div class="metric-value text-success" id="metricDinero">$0</div>
+                    </div>
+                    <div class="metric-card sales-metric-card">
+                        <div class="metric-label">Transacciones</div>
+                        <div class="metric-value text-accent" id="metricTrans">0</div>
+                    </div>
+                    <div class="metric-card sales-metric-card">
+                        <div class="metric-label">Efectivo</div>
+                        <div class="metric-value text-primary" id="metricEfectivo">$0</div>
+                    </div>
+                    <div class="metric-card sales-metric-card">
+                        <div class="metric-label">Transferencia</div>
+                        <div class="metric-value text-warning" id="metricTransferencia">$0</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
 
-    <div id="cajaSection" style="margin-bottom: 18px;"></div>
+    <section id="cajaSection" class="sales-caja-slot"></section>
 
-    <div class="metrics-row" id="metricsRow">
-        <div class="metric-card">
-            <div class="metric-label">Total Vendido</div>
-        <div class="metric-value text-success" id="metricDinero">$0</div>
-        </div>
-        <div class="metric-card">
-            <div class="metric-label">Transacciones</div>
-            <div class="metric-value text-accent" id="metricTrans">0</div>
-        </div>
-        <div class="metric-card">
-            <div class="metric-label">Efectivo</div>
-        <div class="metric-value text-primary" id="metricEfectivo">$0</div>
-        </div>
-        <div class="metric-card">
-            <div class="metric-label">Transferencia</div>
-        <div class="metric-value text-warning" id="metricTransferencia">$0</div>
-        </div>
-    </div>
-
-    <div class="dashboard-row dashboard-row-double">
-        <div class="card dashboard-chart">
-            <div class="card-header">Ventas por Producto</div>
-            <div class="card-body">
+    <section class="sales-grid-2 sales-grid-analytics">
+        <div class="card dashboard-chart sales-chart-card">
+            <div class="card-header sales-section-header">
+                <div>
+                    <strong>Ventas por Producto</strong>
+                    <span>Lectura visual de los articulos que sostienen el ingreso del dia.</span>
+                </div>
+            </div>
+            <div class="card-body sales-chart-body">
                 <canvas id="ventasChart" height="250"></canvas>
-                <p class="text-muted text-center" id="chartEmpty" style="display:none; padding: 40px;">
+                <p class="text-muted text-center sales-empty-state" id="chartEmpty" style="display:none;">
                     No hay ventas hoy todavia.
                 </p>
             </div>
         </div>
-        <div class="card dashboard-chart">
-            <div class="card-header">Medios de Pago</div>
-            <div class="card-body">
+        <div class="card dashboard-chart sales-chart-card">
+            <div class="card-header sales-section-header">
+                <div>
+                    <strong>Medios de Pago</strong>
+                    <span>Mix operativo para entender la caja y el comportamiento de cobro.</span>
+                </div>
+            </div>
+            <div class="card-body sales-chart-body">
                 <canvas id="paymentChart" height="250"></canvas>
-                <p class="text-muted text-center" id="paymentChartEmpty" style="display:none; padding: 40px;">
+                <p class="text-muted text-center sales-empty-state" id="paymentChartEmpty" style="display:none;">
                     Aun no hay pagos registrados hoy.
                 </p>
             </div>
         </div>
-    </div>
+    </section>
 
-    <div class="dashboard-row dashboard-row-double">
-        <div class="card dashboard-detail">
-            <div class="card-header">Detalle por Producto</div>
-            <div class="card-body" id="detalleProductos">
-                <p class="text-muted text-center" style="padding: 40px;">Cargando...</p>
+    <section class="sales-grid-2 sales-grid-detail">
+        <div class="card dashboard-detail sales-panel-card">
+            <div class="card-header sales-section-header">
+                <div>
+                    <strong>Detalle por Producto</strong>
+                    <span>Referencia rapida para ver que categorias empujan el ticket del dia.</span>
+                </div>
+            </div>
+            <div class="card-body sales-panel-body" id="detalleProductos">
+                <p class="text-muted text-center sales-empty-state">Cargando...</p>
             </div>
         </div>
-        <div class="card dashboard-detail">
-            <div class="card-header">Movimientos de Caja</div>
-            <div class="card-body" id="movimientosCaja">
-                <p class="text-muted text-center" style="padding: 40px;">Cargando...</p>
+        <div class="card dashboard-detail sales-panel-card">
+            <div class="card-header sales-section-header">
+                <div>
+                    <strong>Movimientos de Caja</strong>
+                    <span>Ingreso y egresos manuales para vigilar el flujo real del turno.</span>
+                </div>
+            </div>
+            <div class="card-body sales-panel-body" id="movimientosCaja">
+                <p class="text-muted text-center sales-empty-state">Cargando...</p>
             </div>
         </div>
-    </div>
+    </section>
 
-    <div class="card" style="margin-bottom: 18px;">
-        <div class="card-header">Ventas por Mesero</div>
-        <div class="card-body" id="ventasResponsable">
-            <p class="text-muted text-center" style="padding: 40px;">Cargando...</p>
+    <section class="card sales-wide-card">
+        <div class="card-header sales-section-header">
+            <div>
+                <strong>Ventas por Mesero</strong>
+                <span>Comparativa de responsables para detectar quien mueve la facturacion del dia.</span>
+            </div>
         </div>
-    </div>
+        <div class="card-body sales-panel-body" id="ventasResponsable">
+            <p class="text-muted text-center sales-empty-state">Cargando...</p>
+        </div>
+    </section>
 
-    <div class="card">
-        <div class="card-header">Ultimas Transacciones</div>
-        <div class="card-body">
+    <section class="card sales-wide-card">
+        <div class="card-header sales-section-header">
+            <div>
+                <strong>Ultimas Transacciones</strong>
+                <span>Registro reciente de cobros para seguimiento operativo y auditoria.</span>
+            </div>
+        </div>
+        <div class="card-body sales-table-body">
             <div class="table-responsive">
-                <table class="table" id="transTable">
+                <table class="table sales-table" id="transTable">
                     <thead>
                         <tr>
                             <th>Hora</th>
@@ -95,7 +146,7 @@
                 </table>
             </div>
         </div>
-    </div>
+    </section>
 </div>
 
 <script>

@@ -5,16 +5,61 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RICHS{% block title_extra %}{% endblock %}</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='brand/richs-logo.svg', v='20260327-ui') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20260327-ui') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <script>
+        window.ensureChartJs = window.ensureChartJs || (() => {
+            let pendingLoad = null;
+            const sources = [
+                {{ url_for('static', filename='chart.min.js') | tojson }},
+                'https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js',
+            ];
+
+            function injectScript(src) {
+                return new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = src;
+                    script.async = true;
+                    script.onload = () => window.Chart
+                        ? resolve(window.Chart)
+                        : reject(new Error(`Chart.js cargo sin exponer Chart desde ${src}`));
+                    script.onerror = () => reject(new Error(`No se pudo cargar Chart.js desde ${src}`));
+                    document.head.appendChild(script);
+                });
+            }
+
+            async function loadChartJs(index = 0) {
+                if (window.Chart) return window.Chart;
+                if (index >= sources.length) throw new Error('Chart.js no esta disponible.');
+                try {
+                    return await injectScript(sources[index]);
+                } catch (error) {
+                    if (index >= sources.length - 1) throw error;
+                    return loadChartJs(index + 1);
+                }
+            }
+
+            return function ensureChartJs() {
+                if (window.Chart) return Promise.resolve(window.Chart);
+                if (!pendingLoad) {
+                    pendingLoad = loadChartJs().catch((error) => {
+                        pendingLoad = null;
+                        throw error;
+                    });
+                }
+                return pendingLoad;
+            };
+        })();
+    </script>
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
 </head>
 
 <body class="{{ layout|default('') }}-layout">
-    {% set richs_logo = url_for('static', filename='brand/richs-logo.svg') %}
+    {% set richs_logo = url_for('static', filename='brand/richs-logo.svg', v='20260327-ui') %}
 
     {% if layout == 'panadero' %}
     <header class="mobile-shell-header">
@@ -41,8 +86,7 @@
         <div class="sidebar-brand">
             <img src="{{ richs_logo }}" alt="RICHS" class="brand-mark brand-mark-sidebar">
             <div class="sidebar-brand-copy">
-                <span class="sidebar-name">RICHS</span>
-                <span class="brand-supporting-copy">Panaderia artesanal</span>
+                <span class="brand-supporting-copy">Delicias que nutren</span>
             </div>
         </div>
         <div class="sidebar-user">
@@ -506,16 +550,38 @@
        ══════════════════════════════════════════════ */
     const NotifCenter = {
         items: [],
+        dismissedIds: [],
         maxItems: 50,
-        storageKey: 'panaderia_notifs',
+        maxDismissed: 200,
+        storageKeyBase: 'panaderia_notifs',
+        feedUrl: '/api/notificaciones/feed',
+        viewerRole: {{ (session.usuario.rol if session.usuario else '')|tojson }},
+        viewerName: {{ (session.usuario.nombre if session.usuario else '')|tojson }},
+        pollingTimer: null,
+        syncing: false,
+        hasServerSync: false,
+
+        storageKey() {
+            return [this.storageKeyBase, this.viewerRole || 'anon', this.viewerName || 'anon'].join(':');
+        },
 
         init() {
             try {
-                const stored = localStorage.getItem(this.storageKey);
-                if (stored) this.items = JSON.parse(stored);
+                const stored = localStorage.getItem(this.storageKey());
+                if (stored) {
+                    const parsed = JSON.parse(stored);
+                    if (Array.isArray(parsed)) {
+                        this.items = parsed;
+                    } else if (parsed && typeof parsed === 'object') {
+                        this.items = Array.isArray(parsed.items) ? parsed.items : [];
+                        this.dismissedIds = Array.isArray(parsed.dismissedIds) ? parsed.dismissedIds : [];
+                    }
+                }
             } catch(e) {}
             this.render();
             this.updateBadges();
+            this.fetchFeed(true);
+            this.startPolling();
         },
 
         defaultTitle(type) {
@@ -527,55 +593,151 @@
                 order: 'Nuevo pedido',
                 stock: 'Revision de inventario',
                 production: 'Produccion actualizada',
+                alert: 'Alerta operativa',
             }[type] || 'Novedad operativa';
         },
 
-        add(payload, type, silent) {
-            const options = typeof payload === 'object' && payload !== null
-                ? {
-                    title: payload.title,
-                    description: payload.description || payload.message || payload.text || '',
-                    type: payload.type || type || 'info',
-                    silent: Object.prototype.hasOwnProperty.call(payload, 'silent') ? payload.silent : silent,
-                    duration: payload.duration,
-                    sound: Object.prototype.hasOwnProperty.call(payload, 'sound')
-                        ? payload.sound
-                        : ((payload.type || type) === 'order' ? 'order' : (['error', 'alert'].includes(payload.type || type) ? 'alert' : '')),
-                }
-                : {
-                    title: this.defaultTitle(type || 'info'),
-                    description: payload,
-                    type: type || 'info',
-                    silent: silent,
-                    duration: null,
-                    sound: type === 'order' ? 'order' : (type === 'error' ? 'alert' : ''),
-                };
+        normalizeTime(value) {
+            var raw = String(value || '').trim();
+            if (!raw) return new Date().toISOString();
+            if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) return raw.replace(' ', 'T');
+            if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw + 'T00:00:00';
+            var parsed = new Date(raw);
+            if (Number.isNaN(parsed.getTime())) return new Date().toISOString();
+            return parsed.toISOString();
+        },
 
-            const item = {
-                id: Date.now() + Math.random(),
-                title: options.title || this.defaultTitle(options.type),
-                description: options.description || '',
-                type: options.type || 'info',
-                time: new Date().toISOString(),
-                read: false
+        buildItem(payload, type, silent) {
+            var source = (typeof payload === 'object' && payload !== null)
+                ? payload
+                : { description: payload, type: type || 'info' };
+            var itemType = source.type || type || 'info';
+            return {
+                id: source.id || (Date.now() + Math.random()),
+                title: source.title || this.defaultTitle(itemType),
+                description: source.description || source.message || source.text || '',
+                type: itemType,
+                time: this.normalizeTime(source.time || source.created_at || source.timestamp),
+                read: Boolean(source.read),
+                duration: source.duration || null,
+                sound: Object.prototype.hasOwnProperty.call(source, 'sound')
+                    ? source.sound
+                    : (itemType === 'order' ? 'order' : (['error', 'alert'].includes(itemType) ? 'alert' : '')),
+                silent: Object.prototype.hasOwnProperty.call(source, 'silent') ? source.silent : Boolean(silent),
             };
-            this.items.unshift(item);
-            if (this.items.length > this.maxItems) this.items.pop();
+        },
+
+        save() {
+            try {
+                localStorage.setItem(this.storageKey(), JSON.stringify({
+                    items: this.items,
+                    dismissedIds: this.dismissedIds.slice(-this.maxDismissed),
+                }));
+            } catch(e) {}
+        },
+
+        finishSync() {
+            this.items.sort(function(a, b) {
+                return new Date(b.time).getTime() - new Date(a.time).getTime();
+            });
+            if (this.items.length > this.maxItems) {
+                this.items = this.items.slice(0, this.maxItems);
+            }
+            this.dismissedIds = Array.from(new Set(this.dismissedIds.map(function(id) { return String(id); }))).slice(-this.maxDismissed);
             this.save();
             this.render();
             this.updateBadges();
-            if (!options.silent) {
+        },
+
+        upsertItem(item) {
+            var itemId = String(item.id);
+            if (this.dismissedIds.indexOf(itemId) !== -1) return null;
+            var index = this.items.findIndex(function(existing) { return String(existing.id) === itemId; });
+            if (index >= 0) {
+                var existing = this.items[index];
+                var merged = Object.assign({}, existing, item, { read: Boolean(existing.read || item.read) });
+                this.items[index] = merged;
+                return { isNew: false, item: merged };
+            }
+            this.items.unshift(item);
+            return { isNew: true, item: item };
+        },
+
+        showToast(item) {
+            if (!item) return;
+            if (!item.silent) {
                 Toast.show({
                     title: item.title,
                     description: item.description,
                     type: item.type,
-                    duration: options.duration,
-                    sound: options.sound,
+                    duration: item.duration,
+                    sound: item.sound,
                 });
-            } else if (options.sound) {
-                SoundFX.play(options.sound);
+            } else if (item.sound) {
+                SoundFX.play(item.sound);
             }
-            return item;
+        },
+
+        add(payload, type, silent) {
+            var item = this.buildItem(payload, type, silent);
+            var result = this.upsertItem(item);
+            if (!result) return null;
+            this.finishSync();
+            if (result.isNew) this.showToast(result.item);
+            return result.item;
+        },
+
+        sync(feedItems, options) {
+            options = options || {};
+            var self = this;
+            var nuevos = [];
+            (Array.isArray(feedItems) ? feedItems : []).forEach(function(payload) {
+                var item = self.buildItem(payload, payload && payload.type ? payload.type : 'info', true);
+                var result = self.upsertItem(item);
+                if (result && result.isNew) {
+                    nuevos.push(result.item);
+                }
+            });
+            this.finishSync();
+            if (!options.silent && nuevos.length === 1) {
+                this.showToast(nuevos[0]);
+            } else if (!options.silent && nuevos.length > 1) {
+                var hasOrder = nuevos.some(function(item) { return item.sound === 'order'; });
+                var hasAlert = nuevos.some(function(item) { return item.sound === 'alert'; });
+                Toast.show({
+                    title: nuevos.length + ' novedades operativas',
+                    description: 'La bandeja recibio nuevos eventos sin recargar la pagina.',
+                    type: hasAlert ? 'warning' : 'info',
+                    sound: hasOrder ? 'order' : (hasAlert ? 'alert' : ''),
+                });
+            }
+            this.hasServerSync = true;
+            return nuevos;
+        },
+
+        async fetchFeed(silent) {
+            if (this.syncing || !this.feedUrl || !this.viewerRole) return;
+            this.syncing = true;
+            try {
+                const response = await fetch(this.feedUrl + '?limit=' + this.maxItems, { cache: 'no-store' });
+                if (!response.ok) throw new Error('No se pudo sincronizar la bandeja');
+                const data = await response.json();
+                this.sync(data.items || [], { silent: Boolean(silent) || !this.hasServerSync });
+            } catch (error) {
+                if (this.hasServerSync) {
+                    console.error('No se pudo actualizar el feed de notificaciones', error);
+                }
+            } finally {
+                this.syncing = false;
+            }
+        },
+
+        startPolling() {
+            if (this.pollingTimer || !this.viewerRole) return;
+            var self = this;
+            this.pollingTimer = setInterval(function() {
+                self.fetchFeed(false);
+            }, 6000);
         },
 
         markAllRead() {
@@ -586,16 +748,12 @@
         },
 
         clear() {
+            var ids = this.items.map(function(item) { return String(item.id); });
+            this.dismissedIds = this.dismissedIds.concat(ids);
             this.items = [];
             this.save();
             this.render();
             this.updateBadges();
-        },
-
-        save() {
-            try {
-                localStorage.setItem(this.storageKey, JSON.stringify(this.items));
-            } catch(e) {}
         },
 
         unreadCount() {
@@ -998,9 +1156,14 @@
 
             async function actualizarBadgePedidos() {
                 try {
-                    const res = await fetch('/api/pedidos?estado=pendiente', { cache: 'no-store' });
+                    const res = await fetch('/api/pedidos', { cache: 'no-store' });
                     const data = await res.json();
-                    const pedidos = Array.isArray(data) ? data : [];
+                    const pedidos = Array.isArray(data)
+                        ? data.filter(function(item) {
+                            const estado = String((item || {}).estado || '').trim();
+                            return estado !== 'pagado' && estado !== 'cancelado';
+                        })
+                        : [];
                     const total = pedidos.length;
                     const nextIds = new Set(pedidos.map(function(item) { return String(item.id || ''); }));
                     const nuevos = initialized
@@ -1012,6 +1175,9 @@
                     if (nuevos.length) {
                         AppUI.pulseElement(badge);
                         AppUI.pulseElement(mobileBadge);
+                        knownPendingIds = nextIds;
+                        initialized = true;
+                        return;
                         const reciente = nuevos[0] || pedidos[0] || {};
                         const mesa = reciente.mesa_numero ? ('Mesa ' + reciente.mesa_numero) : 'Mostrador';
                         const mesero = reciente.mesero ? (' · ' + reciente.mesero) : '';

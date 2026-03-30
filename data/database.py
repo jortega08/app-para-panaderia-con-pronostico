@@ -21,8 +21,11 @@ Tablas:
 
 import hashlib
 import logging
+import math
 import sqlite3
 import os
+import re
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -88,13 +91,78 @@ def _ejecutar_migracion_tolerante(conn, sql: str, params=()) -> bool:
         _restablecer_transaccion_si_necesario(conn)
         return False
 
+
+def _schema_tabla_conn(conn, nombre_tabla: str) -> str:
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (nombre_tabla,)
+    ).fetchone()
+    return str(row["sql"] or "") if row else ""
+
 CATEGORIAS_PREDETERMINADAS = [
     "Panaderia",
     "Bebidas Calientes",
     "Bebidas Frias",
     "Desayunos",
     "Almuerzos",
+    "Acompañamientos",
+    "Bebidas Frías",
+    "Cacerola de Huevos",
+    "Caldos",
+    "Changua",
+    "Clásicos de Queso",
+    "De la Casa",
+    "Dulcería",
+    "Galletas",
+    "Hojaldre",
+    "Huevos Florentinos",
+    "Huevos Rancheros",
+    "Huevos Richs",
+    "Omelettes",
+    "Pastelería Casera",
+    "Sándwiches",
+    "Sándwiches - Croissant",
+    "Sándwiches - Pan Saludable",
+    "Típico",
 ]
+
+ORDEN_CATEGORIAS_PREFERIDO = [
+    "Acompañamientos",
+    "Caldos",
+    "Changua",
+    "Cacerola de Huevos",
+    "Huevos Rancheros",
+    "Huevos Florentinos",
+    "Huevos Richs",
+    "Omelettes",
+    "Típico",
+    "Sándwiches",
+    "Sándwiches - Croissant",
+    "Sándwiches - Pan Saludable",
+    "De la Casa",
+    "Bebidas Calientes",
+    "Bebidas Frías",
+    "Clásicos de Queso",
+    "Hojaldre",
+    "Dulcería",
+    "Galletas",
+    "Pastelería Casera",
+    "Panaderia",
+    "Bebidas Frias",
+    "Desayunos",
+    "Almuerzos",
+]
+
+MENUS_PRODUCTO_PREFERIDOS = ["Desayunos", "Tardes"]
+
+CATEGORIAS_PANADERIA_PUBLICAS = {
+    "acompanamientos",
+    "clasicos de queso",
+    "dulceria",
+    "galletas",
+    "hojaldre",
+    "pasteleria casera",
+}
 
 UNIDADES_MASA = {
     "kg": 1000.0,
@@ -124,6 +192,17 @@ UNIDADES_CONTEO = {
 
 def _normalizar_unidad(unidad: str) -> str:
     return str(unidad or "").strip().lower()
+
+
+def _normalizar_texto_clave(texto: str) -> str:
+    base = unicodedata.normalize("NFKD", str(texto or ""))
+    base = "".join(ch for ch in base if not unicodedata.combining(ch))
+    base = base.strip().lower()
+    return re.sub(r"[^a-z0-9]+", " ", base).strip()
+
+
+def es_categoria_panaderia(categoria: str) -> bool:
+    return _normalizar_texto_clave(categoria) in CATEGORIAS_PANADERIA_PUBLICAS
 
 
 def _grupo_unidad(unidad: str) -> tuple[str | None, float | None]:
@@ -163,6 +242,17 @@ def convertir_cantidad(cantidad: float, unidad_origen: str, unidad_destino: str)
     return cantidad_base / factor_destino
 
 
+UMBRAL_CANTIDAD_RECETA_CORRUPTA = 10000.0
+MAX_DIVISIONES_REPARACION_RECETA = 64
+
+
+def _es_entero_aproximado(valor: float) -> bool:
+    if not math.isfinite(valor):
+        return False
+    tolerancia = max(1e-9, abs(valor) * 1e-12)
+    return abs(valor - round(valor)) <= tolerancia
+
+
 def _ficha_receta_vacia(producto: str = "") -> dict:
     return {
         "producto": producto,
@@ -200,10 +290,16 @@ def inicializar_base_de_datos() -> None:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS productos (
                 id     INTEGER PRIMARY KEY AUTOINCREMENT,
-                nombre TEXT UNIQUE NOT NULL,
+                nombre TEXT NOT NULL,
                 precio REAL NOT NULL DEFAULT 0.0,
                 categoria TEXT NOT NULL DEFAULT 'Panaderia',
-                activo INTEGER NOT NULL DEFAULT 1
+                menu TEXT NOT NULL DEFAULT '',
+                descripcion TEXT NOT NULL DEFAULT '',
+                es_panaderia INTEGER NOT NULL DEFAULT 0,
+                activo INTEGER NOT NULL DEFAULT 1,
+                es_adicional INTEGER NOT NULL DEFAULT 0,
+                stock_minimo INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(nombre, categoria)
             )
         """)
 
@@ -238,6 +334,7 @@ def inicializar_base_de_datos() -> None:
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 fecha           TEXT NOT NULL,
                 hora            TEXT NOT NULL,
+                producto_id     INTEGER,
                 producto        TEXT NOT NULL,
                 cantidad        INTEGER NOT NULL,
                 precio_unitario REAL NOT NULL,
@@ -346,6 +443,7 @@ def inicializar_base_de_datos() -> None:
             CREATE TABLE IF NOT EXISTS pedido_items (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 pedido_id   INTEGER NOT NULL,
+                producto_id INTEGER,
                 producto    TEXT NOT NULL,
                 cantidad    INTEGER NOT NULL DEFAULT 1,
                 precio_unitario REAL NOT NULL DEFAULT 0.0,
@@ -530,6 +628,7 @@ def inicializar_base_de_datos() -> None:
         _migrar_usuarios(conn)
         _migrar_recetas(conn)
         _migrar_adicionales(conn)
+        _reparar_cantidades_receta_infladas(conn)
         _migrar_ventas_pedidos_caja(conn)
         _sembrar_categorias_producto(conn)
         conn.execute("""
@@ -546,8 +645,11 @@ def inicializar_base_de_datos() -> None:
         ]
         for nombre, precio, categoria in productos_iniciales:
             conn.execute(
-                "INSERT OR IGNORE INTO productos (nombre, precio, categoria) VALUES (?, ?, ?)",
-                (nombre, precio, categoria)
+                """
+                INSERT OR IGNORE INTO productos (nombre, precio, categoria, es_panaderia)
+                VALUES (?, ?, ?, ?)
+                """,
+                (nombre, precio, categoria, 1 if categoria == "Panaderia" else 0)
             )
 
         # Usuario admin por defecto
@@ -678,13 +780,94 @@ def inicializar_base_de_datos() -> None:
         conn.commit()
 
 
+def _tabla_productos_requiere_reconstruccion(conn) -> bool:
+    schema = _schema_tabla_conn(conn, "productos")
+    if not schema:
+        return False
+
+    schema_norm = "".join(schema.lower().split())
+    if "nombretextunique" in schema_norm:
+        return True
+    return "unique(nombre,categoria)" not in schema_norm
+
+
+def _reconstruir_tabla_productos(conn) -> None:
+    rows = conn.execute("""
+        SELECT
+            id,
+            nombre,
+            COALESCE(precio, 0.0) AS precio,
+            COALESCE(categoria, 'Panaderia') AS categoria,
+            COALESCE(menu, '') AS menu,
+            COALESCE(descripcion, '') AS descripcion,
+            COALESCE(es_panaderia, CASE WHEN categoria = 'Panaderia' THEN 1 ELSE 0 END) AS es_panaderia,
+            COALESCE(activo, 1) AS activo,
+            COALESCE(es_adicional, 0) AS es_adicional,
+            COALESCE(stock_minimo, 0) AS stock_minimo
+        FROM productos
+        ORDER BY id
+    """).fetchall()
+
+    conn.execute("ALTER TABLE productos RENAME TO productos_legacy")
+    conn.execute("""
+        CREATE TABLE productos (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre       TEXT NOT NULL,
+            precio       REAL NOT NULL DEFAULT 0.0,
+            categoria    TEXT NOT NULL DEFAULT 'Panaderia',
+            menu         TEXT NOT NULL DEFAULT '',
+            descripcion  TEXT NOT NULL DEFAULT '',
+            es_panaderia INTEGER NOT NULL DEFAULT 0,
+            activo       INTEGER NOT NULL DEFAULT 1,
+            es_adicional INTEGER NOT NULL DEFAULT 0,
+            stock_minimo INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(nombre, categoria)
+        )
+    """)
+
+    for row in rows:
+        conn.execute("""
+            INSERT OR IGNORE INTO productos (
+                id, nombre, precio, categoria, menu, descripcion,
+                es_panaderia, activo, es_adicional, stock_minimo
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            row["id"],
+            row["nombre"],
+            float(row["precio"] or 0),
+            row["categoria"],
+            row["menu"],
+            row["descripcion"],
+            1 if int(row["es_panaderia"] or 0) else 0,
+            1 if int(row["activo"] or 0) else 0,
+            1 if int(row["es_adicional"] or 0) else 0,
+            int(row["stock_minimo"] or 0),
+        ))
+
+    conn.execute("DROP TABLE productos_legacy")
+
+
 def _migrar_productos(conn):
-    """Agrega columnas de soporte si la tabla productos ya existia."""
+    """Agrega columnas de soporte y actualiza restricciones del catálogo."""
     _ejecutar_migracion_tolerante(conn, "ALTER TABLE productos ADD COLUMN precio REAL NOT NULL DEFAULT 0.0")
     _ejecutar_migracion_tolerante(conn, "ALTER TABLE productos ADD COLUMN categoria TEXT NOT NULL DEFAULT 'Panaderia'")
+    _ejecutar_migracion_tolerante(conn, "ALTER TABLE productos ADD COLUMN menu TEXT NOT NULL DEFAULT ''")
+    _ejecutar_migracion_tolerante(conn, "ALTER TABLE productos ADD COLUMN descripcion TEXT NOT NULL DEFAULT ''")
+    _ejecutar_migracion_tolerante(conn, "ALTER TABLE productos ADD COLUMN es_panaderia INTEGER NOT NULL DEFAULT 0")
     _ejecutar_migracion_tolerante(conn, "ALTER TABLE productos ADD COLUMN activo INTEGER NOT NULL DEFAULT 1")
     _ejecutar_migracion_tolerante(conn, "ALTER TABLE productos ADD COLUMN es_adicional INTEGER NOT NULL DEFAULT 0")
     _ejecutar_migracion_tolerante(conn, "ALTER TABLE productos ADD COLUMN stock_minimo INTEGER NOT NULL DEFAULT 0")
+    conn.execute("""
+        UPDATE productos
+        SET es_panaderia = CASE
+            WHEN es_panaderia IS NULL OR es_panaderia = 0 THEN
+                CASE WHEN categoria = 'Panaderia' THEN 1 ELSE 0 END
+            ELSE es_panaderia
+        END
+    """)
+    if _tabla_productos_requiere_reconstruccion(conn):
+        _reconstruir_tabla_productos(conn)
 
 
 def _sembrar_categorias_producto(conn):
@@ -745,6 +928,7 @@ def _migrar_recetas(conn):
         SELECT r.id, r.cantidad, i.unidad
         FROM recetas r
         JOIN insumos i ON i.id = r.insumo_id
+        WHERE r.unidad_receta IS NULL OR TRIM(r.unidad_receta) = ''
     """).fetchall()
     for row in rows:
         unidad_receta = unidad_receta_sugerida(row["unidad"])
@@ -761,6 +945,62 @@ def _migrar_recetas(conn):
             ELSE unidad_receta
         END
     """)
+
+
+def _reparar_cantidades_receta_infladas(conn) -> int:
+    """
+    Corrige recetas infladas por una migracion antigua que reconvertia
+    kg -> g o litro -> ml en cada arranque de la app.
+    """
+    rows = conn.execute("""
+        SELECT r.id, r.producto, r.cantidad, r.unidad_receta,
+               i.nombre AS insumo_nombre, i.unidad AS unidad_inventario
+        FROM recetas r
+        JOIN insumos i ON i.id = r.insumo_id
+    """).fetchall()
+
+    reparadas = 0
+    for row in rows:
+        cantidad_actual = float(row["cantidad"] or 0)
+        if not math.isfinite(cantidad_actual) or cantidad_actual <= 0:
+            continue
+
+        factor = convertir_cantidad(1, row["unidad_inventario"], row["unidad_receta"])
+        if factor <= 1:
+            continue
+        if cantidad_actual < UMBRAL_CANTIDAD_RECETA_CORRUPTA:
+            continue
+
+        cantidad_reparada = cantidad_actual
+        divisiones = 0
+        while math.isfinite(cantidad_reparada) and divisiones < MAX_DIVISIONES_REPARACION_RECETA:
+            if divisiones == 0 and cantidad_reparada < UMBRAL_CANTIDAD_RECETA_CORRUPTA:
+                break
+
+            siguiente = cantidad_reparada / factor
+            if not math.isfinite(siguiente) or siguiente <= 0:
+                break
+            if not _es_entero_aproximado(siguiente):
+                break
+
+            cantidad_reparada = siguiente
+            divisiones += 1
+
+        if not divisiones or not math.isfinite(cantidad_reparada):
+            continue
+
+        conn.execute(
+            "UPDATE recetas SET cantidad = ? WHERE id = ?",
+            (cantidad_reparada, row["id"]),
+        )
+        reparadas += 1
+
+    if reparadas:
+        logger.warning(
+            "Se repararon %s cantidades de recetas infladas por conversion repetida.",
+            reparadas,
+        )
+    return reparadas
 
 
 def _migrar_adicionales(conn):
@@ -793,6 +1033,7 @@ def _migrar_ventas_pedidos_caja(conn):
     _ejecutar_migracion_tolerante(conn, "ALTER TABLE ventas ADD COLUMN cambio REAL NOT NULL DEFAULT 0.0")
     _ejecutar_migracion_tolerante(conn, "ALTER TABLE ventas ADD COLUMN referencia_tipo TEXT DEFAULT 'pos'")
     _ejecutar_migracion_tolerante(conn, "ALTER TABLE ventas ADD COLUMN referencia_id INTEGER")
+    _ejecutar_migracion_tolerante(conn, "ALTER TABLE ventas ADD COLUMN producto_id INTEGER")
 
     _ejecutar_migracion_tolerante(conn, "ALTER TABLE pedidos ADD COLUMN creado_en TEXT")
     _ejecutar_migracion_tolerante(conn, "ALTER TABLE pedidos ADD COLUMN pagado_en TEXT")
@@ -800,6 +1041,7 @@ def _migrar_ventas_pedidos_caja(conn):
     _ejecutar_migracion_tolerante(conn, "ALTER TABLE pedidos ADD COLUMN metodo_pago TEXT DEFAULT ''")
     _ejecutar_migracion_tolerante(conn, "ALTER TABLE pedidos ADD COLUMN monto_recibido REAL NOT NULL DEFAULT 0.0")
     _ejecutar_migracion_tolerante(conn, "ALTER TABLE pedidos ADD COLUMN cambio REAL NOT NULL DEFAULT 0.0")
+    _ejecutar_migracion_tolerante(conn, "ALTER TABLE pedido_items ADD COLUMN producto_id INTEGER")
 
     conn.execute("""
         UPDATE pedidos
@@ -870,18 +1112,15 @@ def obtener_categorias_producto() -> list[str]:
             SELECT nombre
             FROM categorias_producto
             WHERE activa = 1
-            ORDER BY
-                CASE nombre
-                    WHEN 'Panaderia' THEN 1
-                    WHEN 'Bebidas Calientes' THEN 2
-                    WHEN 'Bebidas Frias' THEN 3
-                    WHEN 'Desayunos' THEN 4
-                    WHEN 'Almuerzos' THEN 5
-                    ELSE 99
-                END,
-                nombre
         """).fetchall()
-    return [r["nombre"] for r in rows]
+
+    orden = {
+        _normalizar_texto_clave(nombre): indice
+        for indice, nombre in enumerate(ORDEN_CATEGORIAS_PREFERIDO, start=1)
+    }
+    categorias = [str(r["nombre"] or "") for r in rows]
+    categorias.sort(key=lambda nombre: (orden.get(_normalizar_texto_clave(nombre), 999), nombre))
+    return categorias
 
 
 def agregar_categoria_producto(nombre: str) -> bool:
@@ -906,10 +1145,22 @@ def obtener_productos(categoria: str = None) -> list[str]:
     return [r["nombre"] for r in rows]
 
 
+def obtener_productos_panaderia() -> list[str]:
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT DISTINCT nombre
+            FROM productos
+            WHERE activo = 1 AND es_panaderia = 1
+            ORDER BY nombre
+        """).fetchall()
+    return [r["nombre"] for r in rows]
+
+
 def obtener_productos_con_precio(categoria: str = None) -> list[dict]:
     filtro = "AND categoria = ?" if categoria else ""
     query = f"""
-        SELECT id, nombre, precio, categoria, es_adicional
+        SELECT id, nombre, precio, categoria, menu, descripcion,
+               es_panaderia, es_adicional, stock_minimo
         FROM productos
         WHERE activo = 1 {filtro}
         ORDER BY categoria, nombre
@@ -931,7 +1182,13 @@ def obtener_precio(producto: str) -> float:
 def obtener_categoria_producto_nombre(producto: str) -> str:
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT categoria FROM productos WHERE nombre = ?",
+            """
+            SELECT categoria
+            FROM productos
+            WHERE nombre = ? AND activo = 1
+            ORDER BY es_panaderia DESC, id ASC
+            LIMIT 1
+            """,
             (producto,)
         ).fetchone()
     return row["categoria"] if row else ""
@@ -958,8 +1215,26 @@ def obtener_productos_adicionales() -> list[dict]:
     ]
 
 
+def obtener_producto_por_id(producto_id: int) -> dict | None:
+    if int(producto_id or 0) <= 0:
+        return None
+    with get_connection() as conn:
+        row = conn.execute("""
+            SELECT id, nombre, precio, categoria, menu, descripcion,
+                   es_panaderia, es_adicional, stock_minimo, activo
+            FROM productos
+            WHERE id = ?
+        """, (int(producto_id),)).fetchone()
+    return dict(row) if row else None
+
+
 def agregar_producto(nombre: str, precio: float = 0.0, categoria: str = "Panaderia",
-                     es_adicional: bool = False) -> bool:
+                     es_adicional: bool = False, menu: str = "",
+                     descripcion: str = "", es_panaderia: bool | None = None) -> bool:
+    categoria = str(categoria or "").strip() or "Panaderia"
+    menu = str(menu or "").strip()
+    descripcion = str(descripcion or "").strip()
+    es_panaderia_final = es_categoria_panaderia(categoria) if es_panaderia is None else bool(es_panaderia)
     try:
         with get_connection() as conn:
             conn.execute(
@@ -967,8 +1242,19 @@ def agregar_producto(nombre: str, precio: float = 0.0, categoria: str = "Panader
                 (categoria,)
             )
             conn.execute(
-                "INSERT INTO productos (nombre, precio, categoria, es_adicional) VALUES (?, ?, ?, ?)",
-                (nombre, precio, categoria, 1 if es_adicional else 0)
+                """
+                INSERT INTO productos (nombre, precio, categoria, menu, descripcion, es_panaderia, es_adicional)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    nombre,
+                    precio,
+                    categoria,
+                    menu,
+                    descripcion,
+                    1 if es_panaderia_final else 0,
+                    1 if es_adicional else 0,
+                )
             )
             conn.commit()
         return True
@@ -976,48 +1262,175 @@ def agregar_producto(nombre: str, precio: float = 0.0, categoria: str = "Panader
         return False
 
 
-def guardar_catalogo_productos(productos: list[dict]) -> dict:
+def _seleccionar_producto_existente_importacion(registros: list[dict], nombre: str, categoria: str) -> dict | None:
+    nombre = str(nombre or "").strip()
+    categoria = str(categoria or "").strip() or "Panaderia"
+    clave_objetivo = (
+        _normalizar_texto_clave(nombre),
+        _normalizar_texto_clave(categoria),
+    )
+    nombre_lower = nombre.lower()
+    categoria_lower = categoria.lower()
+
+    coincidencias = [
+        row for row in registros
+        if (
+            _normalizar_texto_clave(row.get("nombre", "")),
+            _normalizar_texto_clave(row.get("categoria", "")),
+        ) == clave_objetivo
+    ]
+    if not coincidencias:
+        return None
+
+    def prioridad(row: dict) -> tuple[int, int, int]:
+        coincide_exacto = (
+            str(row.get("nombre", "") or "").strip().lower() == nombre_lower
+            and str(row.get("categoria", "") or "").strip().lower() == categoria_lower
+        )
+        esta_activo = bool(row.get("activo"))
+        return (
+            0 if coincide_exacto else 1,
+            0 if esta_activo else 1,
+            int(row.get("id", 0) or 0),
+        )
+
+    return min(coincidencias, key=prioridad)
+
+
+def guardar_catalogo_productos(productos: list[dict], sincronizar: bool = False) -> dict:
     resultado = {
         "creados": 0,
         "actualizados": 0,
+        "desactivados": 0,
     }
 
     with get_connection() as conn:
+        categorias_activas: set[str] = set()
+        ids_sincronizados: set[int] = set()
+        registros_existentes = [
+            dict(row)
+            for row in conn.execute("""
+                SELECT id, nombre, categoria, es_adicional, menu, descripcion, es_panaderia, activo
+                FROM productos
+            """).fetchall()
+        ]
         for producto in productos:
             nombre = producto["nombre"].strip()
             precio = float(producto["precio"])
             categoria = (producto.get("categoria") or "").strip()
+            categoria_busqueda = categoria or "Panaderia"
+            menu = str(producto.get("menu", "") or "").strip()
+            descripcion = str(producto.get("descripcion", "") or "").strip()
             es_adicional = 1 if bool(producto.get("es_adicional")) else 0
+            es_panaderia = 1 if bool(producto.get("es_panaderia", es_categoria_panaderia(categoria))) else 0
+            categorias_activas.add(categoria_busqueda)
 
-            existente = conn.execute(
-                "SELECT id, categoria, es_adicional FROM productos WHERE lower(nombre) = lower(?)",
-                (nombre,)
-            ).fetchone()
+            existente = _seleccionar_producto_existente_importacion(
+                registros_existentes,
+                nombre,
+                categoria_busqueda,
+            )
 
             if existente:
-                categoria_final = categoria or existente["categoria"] or "Panaderia"
+                categoria_final = categoria or existente.get("categoria") or "Panaderia"
                 es_adicional_final = es_adicional if "es_adicional" in producto else int(existente["es_adicional"] or 0)
+                menu_final = menu or str(existente.get("menu") or "")
+                descripcion_final = descripcion or str(existente.get("descripcion") or "")
+                es_panaderia_final = es_panaderia if "es_panaderia" in producto or categoria else int(existente.get("es_panaderia") or 0)
                 conn.execute(
                     "INSERT OR IGNORE INTO categorias_producto (nombre, activa) VALUES (?, 1)",
                     (categoria_final,)
                 )
                 conn.execute("""
                     UPDATE productos
-                    SET nombre = ?, precio = ?, categoria = ?, es_adicional = ?, activo = 1
+                    SET nombre = ?, precio = ?, categoria = ?, menu = ?, descripcion = ?,
+                        es_panaderia = ?, es_adicional = ?, activo = 1
                     WHERE id = ?
-                """, (nombre, precio, categoria_final, es_adicional_final, existente["id"]))
+                """, (
+                    nombre,
+                    precio,
+                    categoria_final,
+                    menu_final,
+                    descripcion_final,
+                    es_panaderia_final,
+                    es_adicional_final,
+                    existente["id"],
+                ))
+                existente.update({
+                    "nombre": nombre,
+                    "categoria": categoria_final,
+                    "menu": menu_final,
+                    "descripcion": descripcion_final,
+                    "es_panaderia": es_panaderia_final,
+                    "es_adicional": es_adicional_final,
+                    "activo": 1,
+                })
+                ids_sincronizados.add(int(existente["id"]))
                 resultado["actualizados"] += 1
             else:
-                categoria_final = categoria or "Panaderia"
+                categoria_final = categoria_busqueda
                 conn.execute(
                     "INSERT OR IGNORE INTO categorias_producto (nombre, activa) VALUES (?, 1)",
                     (categoria_final,)
                 )
-                conn.execute(
-                    "INSERT INTO productos (nombre, precio, categoria, es_adicional, activo) VALUES (?, ?, ?, ?, 1)",
-                    (nombre, precio, categoria_final, es_adicional)
+                cursor = conn.execute(
+                    """
+                    INSERT INTO productos (
+                        nombre, precio, categoria, menu, descripcion,
+                        es_panaderia, es_adicional, activo
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+                    """,
+                    (
+                        nombre,
+                        precio,
+                        categoria_final,
+                        menu,
+                        descripcion,
+                        es_panaderia,
+                        es_adicional,
+                    )
                 )
+                nuevo_id = int(cursor.lastrowid or 0)
+                registros_existentes.append({
+                    "id": nuevo_id,
+                    "nombre": nombre,
+                    "categoria": categoria_final,
+                    "menu": menu,
+                    "descripcion": descripcion,
+                    "es_panaderia": es_panaderia,
+                    "es_adicional": es_adicional,
+                    "activo": 1,
+                })
+                if nuevo_id > 0:
+                    ids_sincronizados.add(nuevo_id)
                 resultado["creados"] += 1
+
+        if sincronizar:
+            activos = conn.execute("""
+                SELECT id
+                FROM productos
+                WHERE activo = 1
+            """).fetchall()
+            ids_desactivar = [
+                row["id"]
+                for row in activos
+                if int(row["id"] or 0) not in ids_sincronizados
+            ]
+            for producto_id in ids_desactivar:
+                conn.execute("UPDATE productos SET activo = 0 WHERE id = ?", (producto_id,))
+            resultado["desactivados"] = len(ids_desactivar)
+
+            conn.execute("UPDATE categorias_producto SET activa = 0")
+            for categoria_activa in sorted(categorias_activas):
+                conn.execute(
+                    "INSERT OR IGNORE INTO categorias_producto (nombre, activa) VALUES (?, 1)",
+                    (categoria_activa,)
+                )
+                conn.execute(
+                    "UPDATE categorias_producto SET activa = 1 WHERE nombre = ?",
+                    (categoria_activa,)
+                )
 
         conn.commit()
 
@@ -1108,6 +1521,7 @@ def actualizar_producto_completo(producto_id: int, nombre: str, precio: float,
                                  categoria: str, es_adicional: bool) -> bool:
     nombre = str(nombre or "").strip()
     categoria = str(categoria or "").strip() or "Panaderia"
+    es_panaderia = es_categoria_panaderia(categoria)
     if producto_id <= 0 or not nombre:
         return False
 
@@ -1127,9 +1541,16 @@ def actualizar_producto_completo(producto_id: int, nombre: str, precio: float,
             )
             conn.execute("""
                 UPDATE productos
-                SET nombre = ?, precio = ?, categoria = ?, es_adicional = ?
+                SET nombre = ?, precio = ?, categoria = ?, es_panaderia = ?, es_adicional = ?
                 WHERE id = ?
-            """, (nombre, float(precio), categoria, 1 if es_adicional else 0, producto_id))
+            """, (
+                nombre,
+                float(precio),
+                categoria,
+                1 if es_panaderia else 0,
+                1 if es_adicional else 0,
+                producto_id,
+            ))
 
             _renombrar_producto_referencias_conn(conn, nombre_anterior, nombre)
             conn.commit()
@@ -1161,8 +1582,8 @@ def actualizar_categoria_producto(producto: str, nueva_categoria: str) -> bool:
                 (nueva_categoria,)
             )
             cur = conn.execute(
-                "UPDATE productos SET categoria = ? WHERE nombre = ?",
-                (nueva_categoria, producto)
+                "UPDATE productos SET categoria = ?, es_panaderia = ? WHERE nombre = ?",
+                (nueva_categoria, 1 if es_categoria_panaderia(nueva_categoria) else 0, producto)
             )
             conn.commit()
         return cur.rowcount > 0
@@ -1658,6 +2079,7 @@ def registrar_venta_lote(items: list[dict], registrado_por: str = "",
     try:
         with get_connection() as conn:
             for item in items:
+                producto_id = int(item.get("producto_id", 0) or 0) or None
                 producto = str(item.get("producto", "") or "").strip()
                 cantidad = int(item.get("cantidad", 0) or 0)
                 if not producto or cantidad <= 0:
@@ -1668,14 +2090,15 @@ def registrar_venta_lote(items: list[dict], registrado_por: str = "",
 
                 conn.execute("""
                     INSERT INTO ventas (
-                        fecha, hora, producto, cantidad, precio_unitario, total,
+                        fecha, hora, producto_id, producto, cantidad, precio_unitario, total,
                         registrado_por, venta_grupo, metodo_pago, monto_recibido,
                         cambio, referencia_tipo, referencia_id
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     fecha,
                     hora,
+                    producto_id,
                     producto,
                     cantidad,
                     precio_unitario,
@@ -2101,7 +2524,7 @@ def guardar_registro(fecha: str, producto: str,
                     observaciones = excluded.observaciones
             """, (fecha, dia_semana, producto, producido, vendido, observaciones))
 
-            if delta_producido != 0 and _categoria_producto_conn(conn, producto) == "Panaderia":
+            if delta_producido != 0 and _es_producto_panaderia_conn(conn, producto):
                 consumo_producto = _consumo_producto(
                     conn, producto, abs(delta_producido), incluir_panaderia=True
                 )
@@ -2246,10 +2669,11 @@ def _insertar_items_pedido_conn(conn, pedido_id: int, items: list[dict]) -> None
         subtotal = round(float(item["cantidad"] or 0) * float(item["precio_unitario"] or 0) + extras, 2)
         cur_item = conn.execute("""
             INSERT INTO pedido_items
-                (pedido_id, producto, cantidad, precio_unitario, subtotal, notas)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (pedido_id, producto_id, producto, cantidad, precio_unitario, subtotal, notas)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (
             pedido_id,
+            int(item.get("producto_id", 0) or 0) or None,
             item["producto"],
             item["cantidad"],
             item["precio_unitario"],
@@ -2339,7 +2763,7 @@ def _obtener_pedido_conn(conn, pedido_id: int) -> dict | None:
         return None
 
     items = conn.execute("""
-        SELECT id, producto, cantidad, precio_unitario, subtotal, notas
+        SELECT id, producto_id, producto, cantidad, precio_unitario, subtotal, notas
         FROM pedido_items
         WHERE pedido_id = ?
         ORDER BY id
@@ -2412,14 +2836,15 @@ def _cobrar_pedido_conn(conn, pedido: dict, registrado_por: str = "",
         precio_unitario_venta = round(subtotal / cantidad_item, 2) if cantidad_item > 0 else 0.0
         conn.execute("""
             INSERT INTO ventas (
-                fecha, hora, producto, cantidad, precio_unitario, total,
+                fecha, hora, producto_id, producto, cantidad, precio_unitario, total,
                 registrado_por, venta_grupo, metodo_pago, monto_recibido,
                 cambio, referencia_tipo, referencia_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pedido', ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pedido', ?)
         """, (
             fecha_cobro,
             hora_pagado,
+            int(item.get("producto_id", 0) or 0) or None,
             item["producto"],
             cantidad_item,
             precio_unitario_venta,
@@ -2638,7 +3063,7 @@ def obtener_pedidos_con_detalle(estado: str = None, mesa_id: int = None,
 
         # 2) Todos los items de todos los pedidos en 1 query
         items_rows = conn.execute(f"""
-            SELECT id, pedido_id, producto, cantidad, precio_unitario, subtotal, notas
+            SELECT id, pedido_id, producto_id, producto, cantidad, precio_unitario, subtotal, notas
             FROM pedido_items
             WHERE pedido_id IN ({placeholders})
             ORDER BY id
@@ -2732,7 +3157,7 @@ def obtener_pedidos_con_detalle(fecha: str | None = None, estado: str | None = N
         ph = ",".join("?" * len(pedido_ids))
 
         items_rows = conn.execute(
-            f"SELECT id, pedido_id, producto, cantidad, precio_unitario, subtotal, notas "
+            f"SELECT id, pedido_id, producto_id, producto, cantidad, precio_unitario, subtotal, notas "
             f"FROM pedido_items WHERE pedido_id IN ({ph}) ORDER BY pedido_id, id",
             pedido_ids
         ).fetchall()
@@ -2772,7 +3197,8 @@ def obtener_pedidos_con_detalle(fecha: str | None = None, estado: str | None = N
 
 
 def cambiar_estado_pedido(pedido_id: int, nuevo_estado: str,
-                          cambiado_por: str = "") -> bool:
+                          cambiado_por: str = "",
+                          detalle: str | None = None) -> bool:
     """Cambia el estado de un pedido."""
     try:
         with get_connection() as conn:
@@ -2786,7 +3212,7 @@ def cambiar_estado_pedido(pedido_id: int, nuevo_estado: str,
                 return True
 
             cambiado_en = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            detalle = f"Estado actualizado a {nuevo_estado.replace('_', ' ')}"
+            detalle_final = str(detalle or "").strip() or f"Estado actualizado a {nuevo_estado.replace('_', ' ')}"
             if nuevo_estado == "pagado":
                 hora_pagado = cambiado_en[11:19]
                 conn.execute(
@@ -2803,7 +3229,7 @@ def cambiar_estado_pedido(pedido_id: int, nuevo_estado: str,
                 pedido_id,
                 nuevo_estado,
                 cambiado_por=cambiado_por,
-                detalle=detalle,
+                detalle=detalle_final,
                 cambiado_en=cambiado_en,
             )
             conn.commit()
@@ -3270,10 +3696,28 @@ def obtener_insumos_bajo_stock() -> list[dict]:
 
 def _categoria_producto_conn(conn, producto: str) -> str:
     row = conn.execute(
-        "SELECT categoria FROM productos WHERE nombre = ?",
+        """
+        SELECT categoria
+        FROM productos
+        WHERE nombre = ? AND activo = 1
+        ORDER BY es_panaderia DESC, id ASC
+        LIMIT 1
+        """,
         (producto,)
     ).fetchone()
     return row["categoria"] if row else ""
+
+
+def _es_producto_panaderia_conn(conn, producto: str) -> bool:
+    row = conn.execute(
+        """
+        SELECT MAX(es_panaderia) AS es_panaderia
+        FROM productos
+        WHERE nombre = ? AND activo = 1
+        """,
+        (producto,)
+    ).fetchone()
+    return bool(int((row["es_panaderia"] or 0) if row else 0))
 
 
 def _resolver_adicional_conn(conn, descripcion: str) -> dict | None:
@@ -3318,8 +3762,7 @@ def _acumular_requerimiento_panaderia_producto(conn, producto: str, cantidad: fl
     if producto in ruta:
         raise ValueError(f"Ciclo detectado en la composicion del producto: {' > '.join(ruta + (producto,))}")
 
-    categoria = _categoria_producto_conn(conn, producto)
-    if categoria == "Panaderia":
+    if _es_producto_panaderia_conn(conn, producto):
         requeridos[producto] = requeridos.get(producto, 0.0) + float(cantidad)
         return
 
@@ -3456,7 +3899,7 @@ def validar_items_contra_produccion_panaderia(items: list[dict], fecha: str | No
             SELECT rd.producto, SUM(rd.producido) as producido
             FROM registros_diarios rd
             JOIN productos p ON p.nombre = rd.producto
-            WHERE rd.fecha = ? AND p.categoria = 'Panaderia'
+            WHERE rd.fecha = ? AND p.es_panaderia = 1
             GROUP BY rd.producto
         """, (fecha,)).fetchall()
         produccion = {row["producto"]: float(row["producido"] or 0) for row in produccion_rows}
@@ -3615,8 +4058,7 @@ def _acumular_consumo_producto(conn, producto: str, cantidad: float,
     if producto in ruta:
         raise ValueError(f"Ciclo detectado en la composicion del producto: {' > '.join(ruta + (producto,))}")
 
-    categoria = _categoria_producto_conn(conn, producto)
-    if categoria == "Panaderia" and not incluir_panaderia:
+    if _es_producto_panaderia_conn(conn, producto) and not incluir_panaderia:
         return
 
     receta = conn.execute("""
@@ -4043,9 +4485,10 @@ def obtener_alertas_stock_productos(fecha: str | None = None) -> list[dict]:
     fecha = fecha or datetime.now().strftime("%Y-%m-%d")
     with get_connection() as conn:
         productos = conn.execute("""
-            SELECT id, nombre, stock_minimo
+            SELECT MIN(id) AS id, nombre, MAX(stock_minimo) AS stock_minimo
             FROM productos
-            WHERE activo = 1 AND categoria = 'Panaderia'
+            WHERE activo = 1 AND es_panaderia = 1
+            GROUP BY nombre
         """).fetchall()
 
         registros = conn.execute("""

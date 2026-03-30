@@ -1139,6 +1139,86 @@ input, select { font-family: inherit; }
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 14px;
 }
+.recipe-lookup-shell {
+    display: grid;
+    gap: 14px;
+    margin-top: 18px;
+    padding: 18px;
+    border: 1px solid var(--divider);
+    border-radius: 22px;
+    background: rgba(255, 255, 255, 0.72);
+}
+.recipe-lookup-copy strong {
+    display: block;
+    font-size: 16px;
+    color: var(--text);
+}
+.recipe-lookup-copy span {
+    display: block;
+    margin-top: 4px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-sec);
+}
+.recipe-lookup-bar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+}
+.recipe-catalog-matches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-height: 0;
+}
+.recipe-catalog-match {
+    display: inline-flex;
+    align-items: center;
+    min-height: 36px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(139,85,19,0.12);
+    background: rgba(255,255,255,0.92);
+    color: var(--text-sec);
+    font-size: 13px;
+    font-weight: 700;
+    transition: transform 0.18s ease, border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
+}
+.recipe-catalog-match:hover,
+.recipe-catalog-match.is-active {
+    transform: translateY(-1px);
+    border-color: rgba(212,114,42,0.22);
+    background: rgba(255,248,240,0.98);
+    color: var(--text);
+}
+.recipe-catalog-item-single {
+    min-height: 140px;
+}
+.recipe-catalog-item-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+.recipe-catalog-item-head strong {
+    display: block;
+    font-size: 18px;
+    color: var(--text);
+}
+.recipe-catalog-item-head span {
+    display: block;
+    margin-top: 4px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text-sec);
+}
+.recipe-catalog-item-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
 .recipe-catalog-name {
     font-size: 16px;
     font-weight: 700;
@@ -2911,6 +2991,9 @@ input, select { font-family: inherit; }
         grid-template-columns: 1fr;
     }
     .recipe-catalog {
+        grid-template-columns: 1fr;
+    }
+    .recipe-lookup-bar {
         grid-template-columns: 1fr;
     }
     .catalog-import-actions {
@@ -5675,5 +5758,808 @@ body.notif-open {
 @media (max-width: 1024px) {
     .panadero-quickdock-wrap {
         padding: 18px 22px 0;
+    }
+}
+
+/* INVENTORY DASHBOARD ALIGNMENT - RICHS */
+.inventory-page {
+    display: grid;
+    gap: 18px;
+    padding-bottom: 28px;
+    max-width: 1420px;
+}
+
+.inventory-page .card {
+    border: 1px solid rgba(193, 120, 23, 0.12);
+    box-shadow: 0 12px 28px rgba(71, 40, 20, 0.08);
+}
+
+.inventory-hero-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.95fr);
+    gap: 20px;
+    padding: 28px;
+    border-radius: 24px;
+    border: 1px solid rgba(193, 120, 23, 0.16);
+    background:
+        radial-gradient(circle at top right, rgba(232, 180, 77, 0.24), transparent 34%),
+        radial-gradient(circle at bottom left, rgba(47, 107, 99, 0.12), transparent 26%),
+        linear-gradient(135deg, #fffaf2 0%, #fff 48%, #f7efe3 100%);
+    box-shadow: 0 18px 44px rgba(71, 40, 20, 0.1);
+}
+
+.inventory-eyebrow {
+    display: inline-flex;
+    width: fit-content;
+    padding: 7px 12px;
+    border-radius: 999px;
+    background: rgba(193, 120, 23, 0.1);
+    color: var(--accent-dark);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.inventory-title {
+    margin: 12px 0 10px;
+    font-size: clamp(30px, 4vw, 48px);
+    line-height: 0.96;
+    letter-spacing: -0.04em;
+    color: var(--primary-dark);
+}
+
+.inventory-summary {
+    max-width: 720px;
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.65;
+    color: var(--text-sec);
+}
+
+.inventory-hero-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 18px;
+}
+
+.inventory-pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 36px;
+    padding: 8px 13px;
+    border-radius: 999px;
+    border: 1px solid rgba(193, 120, 23, 0.14);
+    background: rgba(255, 248, 237, 0.92);
+    color: var(--primary-dark);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.inventory-pill-soft {
+    background: rgba(255, 255, 255, 0.82);
+}
+
+.inventory-hero-stats {
+    display: grid;
+    gap: 12px;
+    align-content: center;
+}
+
+.inventory-mini-stat {
+    display: grid;
+    grid-template-columns: 50px 1fr;
+    gap: 14px;
+    align-items: center;
+    padding: 16px 18px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.88);
+    border: 1px solid rgba(193, 120, 23, 0.14);
+    box-shadow: 0 14px 28px rgba(95, 72, 44, 0.08);
+}
+
+.inventory-mini-stat .material-symbols-outlined {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 50px;
+    height: 50px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, rgba(193, 120, 23, 0.18), rgba(212, 114, 42, 0.14));
+    color: var(--accent-dark);
+    font-size: 28px;
+}
+
+.inventory-mini-stat small {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.inventory-mini-stat strong {
+    display: block;
+    font-size: 28px;
+    line-height: 1.05;
+    color: var(--text);
+}
+
+.inventory-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.inventory-summary-card {
+    position: relative;
+    overflow: hidden;
+    min-height: 146px;
+    padding: 18px 20px;
+    border-radius: 22px;
+    border: 1px solid rgba(193, 120, 23, 0.12);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 244, 236, 0.96));
+    box-shadow: 0 16px 30px rgba(95, 72, 44, 0.08);
+}
+
+.inventory-summary-card::after {
+    content: "";
+    position: absolute;
+    left: 18px;
+    right: 18px;
+    bottom: 14px;
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgba(212, 114, 42, 0.18), rgba(193, 120, 23, 0.72));
+}
+
+.inventory-summary-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 14px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-sec);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.inventory-summary-top .material-symbols-outlined {
+    font-size: 22px;
+    color: var(--accent-dark);
+}
+
+.inventory-summary-value {
+    font-size: clamp(24px, 3vw, 36px);
+    font-weight: 800;
+    line-height: 1.05;
+    color: var(--text);
+}
+
+.inventory-summary-meta {
+    margin-top: 10px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text-sec);
+}
+
+.inventory-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.inventory-section-header strong {
+    display: block;
+    color: var(--primary-dark);
+}
+
+.inventory-section-header span {
+    display: block;
+    margin-top: 4px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-sec);
+}
+
+.inventory-alert-card {
+    border: 1px solid rgba(183, 66, 47, 0.14) !important;
+    background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,248,244,0.96));
+}
+
+.inventory-alert-list {
+    display: grid;
+    gap: 10px;
+}
+
+.inventory-alert-item {
+    display: grid;
+    gap: 6px;
+    padding: 14px 16px;
+    border-radius: 16px;
+    border: 1px solid rgba(183, 66, 47, 0.14);
+    background: rgba(255, 248, 244, 0.88);
+}
+
+.inventory-alert-name {
+    font-weight: 800;
+    color: var(--text);
+}
+
+.inventory-alert-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--text-sec);
+}
+
+.inventory-plan-card,
+.inventory-stock-card,
+.inventory-recipe-card,
+.inventory-additional-card {
+    border-radius: 24px;
+    overflow: hidden;
+}
+
+.inventory-plan-header,
+.inventory-section-header {
+    padding: 18px 20px 0;
+}
+
+.inventory-plan-body {
+    padding: 18px 20px 20px;
+}
+
+.inventory-plan-note,
+.inventory-import-box,
+.inventory-stock-card .config-add-row,
+.inventory-stock-card .catalog-import-box,
+.inventory-recipe-card .recipe-documentation-card,
+.inventory-additional-card .recipe-documentation-card {
+    border-color: rgba(193, 120, 23, 0.12);
+}
+
+.inventory-table-wrap,
+.inventory-plan-table-wrap {
+    overflow: auto;
+}
+
+.inventory-table,
+.inventory-plan-table {
+    min-width: 900px;
+}
+
+.inventory-stock-input {
+    width: 90px;
+}
+
+.inventory-badge {
+    color: #fff;
+}
+
+.inventory-badge-danger {
+    background: var(--danger);
+}
+
+.inventory-badge-warning {
+    background: var(--warning);
+}
+
+.inventory-badge-success {
+    background: var(--success);
+}
+
+.inventory-inline-add-row {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--divider);
+}
+
+@media (max-width: 1180px) {
+    .inventory-hero-card {
+        grid-template-columns: 1fr;
+    }
+
+    .inventory-summary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 900px) {
+    .inventory-plan-header,
+    .inventory-section-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .inventory-summary-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 640px) {
+    .inventory-page {
+        gap: 14px;
+    }
+
+    .inventory-hero-card {
+        padding: 18px;
+        border-radius: 20px;
+    }
+
+    .inventory-title {
+        font-size: clamp(34px, 11vw, 46px);
+    }
+
+    .inventory-mini-stat {
+        grid-template-columns: 44px 1fr;
+        padding: 14px 15px;
+    }
+
+    .inventory-mini-stat .material-symbols-outlined {
+        width: 44px;
+        height: 44px;
+        font-size: 24px;
+    }
+
+    .inventory-mini-stat strong {
+        font-size: 24px;
+    }
+
+    .inventory-summary-grid,
+    .inventory-plan-kpis {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* RICHS ventas de hoy refresh */
+.cajero-ventas-page.ventas-page {
+    display: grid;
+    gap: 18px;
+    padding-bottom: 28px;
+}
+
+.sales-hero-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.95fr);
+    gap: 20px;
+    padding: 24px;
+    border-radius: 26px;
+    border: 1px solid rgba(139, 85, 19, 0.12);
+    background:
+        radial-gradient(circle at top right, rgba(212, 114, 42, 0.16), transparent 34%),
+        radial-gradient(circle at bottom left, rgba(47, 107, 99, 0.12), transparent 26%),
+        linear-gradient(180deg, rgba(255, 252, 247, 0.98), rgba(255, 255, 255, 0.94));
+    box-shadow: 0 18px 48px rgba(71, 40, 20, 0.11);
+}
+
+.sales-hero-copy,
+.sales-hero-sidebar {
+    position: relative;
+    z-index: 1;
+}
+
+.sales-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: fit-content;
+    padding: 7px 12px;
+    border-radius: 999px;
+    background: rgba(193, 120, 23, 0.1);
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.sales-title {
+    margin: 8px 0 0;
+    font-family: var(--font-display);
+    font-size: clamp(30px, 4vw, 48px);
+    line-height: 0.95;
+    letter-spacing: -0.04em;
+    color: var(--ink, var(--text));
+}
+
+.sales-summary {
+    max-width: 62ch;
+    margin: 12px 0 0;
+    color: var(--muted, var(--text-muted));
+    font-size: 16px;
+    line-height: 1.55;
+}
+
+.sales-hero-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.sales-pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 34px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: #fff;
+    border: 1px solid rgba(139, 85, 19, 0.12);
+    color: var(--ink, var(--text));
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.sales-pill-soft {
+    background: rgba(247, 238, 226, 0.92);
+}
+
+.sales-hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    margin-top: 18px;
+}
+
+.sales-hero-actions .btn {
+    min-height: 48px;
+}
+
+.sales-hero-actions .btn .material-symbols-outlined {
+    font-size: 18px;
+}
+
+.sales-hero-note {
+    font-size: 13px;
+    color: var(--muted, var(--text-muted));
+}
+
+.sales-hero-summary-card {
+    display: grid;
+    gap: 14px;
+    padding: 18px;
+    border-radius: 22px;
+    background: rgba(255, 255, 255, 0.88);
+    border: 1px solid rgba(139, 85, 19, 0.12);
+}
+
+.sales-hero-summary-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    color: var(--muted, var(--text-muted));
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.sales-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.sales-kpi-grid-hero .metric-card {
+    min-height: 132px;
+    padding: 16px 18px 18px;
+    border: 1px solid rgba(139, 85, 19, 0.1);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 238, 226, 0.96));
+    box-shadow: 0 10px 24px rgba(71, 40, 20, 0.08);
+}
+
+.sales-kpi-grid-hero .metric-card::after {
+    background: linear-gradient(90deg, var(--accent), #e0a142);
+}
+
+.sales-kpi-grid-hero .metric-label {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.sales-kpi-grid-hero .metric-value {
+    font-size: clamp(24px, 4vw, 34px);
+    line-height: 0.95;
+    letter-spacing: -0.04em;
+}
+
+.sales-caja-slot {
+    display: grid;
+    gap: 18px;
+}
+
+.sales-section-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    align-items: flex-start;
+}
+
+.sales-section-header strong {
+    display: block;
+    font-size: 16px;
+    color: var(--ink, var(--text));
+}
+
+.sales-section-header span {
+    display: block;
+    margin-top: 4px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--muted, var(--text-muted));
+}
+
+.sales-grid-2 {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.sales-chart-card,
+.sales-panel-card,
+.sales-wide-card {
+    border: 1px solid rgba(139, 85, 19, 0.12);
+    box-shadow: 0 10px 24px rgba(71, 40, 20, 0.08);
+}
+
+.sales-chart-body {
+    min-height: 320px;
+    position: relative;
+}
+
+.sales-chart-body canvas {
+    max-height: 320px;
+}
+
+.sales-empty-state {
+    margin: 0;
+    padding: 42px 24px;
+}
+
+.sales-panel-body {
+    display: grid;
+    gap: 10px;
+}
+
+.sales-table-body {
+    overflow: auto;
+}
+
+.sales-table {
+    min-width: 920px;
+}
+
+.sales-wide-card .card-body {
+    min-height: 0;
+}
+
+.cajero-ventas-page .caja-section-card {
+    border: 1px solid rgba(139, 85, 19, 0.12);
+    box-shadow: 0 10px 24px rgba(71, 40, 20, 0.08);
+}
+
+.cajero-ventas-page .caja-section-card .card-header,
+.cajero-ventas-page .sales-chart-card .card-header,
+.cajero-ventas-page .sales-panel-card .card-header,
+.cajero-ventas-page .sales-wide-card .card-header {
+    background: linear-gradient(180deg, rgba(247, 238, 226, 0.95), rgba(255, 255, 255, 0.96));
+}
+
+.cajero-ventas-page .caja-status-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 14px;
+}
+
+.cajero-ventas-page .caja-banner-title {
+    font-family: var(--font-display);
+    font-size: clamp(20px, 3vw, 28px);
+    letter-spacing: -0.03em;
+    color: var(--ink, var(--text));
+}
+
+.cajero-ventas-page .caja-kpi-grid {
+    margin-top: 4px;
+}
+
+.cajero-ventas-page .caja-history-box,
+.cajero-ventas-page .caja-close-summary,
+.cajero-ventas-page .caja-close-box,
+.cajero-ventas-page .caja-form-grid {
+    margin-top: 18px;
+}
+
+.cajero-ventas-page .caja-history-item,
+.cajero-ventas-page .caja-mov-row,
+.cajero-ventas-page .pedido-meta-row {
+    border-color: rgba(139, 85, 19, 0.08);
+}
+
+.cajero-ventas-page .metric-card {
+    transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.cajero-ventas-page .metric-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 16px 30px rgba(71, 40, 20, 0.12);
+}
+
+@media (max-width: 1180px) {
+    .sales-hero-card,
+    .sales-grid-2 {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 900px) {
+    .sales-kpi-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .sales-section-header {
+        flex-direction: column;
+    }
+}
+
+@media (max-width: 640px) {
+    .cajero-ventas-page.ventas-page {
+        gap: 14px;
+    }
+
+    .sales-hero-card {
+        padding: 18px;
+        border-radius: 20px;
+    }
+
+    .sales-title {
+        font-size: clamp(38px, 11vw, 52px);
+    }
+
+    .sales-kpi-grid-hero .metric-card {
+        min-height: 116px;
+    }
+}
+
+/* PANADERO SOLID SURFACES */
+:root {
+    --panadero-surface-solid: rgba(255, 250, 244, 0.98);
+    --panadero-surface-soft: rgba(255, 255, 255, 0.95);
+    --panadero-surface-muted: rgba(247, 238, 226, 0.92);
+    --panadero-surface-border: rgba(139, 85, 19, 0.12);
+    --panadero-surface-shadow: 0 16px 36px rgba(71, 40, 20, 0.1);
+    --panadero-surface-shadow-soft: 0 10px 24px rgba(71, 40, 20, 0.08);
+}
+
+body.panadero-layout .page-container > .page-header {
+    padding: 22px 24px;
+    margin-bottom: 18px;
+    border-radius: 24px;
+    border: 1px solid var(--panadero-surface-border);
+    background: var(--panadero-surface-solid);
+    box-shadow: var(--panadero-surface-shadow);
+}
+
+body.panadero-layout .page-container > .page-header .page-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: clamp(28px, 4vw, 42px);
+    line-height: 0.98;
+    letter-spacing: -0.04em;
+    color: var(--primary-dark);
+}
+
+body.panadero-layout .page-container > .page-header .page-title .material-symbols-outlined {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 16px;
+    background: rgba(193, 120, 23, 0.12);
+    color: var(--primary-dark);
+    font-size: 26px;
+}
+
+body.panadero-layout .page-container > .page-header .page-header-right,
+body.panadero-layout .page-container > .page-header .page-header-actions {
+    gap: 10px;
+}
+
+body.panadero-layout .page-container > .page-header .page-header-info,
+body.panadero-layout .page-container > .page-header p,
+body.panadero-layout .page-container > .page-header .text-muted {
+    color: var(--text-sec);
+}
+
+body.panadero-layout .metric-card::after,
+.inventory-summary-card::after,
+.sales-kpi-grid-hero .metric-card::after {
+    background: rgba(193, 120, 23, 0.65);
+}
+
+.production-page .card,
+.history-card,
+.history-table-card,
+.sales-chart-card,
+.sales-panel-card,
+.sales-wide-card,
+.inventory-page .card {
+    border: 1px solid var(--panadero-surface-border);
+    box-shadow: var(--panadero-surface-shadow-soft);
+}
+
+.production-hero-card,
+.history-hero-card,
+.inventory-hero-card,
+.sales-hero-card {
+    background: var(--panadero-surface-solid);
+    border: 1px solid var(--panadero-surface-border);
+    box-shadow: var(--panadero-surface-shadow);
+}
+
+.production-mini-stat,
+.history-mini-stat,
+.inventory-mini-stat,
+.sales-hero-summary-card,
+.sales-kpi-grid-hero .metric-card,
+.history-kpi-card,
+.inventory-summary-card,
+.production-kpi-tile,
+.inventory-alert-card {
+    background: var(--panadero-surface-soft);
+    border: 1px solid var(--panadero-surface-border);
+    box-shadow: var(--panadero-surface-shadow-soft);
+}
+
+.production-mini-stat span,
+.production-kpi-tile span {
+    color: var(--text-sec);
+}
+
+.inventory-alert-card {
+    background: rgba(255, 248, 244, 0.96);
+}
+
+.history-mini-stat .material-symbols-outlined,
+.inventory-mini-stat .material-symbols-outlined {
+    background: rgba(193, 120, 23, 0.12);
+}
+
+.cajero-ventas-page .caja-section-card .card-header,
+.cajero-ventas-page .sales-chart-card .card-header,
+.cajero-ventas-page .sales-panel-card .card-header,
+.cajero-ventas-page .sales-wide-card .card-header {
+    background: var(--panadero-surface-muted);
+}
+
+@media (max-width: 640px) {
+    body.panadero-layout .page-container > .page-header {
+        padding: 18px;
+        border-radius: 20px;
+    }
+
+    body.panadero-layout .page-container > .page-header .page-title {
+        font-size: clamp(26px, 8vw, 34px);
+    }
+
+    body.panadero-layout .page-container > .page-header .page-title .material-symbols-outlined {
+        width: 42px;
+        height: 42px;
+        font-size: 22px;
     }
 }

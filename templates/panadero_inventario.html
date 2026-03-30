@@ -2,21 +2,98 @@
 {% block title_extra %} - Inventario{% endblock %}
 {% block content %}
 <div class="page-container inventory-page">
-    <div class="page-header">
-        <h1 class="page-title">Inventario de Insumos</h1>
-    </div>
+    {% set total_insumos = insumos|length %}
+    {% set stock_bajo = alertas_stock|length if alertas_stock else 0 %}
+    {% set total_productos = productos|length %}
+    {% set total_recetas = recetas|length %}
+    {% set total_adicionales = adicionales|length %}
+
+    <section class="inventory-hero-card">
+        <div class="inventory-hero-copy">
+            <div class="inventory-eyebrow">Control operativo de inventario</div>
+            <h1 class="inventory-title">Inventario de Insumos</h1>
+            <p class="inventory-summary">
+                Controla stock, recetas y adicionales con una lectura clara y rápida.
+                La vista prioriza alertas, reposición y planeación para arrancar el día con menos fricción.
+            </p>
+            <div class="inventory-hero-tags">
+                <span class="inventory-pill">Insumos: {{ total_insumos }}</span>
+                <span class="inventory-pill inventory-pill-soft">Productos: {{ total_productos }}</span>
+                <span class="inventory-pill inventory-pill-soft">Recetas: {{ total_recetas }}</span>
+                <span class="inventory-pill inventory-pill-soft">Adicionales: {{ total_adicionales }}</span>
+            </div>
+        </div>
+        <div class="inventory-hero-stats">
+            <div class="inventory-mini-stat">
+                <span class="material-symbols-outlined">inventory_2</span>
+                <div><small>Insumos activos</small><strong>{{ total_insumos }}</strong></div>
+            </div>
+            <div class="inventory-mini-stat">
+                <span class="material-symbols-outlined">warning</span>
+                <div><small>Alertas de stock</small><strong>{{ stock_bajo }}</strong></div>
+            </div>
+            <div class="inventory-mini-stat">
+                <span class="material-symbols-outlined">summarize</span>
+                <div><small>Recetas definidas</small><strong>{{ total_recetas }}</strong></div>
+            </div>
+        </div>
+    </section>
+
+    <section class="inventory-summary-grid">
+        <article class="inventory-summary-card">
+            <div class="inventory-summary-top">
+                <span>Stock bajo</span>
+                <span class="material-symbols-outlined">report</span>
+            </div>
+            <div class="inventory-summary-value">{{ stock_bajo }}</div>
+            <div class="inventory-summary-meta">Insumos por revisar antes de producir.</div>
+        </article>
+        <article class="inventory-summary-card">
+            <div class="inventory-summary-top">
+                <span>Planeacion</span>
+                <span class="material-symbols-outlined">auto_graph</span>
+            </div>
+            <div class="inventory-summary-value">{{ fecha_proyeccion_default }}</div>
+            <div class="inventory-summary-meta">Fecha base para calcular consumos sugeridos.</div>
+        </article>
+        <article class="inventory-summary-card">
+            <div class="inventory-summary-top">
+                <span>Productos</span>
+                <span class="material-symbols-outlined">bakery_dining</span>
+            </div>
+            <div class="inventory-summary-value">{{ total_productos }}</div>
+            <div class="inventory-summary-meta">Catálogo disponible para recetas y adicionales.</div>
+        </article>
+        <article class="inventory-summary-card">
+            <div class="inventory-summary-top">
+                <span>Adicionales</span>
+                <span class="material-symbols-outlined">tune</span>
+            </div>
+            <div class="inventory-summary-value">{{ total_adicionales }}</div>
+            <div class="inventory-summary-meta">Configuraciones ligadas al consumo real.</div>
+        </article>
+    </section>
 
     {% if alertas_stock %}
-    <div class="card" style="border-left: 4px solid var(--danger); margin-bottom: 20px;">
-        <div class="card-header" style="color: var(--danger);">Insumos con Stock Bajo</div>
-        <div class="card-body">
-            {% for a in alertas_stock %}
-            <div class="detail-row">
-                <span class="detail-name text-danger">{{ a.nombre }}</span>
-                <span class="detail-qty">{{ '%.1f'|format(a.stock) }} {{ a.unidad }}</span>
-                <span class="text-muted">Min: {{ '%.1f'|format(a.stock_minimo) }} {{ a.unidad }}</span>
+    <div class="card inventory-alert-card">
+        <div class="card-header inventory-section-header">
+            <div>
+                <strong>Insumos con Stock Bajo</strong>
+                <span>Señales tempranas para evitar quiebres de producción y reposiciones urgentes.</span>
             </div>
-            {% endfor %}
+        </div>
+        <div class="card-body">
+            <div class="inventory-alert-list">
+                {% for a in alertas_stock %}
+                <div class="inventory-alert-item">
+                    <div class="inventory-alert-name">{{ a.nombre }}</div>
+                    <div class="inventory-alert-meta">
+                        <span>Stock: {{ '%.1f'|format(a.stock) }} {{ a.unidad }}</span>
+                        <span>Min: {{ '%.1f'|format(a.stock_minimo) }} {{ a.unidad }}</span>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
         </div>
     </div>
     {% endif %}
@@ -84,7 +161,7 @@
         </div>
     </div>
 
-    <div class="card">
+    <div class="card inventory-stock-card">
         <div class="card-header">Stock Actual</div>
         <div class="card-body">
             <table class="table">
@@ -166,7 +243,7 @@
         </div>
     </div>
 
-    <div class="card">
+    <div class="card inventory-recipe-card">
         <div class="card-header">Composicion y Recetas por Producto</div>
         <div class="card-body">
             {% if productos %}
@@ -255,59 +332,45 @@
                     <div id="recipeSummaryPreview" class="recipe-summary-preview"></div>
                 </div>
             </div>
+
+            <div class="recipe-lookup-shell">
+                <div class="recipe-lookup-copy">
+                    <strong>Consulta una receta puntual</strong>
+                    <span>
+                        Busca por nombre y abre solo la ficha que necesitas. Asi evitamos un muro de cards cuando el catalogo siga creciendo.
+                    </span>
+                </div>
+                <div class="recipe-lookup-bar">
+                    <input
+                        type="search"
+                        id="recipeCatalogSearch"
+                        class="form-input"
+                        placeholder="Busca una receta por nombre"
+                        autocomplete="off"
+                        oninput="actualizarBusquedaRecetas()"
+                        onkeydown="manejarTeclaBusquedaReceta(event)">
+                    <button class="btn btn-outline" type="button" onclick="abrirPrimeraRecetaCoincidente()">
+                        Ver ficha
+                    </button>
+                </div>
+                <div id="recipeCatalogMatches" class="recipe-catalog-matches">
+                    <span class="text-muted recipe-empty-note">Escribe el nombre de una receta para ver coincidencias.</span>
+                </div>
+                <div id="recipeCatalogCard" class="recipe-catalog-item recipe-catalog-item-single">
+                    <div class="text-muted recipe-empty-note">
+                        Busca una receta para ver aqui su composicion, subproductos y ficha tecnica.
+                    </div>
+                </div>
+            </div>
             {% else %}
             <div class="text-muted">
                 Necesitas al menos un producto registrado para poder definir su composicion.
             </div>
             {% endif %}
-
-            <div class="recipe-catalog">
-                {% for prod in productos %}
-                {% set receta = recetas[prod] %}
-                <div class="recipe-catalog-item">
-                    <h4 class="recipe-catalog-name">{{ prod }}</h4>
-                    {% if receta.ingredientes %}
-                    <div class="recipe-chip-list">
-                        {% for r in receta.ingredientes %}
-                        <span class="chip">{{ r.insumo_nombre }}: {{ '%.2f'|format(r.cantidad) }} {{ r.unidad_receta }}</span>
-                        {% endfor %}
-                    </div>
-                    {% else %}
-                    <span class="text-muted recipe-empty-note">Sin ingredientes definidos</span>
-                    {% endif %}
-
-                    {% if receta.componentes %}
-                    <div class="recipe-process-grid">
-                        {% for c in receta.componentes %}
-                        <span class="chip">Incluye {{ '%.2f'|format(c.cantidad) }} x {{ c.componente_producto }}</span>
-                        {% endfor %}
-                    </div>
-                    {% endif %}
-
-                    {% if receta.ficha.rendimiento_texto or receta.ficha.tiempo_preparacion_min or receta.ficha.tiempo_amasado_min or receta.ficha.tiempo_fermentacion_min or receta.ficha.tiempo_horneado_min or receta.ficha.temperatura_horneado %}
-                    <div class="recipe-process-grid">
-                        {% if receta.ficha.rendimiento_texto %}<span class="chip">Rendimiento: {{ receta.ficha.rendimiento_texto }}</span>{% endif %}
-                        {% if receta.ficha.tiempo_preparacion_min %}<span class="chip">Preparacion: {{ receta.ficha.tiempo_preparacion_min|int }} min</span>{% endif %}
-                        {% if receta.ficha.tiempo_amasado_min %}<span class="chip">Amasado: {{ receta.ficha.tiempo_amasado_min|int }} min</span>{% endif %}
-                        {% if receta.ficha.tiempo_fermentacion_min %}<span class="chip">Fermentacion: {{ receta.ficha.tiempo_fermentacion_min|int }} min</span>{% endif %}
-                        {% if receta.ficha.tiempo_horneado_min %}<span class="chip">Horneado: {{ receta.ficha.tiempo_horneado_min|int }} min</span>{% endif %}
-                        {% if receta.ficha.temperatura_horneado %}<span class="chip">{{ receta.ficha.temperatura_horneado|int }} C</span>{% endif %}
-                    </div>
-                    {% endif %}
-
-                    {% if receta.ficha.pasos %}
-                    <div class="recipe-steps-static">{{ receta.ficha.pasos|replace('\n', '<br>')|safe }}</div>
-                    {% endif %}
-                    {% if receta.ficha.observaciones %}
-                    <div class="recipe-observation-static text-muted">{{ receta.ficha.observaciones }}</div>
-                    {% endif %}
-                </div>
-                {% endfor %}
-            </div>
         </div>
     </div>
 
-    <div class="card">
+    <div class="card inventory-additional-card">
         <div class="card-header">Adicionales y Consumo de Inventario</div>
         <div class="card-body">
             <p class="text-muted" style="margin-bottom: 14px;">
@@ -495,6 +558,257 @@ function obtenerProductoCatalogo(nombreProducto) {
 function productoActualSeleccionado() {
     const select = document.getElementById('recetaProducto');
     return select ? select.value : '';
+}
+
+function normalizarTextoBusqueda(texto) {
+    const base = String(texto || '').trim().toLowerCase();
+    return typeof base.normalize === 'function'
+        ? base.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        : base;
+}
+
+function obtenerNombresReceta() {
+    const nombres = productosCatalogo
+        .map(prod => prod.nombre)
+        .filter(Boolean);
+    return Array.from(new Set(nombres))
+        .sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+}
+
+function productoCatalogoVisible() {
+    const card = document.getElementById('recipeCatalogCard');
+    return card ? (card.dataset.producto || '') : '';
+}
+
+function renderEstadoVacioCatalogoRecetas(mensaje) {
+    const card = document.getElementById('recipeCatalogCard');
+    if (!card) return;
+
+    card.dataset.producto = '';
+    card.innerHTML = `<div class="text-muted recipe-empty-note">${escapeHtml(mensaje)}</div>`;
+}
+
+function buscarRecetasCoincidentes(query) {
+    const termino = normalizarTextoBusqueda(query);
+    if (!termino) return [];
+
+    return obtenerNombresReceta()
+        .map(nombre => {
+            const nombreNormalizado = normalizarTextoBusqueda(nombre);
+            let prioridad = 3;
+
+            if (nombreNormalizado === termino) prioridad = 0;
+            else if (nombreNormalizado.startsWith(termino)) prioridad = 1;
+            else if (nombreNormalizado.includes(termino)) prioridad = 2;
+
+            return { nombre, prioridad };
+        })
+        .filter(item => item.prioridad < 3)
+        .sort((a, b) => a.prioridad - b.prioridad || a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }))
+        .slice(0, 8)
+        .map(item => item.nombre);
+}
+
+function renderRecipeCatalogMatches(matches, productoActivo = '', query = '') {
+    const container = document.getElementById('recipeCatalogMatches');
+    if (!container) return;
+
+    if (!normalizarTextoBusqueda(query)) {
+        container.innerHTML = '<span class="text-muted recipe-empty-note">Escribe el nombre de una receta para ver coincidencias.</span>';
+        return;
+    }
+
+    if (!matches.length) {
+        container.innerHTML = '<span class="text-muted recipe-empty-note">No encontramos una receta con ese nombre.</span>';
+        return;
+    }
+
+    const activoNormalizado = normalizarTextoBusqueda(productoActivo);
+    container.innerHTML = matches.map(nombre => {
+        const activa = normalizarTextoBusqueda(nombre) === activoNormalizado ? 'is-active' : '';
+        return `
+            <button type="button" class="recipe-catalog-match ${activa}" data-producto="${escapeHtml(nombre)}">
+                ${escapeHtml(nombre)}
+            </button>
+        `;
+    }).join('');
+
+    container.querySelectorAll('.recipe-catalog-match').forEach(button => {
+        button.addEventListener('click', () => seleccionarRecetaCatalogo(button.dataset.producto || ''));
+    });
+}
+
+function cargarRecetaEnEditor(producto) {
+    const nombreProducto = String(producto || '').trim();
+    const select = document.getElementById('recetaProducto');
+    if (!nombreProducto || !select) return;
+
+    select.value = nombreProducto;
+    cargarEditorReceta();
+}
+
+function renderRecipeCatalogCard(producto) {
+    const card = document.getElementById('recipeCatalogCard');
+    if (!card) return;
+
+    const nombreProducto = String(producto || '').trim();
+    if (!nombreProducto) {
+        renderEstadoVacioCatalogoRecetas('Busca una receta para ver aqui su composicion, subproductos y ficha tecnica.');
+        return;
+    }
+
+    const receta = recetasCatalogo[nombreProducto] || { ingredientes: [], componentes: [], ficha: {} };
+    const ingredientes = Array.isArray(receta.ingredientes) ? receta.ingredientes : [];
+    const componentes = Array.isArray(receta.componentes) ? receta.componentes : [];
+    const ficha = receta.ficha || {};
+    const productoInfo = obtenerProductoCatalogo(nombreProducto);
+    const proceso = [];
+
+    if (ficha.rendimiento_texto) proceso.push(`Rendimiento: ${escapeHtml(ficha.rendimiento_texto)}`);
+    if (ficha.tiempo_preparacion_min) proceso.push(`Preparacion: ${formatearCantidad(ficha.tiempo_preparacion_min)} min`);
+    if (ficha.tiempo_amasado_min) proceso.push(`Amasado: ${formatearCantidad(ficha.tiempo_amasado_min)} min`);
+    if (ficha.tiempo_fermentacion_min) proceso.push(`Fermentacion: ${formatearCantidad(ficha.tiempo_fermentacion_min)} min`);
+    if (ficha.tiempo_horneado_min) proceso.push(`Horneado: ${formatearCantidad(ficha.tiempo_horneado_min)} min`);
+    if (ficha.temperatura_horneado) proceso.push(`${formatearCantidad(ficha.temperatura_horneado)} C`);
+
+    const ingredientesHtml = ingredientes.length
+        ? `
+            <div class="recipe-chip-list">
+                ${ingredientes.map(item => {
+                    const insumo = obtenerInsumo(item.insumo_id);
+                    const nombre = item.insumo_nombre || (insumo ? insumo.nombre : 'Insumo');
+                    return `<span class="chip">${escapeHtml(nombre)}: ${formatearCantidad(item.cantidad)} ${escapeHtml(item.unidad_receta)}</span>`;
+                }).join('')}
+            </div>
+        `
+        : '<span class="text-muted recipe-empty-note">Sin ingredientes definidos</span>';
+
+    const componentesHtml = componentes.length
+        ? `
+            <div class="recipe-process-grid">
+                ${componentes.map(item => `
+                    <span class="chip">Incluye ${formatearCantidad(item.cantidad)} x ${escapeHtml(item.componente_producto)}</span>
+                `).join('')}
+            </div>
+        `
+        : '';
+
+    const procesoHtml = proceso.length
+        ? `
+            <div class="recipe-process-grid">
+                ${proceso.map(item => `<span class="chip">${item}</span>`).join('')}
+            </div>
+        `
+        : '';
+
+    const pasosHtml = ficha.pasos
+        ? `<div class="recipe-steps-static">${escapeHtml(ficha.pasos).replace(/\r?\n/g, '<br>')}</div>`
+        : '';
+
+    const observacionesHtml = ficha.observaciones
+        ? `<div class="recipe-observation-static text-muted">${escapeHtml(ficha.observaciones)}</div>`
+        : '';
+
+    const estaEnEditor = normalizarTextoBusqueda(productoActualSeleccionado()) === normalizarTextoBusqueda(nombreProducto);
+    card.dataset.producto = nombreProducto;
+    card.innerHTML = `
+        <div class="recipe-catalog-item-head">
+            <div>
+                <strong>${escapeHtml(nombreProducto)}</strong>
+                <span>
+                    ${productoInfo ? `Categoria ${escapeHtml(productoInfo.categoria)}. ` : ''}
+                    Consulta puntual de la receta sin cargar todas las fichas al tiempo.
+                </span>
+            </div>
+            <div class="recipe-catalog-item-actions">
+                <button type="button" class="btn btn-outline btn-sm" data-action="open-editor">
+                    ${estaEnEditor ? 'Editando en panel' : 'Abrir en editor'}
+                </button>
+            </div>
+        </div>
+        ${ingredientesHtml}
+        ${componentesHtml}
+        ${procesoHtml}
+        ${pasosHtml}
+        ${observacionesHtml}
+    `;
+
+    const actionButton = card.querySelector('[data-action="open-editor"]');
+    if (actionButton) {
+        actionButton.addEventListener('click', () => cargarRecetaEnEditor(nombreProducto));
+    }
+}
+
+function seleccionarRecetaCatalogo(producto) {
+    const nombreProducto = String(producto || '').trim();
+    const input = document.getElementById('recipeCatalogSearch');
+    if (input) {
+        input.value = nombreProducto;
+    }
+
+    const matches = buscarRecetasCoincidentes(nombreProducto);
+    renderRecipeCatalogMatches(matches.length ? matches : [nombreProducto], nombreProducto, nombreProducto);
+    renderRecipeCatalogCard(nombreProducto);
+}
+
+function actualizarBusquedaRecetas() {
+    const input = document.getElementById('recipeCatalogSearch');
+    if (!input) return;
+
+    const query = input.value || '';
+    const matches = buscarRecetasCoincidentes(query);
+    const queryNormalizada = normalizarTextoBusqueda(query);
+    const actual = productoCatalogoVisible();
+
+    let productoActivo = '';
+    if (matches.length === 1) {
+        productoActivo = matches[0];
+    } else if (matches.length > 1) {
+        productoActivo = matches.find(nombre => normalizarTextoBusqueda(nombre) === queryNormalizada) || '';
+        if (!productoActivo && actual && matches.some(nombre => normalizarTextoBusqueda(nombre) === normalizarTextoBusqueda(actual))) {
+            productoActivo = actual;
+        }
+    }
+
+    renderRecipeCatalogMatches(matches, productoActivo, query);
+
+    if (!queryNormalizada) {
+        renderEstadoVacioCatalogoRecetas('Busca una receta para ver aqui su composicion, subproductos y ficha tecnica.');
+        return;
+    }
+
+    if (!matches.length) {
+        renderEstadoVacioCatalogoRecetas('No encontramos una receta con ese nombre. Revisa la escritura o prueba con otro termino.');
+        return;
+    }
+
+    if (!productoActivo) {
+        renderEstadoVacioCatalogoRecetas('Hay varias coincidencias. Elige una para abrir su ficha puntual.');
+        return;
+    }
+
+    renderRecipeCatalogCard(productoActivo);
+}
+
+function abrirPrimeraRecetaCoincidente() {
+    const input = document.getElementById('recipeCatalogSearch');
+    if (!input) return;
+
+    const matches = buscarRecetasCoincidentes(input.value || '');
+    if (!matches.length) {
+        renderRecipeCatalogMatches([], '', input.value || '');
+        renderEstadoVacioCatalogoRecetas('No encontramos una receta con ese nombre. Revisa la escritura o prueba con otro termino.');
+        Toast.warning('No encontramos una receta con ese nombre.');
+        return;
+    }
+
+    seleccionarRecetaCatalogo(matches[0]);
+}
+
+function manejarTeclaBusquedaReceta(event) {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    abrirPrimeraRecetaCoincidente();
 }
 
 function opcionesProductosComponente(selectedName = '') {
@@ -695,7 +1009,7 @@ function actualizarModoReceta() {
         return;
     }
 
-    if (info.categoria === 'Panaderia') {
+    if (info.es_panaderia) {
         hint.textContent = 'Producto de panaderia: usa insumos directos y completa la ficha tecnica para estandarizar el proceso.';
     } else {
         hint.textContent = `Producto de categoria ${info.categoria}: puedes definir insumos directos y tambien subproductos o componentes base del plato. La ficha tecnica es opcional.`;
@@ -741,6 +1055,11 @@ function cargarEditorReceta() {
 
     actualizarModoReceta();
     actualizarVistaReceta();
+
+    const productoVisible = productoCatalogoVisible();
+    if (normalizarTextoBusqueda(productoVisible) === normalizarTextoBusqueda(producto)) {
+        renderRecipeCatalogCard(productoVisible);
+    }
 }
 
 function recogerIngredientesReceta() {

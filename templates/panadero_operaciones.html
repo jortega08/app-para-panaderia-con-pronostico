@@ -14,7 +14,7 @@
     <div class="metrics-row" style="grid-template-columns: repeat(4, 1fr);">
         <div class="metric-card">
             <div class="metric-icon"><span class="material-symbols-outlined">assignment</span></div>
-            <div class="metric-label">Pedidos Hoy</div>
+            <div class="metric-label">Pedidos de Mesas</div>
             <div class="metric-value">{{ stats.total_pedidos }}</div>
         </div>
         <div class="metric-card">
@@ -25,12 +25,12 @@
         <div class="metric-card">
             <div class="metric-icon"><span class="material-symbols-outlined">paid</span></div>
             <div class="metric-label">Total Cobrado</div>
-            <div class="metric-value text-success">${{ '{:,.0f}'.format(stats.total_cobrado or 0) }}</div>
+            <div class="metric-value text-success">${{ '{:,.0f}'.format(stats.total_cobrado_global or 0) }}</div>
         </div>
         <div class="metric-card">
-            <div class="metric-icon"><span class="material-symbols-outlined">check_circle</span></div>
-            <div class="metric-label">Pagados</div>
-            <div class="metric-value text-primary">{{ stats.pagados }}</div>
+            <div class="metric-icon"><span class="material-symbols-outlined">point_of_sale</span></div>
+            <div class="metric-label">Ventas POS</div>
+            <div class="metric-value text-primary">{{ stats.ventas_pos or 0 }}</div>
         </div>
     </div>
 
@@ -163,6 +163,66 @@
     </div>
 
     {# ── PEDIDOS DEL DIA ── #}
+    <div class="card" style="margin-bottom: 18px;">
+        <div class="card-header">
+            <span class="material-symbols-outlined">point_of_sale</span> Ventas Directas de Caja
+            <span class="text-muted" style="font-weight: 400; font-size: 13px; margin-left: 12px;">
+                {{ stats.ventas_pos or 0 }} transacciones POS
+                {% if stats.transacciones_totales %} &middot; {{ stats.transacciones_totales }} transacciones totales del dia{% endif %}
+            </span>
+        </div>
+        <div class="card-body">
+            {% if ventas_pos %}
+            <div class="pedidos-list">
+                {% for venta in ventas_pos %}
+                <div class="pedido-card pedido-estado-pagado" style="margin-bottom: 8px;">
+                    <div class="pedido-header" style="padding: 10px 16px;">
+                        <div class="pedido-info">
+                            <span class="pedido-id">{{ venta.codigo }}</span>
+                            <span class="pedido-mesa"><span class="material-symbols-outlined">storefront</span> Mostrador</span>
+                            <span class="pedido-hora">{{ venta.hora[:5] if venta.hora else '--:--' }}</span>
+                            <span class="pedido-mesero"><span class="material-symbols-outlined">person</span> {{ venta.cajero }}</span>
+                            <span class="pedido-badge pedido-badge-pagado">{{ venta.metodo_pago|capitalize }}</span>
+                        </div>
+                        <span class="pedido-total" style="font-size: 16px;">${{ '{:,.0f}'.format(venta.total or 0) }}</span>
+                    </div>
+                    <div class="pedido-detail-grid">
+                        <div class="pedido-detail-card">
+                            <div class="pedido-section-title">Resumen de la venta</div>
+                            <div class="pedido-meta-list">
+                                <div class="pedido-meta-row"><span>Registrada</span><strong>{{ venta.fecha }} {{ venta.hora }}</strong></div>
+                                <div class="pedido-meta-row"><span>Cajero</span><strong>{{ venta.cajero }}</strong></div>
+                                <div class="pedido-meta-row"><span>Metodo</span><strong>{{ venta.metodo_pago|capitalize }}</strong></div>
+                                <div class="pedido-meta-row"><span>Unidades</span><strong>{{ venta.unidades }}</strong></div>
+                            </div>
+                        </div>
+                        <div class="pedido-detail-card">
+                            <div class="pedido-section-title">Cobro</div>
+                            <div class="pedido-meta-list">
+                                <div class="pedido-meta-row"><span>Total</span><strong>${{ '{:,.0f}'.format(venta.total or 0) }}</strong></div>
+                                <div class="pedido-meta-row"><span>Recibido</span><strong>${{ '{:,.0f}'.format(venta.monto_recibido or 0) }}</strong></div>
+                                <div class="pedido-meta-row"><span>Vueltas</span><strong>${{ '{:,.0f}'.format(venta.cambio or 0) }}</strong></div>
+                                <div class="pedido-meta-row"><span>Detalle</span><strong>{{ venta.items_preview or 'Venta registrada en POS' }}</strong></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="pedido-items" style="padding: 6px 16px 12px;">
+                        {% for item in venta["items"] %}
+                        <div class="pedido-item-row">
+                            <span><span class="material-symbols-outlined cart-item-icon">{{ icono(item.producto) }}</span> {{ item.cantidad }}x {{ item.producto }}</span>
+                            <span class="text-muted">${{ '{:,.0f}'.format(item.total or 0) }}</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="text-muted text-center" style="padding: 20px;">Aun no hay ventas directas registradas en caja hoy</p>
+            {% endif %}
+        </div>
+    </div>
+
     <div class="card">
         <div class="card-header">
             <span class="material-symbols-outlined">assignment</span> Pedidos del Dia

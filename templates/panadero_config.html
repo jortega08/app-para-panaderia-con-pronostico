@@ -61,14 +61,15 @@
                     <h4>Cargar catalogo desde Excel</h4>
                     <p class="text-muted">
                         Sube un archivo <strong>.xlsx</strong> o <strong>.csv</strong> con las columnas
-                        <strong>nombre</strong> y <strong>precio</strong>. Tambien puedes incluir
-                        <strong>categoria</strong> y <strong>es_adicional</strong>. Si el producto ya existe,
-                        el sistema actualiza su precio y categoria automaticamente.
+                        <strong>producto</strong> y <strong>precio</strong>. El formato oficial de Rich's tambien
+                        puede traer <strong>menú</strong>, <strong>categoría</strong> y <strong>descripción</strong>.
+                        La importación sincroniza el catálogo activo: actualiza lo existente, crea lo nuevo
+                        y desactiva lo que ya no venga en el archivo.
                     </p>
                     <div class="catalog-import-example">
                         Ejemplo:
-                        <code>nombre,precio,categoria,es_adicional</code>
-                        <code>Queso,2500,Panaderia,si</code>
+                        <code>Menú,Categoría,Producto,Descripción,Precio (COP)</code>
+                        <code>Desayunos,Caldos,Caldo de Costilla Normal,,6500</code>
                     </div>
                 </div>
                 <div class="catalog-import-actions">
@@ -275,7 +276,8 @@ function importCatalog() {
         const resumen = [
             'Procesados: ' + data.procesados,
             'creados: ' + data.creados,
-            'actualizados: ' + data.actualizados
+            'actualizados: ' + data.actualizados,
+            'desactivados: ' + (data.desactivados || 0)
         ].join(', ');
 
         if (data.errores && data.errores.length) {

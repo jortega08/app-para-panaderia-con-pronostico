@@ -37,6 +37,7 @@
                     style="--prod-color: {{ p.color }}"
                     data-category="{{ p.categoria|lower }}"
                     data-name="{{ p.nombre|lower }}"
+                    data-search="{{ (p.nombre ~ ' ' ~ p.categoria ~ ' ' ~ (p.menu or '') ~ ' ' ~ (p.descripcion or ''))|lower }}"
                     data-producto="{{ p.nombre }}"
                     data-product-id="{{ p.id }}"
                     data-stock-minimo="{{ p.stock_minimo or 0 }}">
@@ -44,6 +45,12 @@
                 <span class="material-symbols-outlined product-icon">{{ p.icono }}</span>
                 <span class="product-name">{{ p.nombre }}</span>
                 <span class="chip product-category-chip">{{ p.categoria }}</span>
+                {% if p.menu %}
+                <span class="text-muted" style="font-size: 12px;">{{ p.menu|replace('|', ' / ') }}</span>
+                {% endif %}
+                {% if p.descripcion %}
+                <span class="text-muted" style="font-size: 12px; line-height: 1.35;">{{ p.descripcion }}</span>
+                {% endif %}
                 <span class="product-price">${{ '{:,.0f}'.format(p.precio or 0) }}</span>
                 <span class="stock-badge" id="stock-{{ p.id }}" style="display:none"></span>
             </button>
@@ -123,6 +130,7 @@ const ADICIONALES_DISPONIBLES = ADICIONALES || [];
 const PEDIDO_EDITABLE = {{ pedido_editable|default(None)|tojson }};
 const PRODUCT_META = {{ productos|tojson }};
 const PRODUCT_META_BY_NAME = Object.fromEntries((PRODUCT_META || []).map(p => [String(p.nombre || ''), p]));
+const PRODUCT_META_BY_ID = Object.fromEntries((PRODUCT_META || []).map(p => [String(p.id || ''), p]));
 let pedidoEditableId = PEDIDO_EDITABLE ? Number(PEDIDO_EDITABLE.id) : null;
 
 // Stock disponible por producto (se carga al inicio y se actualiza)
@@ -131,7 +139,7 @@ let stockDisponible = {};
 function inicializarPedidoEditable() {
     if (!PEDIDO_EDITABLE || !Array.isArray(PEDIDO_EDITABLE.items)) return;
     cart = PEDIDO_EDITABLE.items.map((item, idx) => {
-        const meta = PRODUCT_META_BY_NAME[String(item.producto || '')] || {};
+        const meta = PRODUCT_META_BY_ID[String(item.product_id || '')] || PRODUCT_META_BY_NAME[String(item.producto || '')] || {};
         return {
             id: Number(item.id || 0) || (Date.now() + idx),
             productId: meta.id || null,
@@ -245,7 +253,7 @@ function applyProductFilters() {
     const search = (document.getElementById('productSearch').value || '').trim().toLowerCase();
     document.querySelectorAll('.product-grid .product-card').forEach(card => {
         const matchesCategory = selectedCategory === 'todos' || card.dataset.category === selectedCategory;
-        const matchesSearch = !search || card.dataset.name.includes(search);
+        const matchesSearch = !search || (card.dataset.search || card.dataset.name || '').includes(search);
         card.style.display = matchesCategory && matchesSearch ? '' : 'none';
     });
 }
@@ -575,6 +583,7 @@ async function enviarPedido() {
     }
 
     const items = cart.map(item => ({
+        producto_id: item.productId,
         producto: item.nombre,
         cantidad: item.cantidad,
         modificaciones: (item.modificaciones || []).map(mod => ({
