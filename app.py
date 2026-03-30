@@ -24,10 +24,11 @@ from functools import wraps
 from io import BytesIO
 from xml.etree import ElementTree as ET
 
-# Cargar variables de entorno desde .env si existe
+# Cargar variables locales solo en desarrollo.
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    if not any(os.environ.get(key) for key in ("RAILWAY_ENVIRONMENT", "RAILWAY_PROJECT_ID", "RAILWAY_SERVICE_ID")):
+        load_dotenv()
 except ImportError:
     pass
 
@@ -3927,7 +3928,15 @@ def _iniciar_scheduler():
 
 def _inicializar_base_de_datos_con_retry() -> None:
     """Inicializa la BD con pequeños reintentos para despliegues en contenedores."""
-    motor = _database_engine()
+    db_info = get_database_info()
+    motor = str(db_info.get("type", "sqlite") or "sqlite").strip().lower()
+    app.logger.info(
+        "Configuracion de BD detectada: type=%s railway=%s require_postgres=%s url=%s",
+        motor,
+        db_info.get("is_railway"),
+        db_info.get("require_postgres"),
+        db_info.get("database_url") or "(sin DATABASE_URL)",
+    )
     intentos = int(os.environ.get("DB_INIT_MAX_RETRIES", "12" if motor == "postgresql" else "1"))
     espera = float(os.environ.get("DB_INIT_RETRY_DELAY", "2.5" if motor == "postgresql" else "0"))
 
