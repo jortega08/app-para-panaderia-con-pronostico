@@ -141,25 +141,9 @@ class _PGCursor:
         if not pg_sql.strip():
             return self
 
-        is_insert = pg_sql.strip().upper().startswith("INSERT")
-        if is_insert and "RETURNING" not in pg_sql.upper() and "ON CONFLICT DO NOTHING" not in pg_sql.upper():
-            pg_sql_returning = pg_sql.rstrip().rstrip(";") + " RETURNING id"
-            try:
-                self._cur.execute(pg_sql_returning, params or ())
-                row = self._cur.fetchone()
-                self.lastrowid = row[0] if row else None
-            except Exception:
-                self._cur.execute(pg_sql, params or ())
-                try:
-                    self._cur.execute("SELECT LASTVAL()")
-                    row = self._cur.fetchone()
-                    self.lastrowid = row[0] if row else None
-                except Exception:
-                    self.lastrowid = None
-        else:
-            self._cur.execute(pg_sql, params or ())
-
+        self._cur.execute(pg_sql, params or ())
         self.rowcount = self._cur.rowcount
+        self.lastrowid = None
         return self
 
     def fetchone(self):
