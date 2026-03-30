@@ -635,7 +635,6 @@ def inicializar_base_de_datos() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_ventas_fecha ON ventas(fecha)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_ventas_producto ON ventas(producto)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_ventas_fecha_producto ON ventas(fecha, producto)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_ventas_venta_grupo ON ventas(venta_grupo)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_registros_fecha ON registros_diarios(fecha)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_registros_fecha_producto ON registros_diarios(fecha, producto)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_pedidos_fecha_estado ON pedidos(fecha, estado)")
@@ -660,6 +659,9 @@ def inicializar_base_de_datos() -> None:
         _migrar_adicionales(conn)
         _reparar_cantidades_receta_infladas(conn)
         _migrar_ventas_pedidos_caja(conn)
+
+        # Índice sobre columna que puede venir de migración (tabla vieja) o CREATE TABLE (tabla nueva)
+        _ejecutar_migracion_tolerante(conn, "CREATE INDEX IF NOT EXISTS idx_ventas_venta_grupo ON ventas(venta_grupo)")
 
         _sembrar_categorias_producto(conn)
         conn.execute("""
