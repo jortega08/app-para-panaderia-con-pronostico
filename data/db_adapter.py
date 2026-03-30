@@ -27,7 +27,6 @@ from pathlib import Path
 
 _DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 _DEFAULT_SQLITE = Path(__file__).parent / "panaderia.db"
-_SQLITE_PATH = _DEFAULT_SQLITE
 
 if _DATABASE_URL.startswith(("postgresql://", "postgres://")):
     DB_TYPE = "postgresql"
@@ -58,30 +57,18 @@ def _translate_sql_for_pg(sql: str) -> str:
     # 1. ? → %s (parámetros posicionales)
     result = sql.replace("?", "%s")
 
-    # 2. date('now', '-N days') → texto ISO YYYY-MM-DD (como SQLite)
+    # 2. date('now', '-N days') → CURRENT_DATE - INTERVAL 'N days'
     def _replace_date_now(m: re.Match) -> str:
-        modifier = m.group(1).strip()
-        if modifier == "%s":
-            return "TO_CHAR((CURRENT_DATE + CAST(%s AS interval))::date, 'YYYY-MM-DD')"
-        modifier = modifier.strip("'\"")
-        return f"TO_CHAR((CURRENT_DATE + INTERVAL '{modifier}')::date, 'YYYY-MM-DD')"
+        modifier = m.group(1).strip().strip("'\"")
+        # e.g. '-7 days' → -7 days
+        return f"(CURRENT_DATE + INTERVAL '{modifier}')"
     result = re.sub(r"date\s*\(\s*'now'\s*,\s*([^)]+)\)", _replace_date_now, result, flags=re.IGNORECASE)
 
-    # 3. date('now') → texto ISO YYYY-MM-DD
-    result = re.sub(
-        r"date\s*\(\s*'now'\s*\)",
-        "TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD')",
-        result,
-        flags=re.IGNORECASE,
-    )
+    # 3. date('now') → CURRENT_DATE
+    result = re.sub(r"date\s*\(\s*'now'\s*\)", "CURRENT_DATE", result, flags=re.IGNORECASE)
 
-    # 4. datetime('now') → texto ISO YYYY-MM-DD HH:MM:SS
-    result = re.sub(
-        r"datetime\s*\(\s*'now'\s*\)",
-        "TO_CHAR(NOW(), 'YYYY-MM-DD HH24:MI:SS')",
-        result,
-        flags=re.IGNORECASE,
-    )
+    # 4. datetime('now') → NOW()
+    result = re.sub(r"datetime\s*\(\s*'now'\s*\)", "NOW()", result, flags=re.IGNORECASE)
 
     # 5. INTEGER PRIMARY KEY AUTOINCREMENT → SERIAL PRIMARY KEY
     result = re.sub(
@@ -91,14 +78,16 @@ def _translate_sql_for_pg(sql: str) -> str:
         flags=re.IGNORECASE,
     )
 
-    # 6. PRAGMA statements → vacío (se ignorarán)
+    # 5b. GENERATED ALWAYS AS (...) VIRTUAL → GENERATED ALWAYS AS (...) STORED
+    # PostgreSQL no soporta columnas virtuales (VIRTUAL), solo STORED
     result = re.sub(
-        r"GENERATED\s+ALWAYS\s+AS\s*\((.*?)\)\s+VIRTUAL",
-        r"GENERATED ALWAYS AS (\1) STORED",
+        r"(GENERATED\s+ALWAYS\s+AS\s*\([^)]+\))\s+VIRTUAL",
+        r"\1 STORED",
         result,
-        flags=re.IGNORECASE | re.DOTALL,
+        flags=re.IGNORECASE,
     )
 
+    # 6. PRAGMA statements → vacío (se ignorarán)
     if re.match(r"^\s*PRAGMA\b", result, re.IGNORECASE):
         return ""
 
@@ -110,13 +99,6 @@ def _translate_sql_for_pg(sql: str) -> str:
 
     # 8. INSERT OR REPLACE → INSERT ... ON CONFLICT DO UPDATE
     # (más complejo, se maneja por tabla específica si es necesario)
-
-    result = re.sub(
-        r"\bMAX\s*\(\s*0\s*,\s*([^)]+)\)",
-        r"GREATEST(0, \1)",
-        result,
-        flags=re.IGNORECASE,
-    )
 
     return result
 
@@ -145,18 +127,21 @@ class _PGCursor:
 
         is_insert = pg_sql.strip().upper().startswith("INSERT")
         if is_insert and "RETURNING" not in pg_sql.upper() and "ON CONFLICT DO NOTHING" not in pg_sql.upper():
-            self._cur.execute(pg_sql, params or ())
-            self.rowcount = self._cur.rowcount
-            self.lastrowid = None
+            # Agregar RETURNING id para obtener lastrowid
+            pg_sql_returning = pg_sql.rstrip().rstrip(";") + " RETURNING id"
             try:
-                aux_cur = self._cur.connection.cursor()
-                aux_cur.execute("SELECT LASTVAL()")
-                row = aux_cur.fetchone()
+                self._cur.execute(pg_sql_returning, params or ())
+                row = self._cur.fetchone()
                 self.lastrowid = row[0] if row else None
-                aux_cur.close()
             except Exception:
-                self.lastrowid = None
-            return self
+                # Si RETURNING falla (ej. tabla sin 'id'), ejecutar sin RETURNING
+                self._cur.execute(pg_sql, params or ())
+                try:
+                    self._cur.execute("SELECT LASTVAL()")
+                    r = self._cur.fetchone()
+                    self.lastrowid = r[0] if r else None
+                except Exception:
+                    self.lastrowid = None
         else:
             self._cur.execute(pg_sql, params or ())
 
@@ -214,7 +199,7 @@ class _PGConnection:
             self.rollback()
         else:
             self.commit()
-        self.close()
+        # No cerrar aquí para compatibilidad con pool/reuse; dejar que GC lo haga
         return False
 
 
@@ -229,18 +214,6 @@ def _get_pg_connection() -> _PGConnection:
     conn = psycopg2.connect(pg_url)
     conn.autocommit = False
     return _PGConnection(conn)
-
-
-def get_database_info() -> dict:
-    """Metadatos minimos del motor activo para soporte operativo."""
-    info = {
-        "type": DB_TYPE,
-        "database_url": _DATABASE_URL,
-        "supports_app_file_backup": DB_TYPE == "sqlite",
-    }
-    if DB_TYPE == "sqlite":
-        info["sqlite_path"] = str(_SQLITE_PATH)
-    return info
 
 
 # ── Función pública ────────────────────────────────────────────────────────────
