@@ -27,7 +27,7 @@
                     <span class="pedido-badge pedido-badge-{{ p.estado }}">
                         {% if p.estado == 'pendiente' %}Recibido
                         {% elif p.estado == 'en_preparacion' %}En Preparacion
-                        {% elif p.estado == 'listo' %}Listo para cobrar
+                        {% elif p.estado == 'listo' %}Listo para caja
                         {% elif p.estado == 'pagado' %}Pagado
                         {% elif p.estado == 'cancelado' %}Cancelado
                         {% endif %}
@@ -60,7 +60,7 @@
             {% if p.estado not in ('pagado', 'cancelado') %}
             <div style="margin-top: 14px;">
                 <a class="btn btn-outline btn-sm" href="{{ url_for('mesero_pedido', mesa_id=p.mesa_id) }}">
-                    Editar pedido
+                    Tomar pedido adicional
                 </a>
             </div>
             {% endif %}

@@ -1,178 +1,634 @@
 {% extends "base.html" %}
 {% block title_extra %} - Configuracion{% endblock %}
 {% block content %}
+<style>
+.config-hub-shell { display: flex; flex-direction: column; gap: 18px; }
+.config-hub-summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr);
+    gap: 18px;
+}
+.config-hub-card {
+    background: linear-gradient(180deg, rgba(255,249,242,0.96), rgba(255,255,255,0.98));
+    border: 1px solid rgba(139, 85, 19, 0.08);
+    border-radius: 24px;
+    box-shadow: 0 18px 44px rgba(44,24,16,0.08);
+    padding: 22px;
+}
+.config-hub-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    border-radius: 999px;
+    background: rgba(193, 120, 23, 0.12);
+    color: var(--primary-dark);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+.config-hub-current-title { margin-top: 16px; font-size: clamp(24px, 4vw, 34px); color: var(--text); }
+.config-hub-current-copy { margin-top: 10px; max-width: 580px; color: var(--text-sec); font-size: 15px; }
+.config-hub-actions { margin-top: 18px; display: flex; gap: 10px; flex-wrap: wrap; }
+.config-hub-meta-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.config-mini-stat {
+    padding: 16px;
+    border-radius: 18px;
+    background: rgba(255,255,255,0.88);
+    border: 1px solid rgba(193, 120, 23, 0.12);
+}
+.config-mini-stat span {
+    display: block;
+    color: var(--text-muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.config-mini-stat strong {
+    display: block;
+    margin-top: 10px;
+    font-size: 28px;
+    color: var(--text);
+    font-family: var(--font-metric);
+}
+.config-mini-stat small { display: block; margin-top: 8px; color: var(--text-sec); font-size: 13px; }
+.config-module-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 46px;
+    padding: 0 16px;
+    border-radius: 999px;
+    border: 1px solid rgba(139, 85, 19, 0.12);
+    background: rgba(255,255,255,0.92);
+    color: var(--text-sec);
+    font-size: 14px;
+    font-weight: 700;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+.config-module-tab:hover { transform: translateY(-1px); box-shadow: 0 12px 24px rgba(44,24,16,0.08); }
+.config-module-tab.is-active {
+    background: linear-gradient(135deg, rgba(139,85,19,0.96), rgba(193,120,23,0.94));
+    border-color: rgba(139, 85, 19, 0.4);
+    color: #FFF;
+    box-shadow: 0 16px 30px rgba(139,85,19,0.2);
+}
+.config-module-tab .material-symbols-outlined { font-size: 19px; }
+.config-section { display: none; }
+.config-section.is-active { display: block; }
+.config-section-grid { display: grid; gap: 18px; }
+.config-section-grid.products-grid { grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr); align-items: start; }
+.config-pins-grid { grid-template-columns: minmax(260px, 0.52fr) minmax(0, 1fr); }
+.config-stack { display: flex; flex-direction: column; gap: 18px; }
+.config-section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+}
+.config-section-head h3 { font-size: 22px; color: var(--text); }
+.config-section-head p { margin-top: 8px; color: var(--text-sec); max-width: 720px; }
+.config-section-note {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: rgba(47,107,99,0.1);
+    color: var(--secondary);
+    font-size: 12px;
+    font-weight: 700;
+}
+.config-scroll-list { display: flex; flex-direction: column; max-height: min(70vh, 980px); overflow: auto; }
+.config-scroll-list .config-row:first-of-type { border-top: 1px solid var(--divider); }
+.config-user-row { flex-wrap: wrap; align-items: center; }
+.config-subcard-title { font-size: 17px; color: var(--primary-dark); margin-bottom: 6px; }
+.config-subcard-copy { margin-bottom: 14px; color: var(--text-sec); font-size: 14px; }
+.config-inline-hint { font-size: 13px; color: var(--text-muted); }
+.config-info-card { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.config-info-item {
+    padding: 16px;
+    border-radius: 18px;
+    background: rgba(255,255,255,0.88);
+    border: 1px solid rgba(139, 85, 19, 0.08);
+}
+.config-info-item span {
+    display: block;
+    color: var(--text-muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.config-info-item strong { display: block; margin-top: 8px; color: var(--text); }
+.config-picker-card {
+    max-width: 760px;
+    background: linear-gradient(180deg, rgba(255,251,246,0.98), rgba(255,255,255,1));
+}
+.config-picker-lead { color: var(--text-sec); font-size: 15px; line-height: 1.6; }
+.config-picker-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 18px; }
+.config-picker-option {
+    text-align: left;
+    padding: 20px;
+    border-radius: 22px;
+    border: 1px solid rgba(139, 85, 19, 0.12);
+    background: rgba(255,255,255,0.92);
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.config-picker-option:hover { transform: translateY(-2px); box-shadow: 0 18px 32px rgba(44,24,16,0.12); }
+.config-picker-option.is-active {
+    border-color: rgba(193, 120, 23, 0.5);
+    box-shadow: 0 18px 34px rgba(193,120,23,0.16);
+}
+.config-picker-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 46px;
+    height: 46px;
+    border-radius: 16px;
+    background: rgba(193,120,23,0.12);
+    color: var(--primary-dark);
+}
+.config-picker-option h4 { margin-top: 14px; font-size: 18px; color: var(--text); }
+.config-picker-option p { margin-top: 8px; color: var(--text-sec); font-size: 14px; line-height: 1.55; }
+.config-picker-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.config-picker-meta .chip { background: rgba(47,107,99,0.08); color: var(--secondary); }
+.config-picker-footer-copy { color: var(--text-muted); font-size: 13px; }
+body.config-picker-open { overflow: hidden; }
+.modal-overlay[hidden] { display: none !important; }
+@media (max-width: 1080px) {
+    .config-hub-summary,
+    .config-section-grid.products-grid,
+    .config-pins-grid,
+    .config-info-card { grid-template-columns: 1fr; }
+}
+@media (max-width: 720px) {
+    .config-hub-card,
+    .config-picker-option { padding: 18px; }
+    .config-picker-grid,
+    .config-hub-meta-grid { grid-template-columns: 1fr; }
+    .config-module-tab { width: 100%; justify-content: center; }
+}
+</style>
+
 <div class="page-container">
     <div class="page-header">
-        <h2 class="page-title">Configuracion</h2>
+        <div>
+            <h2 class="page-title">
+                <span class="material-symbols-outlined">tune</span>
+                Configuracion
+            </h2>
+            <p class="text-muted">Abre un modulo puntual para trabajar productos, catalogo y pines sin perderte entre tantas opciones.</p>
+        </div>
+        <div class="page-header-right">
+            <button type="button" class="btn btn-outline" onclick="openConfigPicker()">
+                <span class="material-symbols-outlined" style="font-size:18px;">apps</span>
+                Cambiar modulo
+            </button>
+        </div>
     </div>
 
-    <div class="card">
-        <div class="card-header">Productos y Precios</div>
-        <div class="card-body" id="productList">
-            <p class="text-muted" style="margin-bottom: 14px;">
-                Desde aqui puedes editar nombre, precio, categoria y definir si un producto puede usarse como adicional.
-                Los productos marcados como adicional aparecen disponibles para mesero y cajero.
-            </p>
-            {% for p in productos %}
-            <div class="config-row">
-                <span class="config-dot" style="background: {{ p.color }}"></span>
-                <span class="material-symbols-outlined config-product-icon">{{ p.icono }}</span>
-                <input type="text" class="form-input form-input-sm" id="prod-name-{{ p.id }}"
-                       value="{{ p.nombre }}" style="flex: 1.4; min-width: 180px;">
-                <input type="number" step="0.5" min="0" class="form-input form-input-sm price-input"
-                       value="{{ p.precio }}" id="prod-price-{{ p.id }}">
-                <select class="form-input form-input-sm" id="prod-category-{{ p.id }}" style="width: 190px;">
-                    {% for categoria in categorias %}
-                    <option value="{{ categoria }}" {% if categoria == p.categoria %}selected{% endif %}>{{ categoria }}</option>
-                    {% endfor %}
-                </select>
-                <label class="config-toggle">
-                    <input type="checkbox" id="prod-additional-{{ p.id }}" {% if p.es_adicional %}checked{% endif %}>
-                    <span>Puede ser adicional</span>
-                </label>
-                <button class="btn btn-sm btn-primary" onclick="saveProduct({{ p.id }})">
-                    Guardar
-                </button>
-                <button class="btn btn-sm btn-danger-outline" onclick="deleteProduct({{ p.id }}, {{ p.nombre|tojson }})">
-                    Eliminar
-                </button>
-            </div>
-            {% endfor %}
-
-            <div class="config-add-row">
-                <input type="text" class="form-input form-input-sm" placeholder="Nombre del producto"
-                       id="newProdName" style="flex: 2;">
-                <select class="form-input form-input-sm" id="newProdCategory" style="width: 190px;">
-                    {% for categoria in categorias %}
-                    <option value="{{ categoria }}">{{ categoria }}</option>
-                    {% endfor %}
-                </select>
-                <input type="number" step="0.5" min="0" class="form-input form-input-sm" placeholder="Precio"
-                       id="newProdPrice" value="10.0" style="width: 100px;">
-                <label class="config-toggle">
-                    <input type="checkbox" id="newProdAdditional">
-                    <span>Adicional</span>
-                </label>
-                <button class="btn btn-accent" onclick="addProduct()">Agregar</button>
-            </div>
-
-            <div class="catalog-import-box">
-                <div class="catalog-import-copy">
-                    <h4>Cargar catalogo desde Excel</h4>
-                    <p class="text-muted">
-                        Sube un archivo <strong>.xlsx</strong> o <strong>.csv</strong> con las columnas
-                        <strong>producto</strong> y <strong>precio</strong>. El formato oficial de Rich's tambien
-                        puede traer <strong>menú</strong>, <strong>categoría</strong> y <strong>descripción</strong>.
-                        La importación sincroniza el catálogo activo: actualiza lo existente, crea lo nuevo
-                        y desactiva lo que ya no venga en el archivo.
-                    </p>
-                    <div class="catalog-import-example">
-                        Ejemplo:
-                        <code>Menú,Categoría,Producto,Descripción,Precio (COP)</code>
-                        <code>Desayunos,Caldos,Caldo de Costilla Normal,,6500</code>
-                    </div>
-                </div>
-                <div class="catalog-import-actions">
-                    <input type="file" id="catalogFile" class="form-input form-input-sm" accept=".xlsx,.csv">
-                    <button class="btn btn-primary" id="btnImportCatalog" onclick="importCatalog()">
-                        Importar catalogo
+    <div class="config-hub-shell">
+        <section class="config-hub-summary">
+            <article class="config-hub-card">
+                <span class="config-hub-kicker">
+                    <span class="material-symbols-outlined" style="font-size:16px;">space_dashboard</span>
+                    Panel activo
+                </span>
+                <h3 class="config-hub-current-title" id="configCurrentTitle">Gestion de Productos</h3>
+                <p class="config-hub-current-copy" id="configCurrentCopy">
+                    Edita precios, categorias y el catalogo oficial desde un solo lugar.
+                </p>
+                <div class="config-hub-actions">
+                    <button type="button" class="config-module-tab" data-section-tab="productos" onclick="selectConfigSection('productos')">
+                        <span class="material-symbols-outlined">inventory_2</span>
+                        Gestion de Productos
+                    </button>
+                    <button type="button" class="config-module-tab" data-section-tab="pines" onclick="selectConfigSection('pines')">
+                        <span class="material-symbols-outlined">pin</span>
+                        Gestion de Pines
                     </button>
                 </div>
-                <div class="catalog-import-feedback text-muted" id="catalogImportFeedback">
-                    Puedes seguir agregando productos manualmente si lo prefieres.
+            </article>
+
+            <aside class="config-hub-card">
+                <div class="config-hub-meta-grid">
+                    <div class="config-mini-stat">
+                        <span>Productos activos</span>
+                        <strong>{{ productos|length }}</strong>
+                        <small>Catalogo disponible para POS, meseros y produccion.</small>
+                    </div>
+                    <div class="config-mini-stat">
+                        <span>Usuarios internos</span>
+                        <strong>{{ usuarios|length }}</strong>
+                        <small>Pines de acceso para cajero, panadero y mesero.</small>
+                    </div>
+                    <div class="config-mini-stat">
+                        <span>Categorias</span>
+                        <strong>{{ categorias|length }}</strong>
+                        <small>Grupos visibles para navegar la carta y el catalogo.</small>
+                    </div>
+                    <div class="config-mini-stat">
+                        <span>Codigo de caja</span>
+                        <strong>{{ codigo_caja|length }}</strong>
+                        <small>Longitud actual del codigo que protege aperturas y cierres.</small>
+                    </div>
+                </div>
+            </aside>
+        </section>
+
+        <section id="config-section-productos" class="config-section">
+            <div class="config-section-grid products-grid">
+                <div class="config-stack">
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="config-section-head">
+                                <div>
+                                    <h3>Gestion de Productos</h3>
+                                    <p>
+                                        Mantiene el menu oficial alineado con Rich's: cambia nombre, precio, categoria
+                                        y conserva el catalogo listo para caja, meseros y produccion.
+                                    </p>
+                                </div>
+                                <span class="config-section-note">
+                                    <span class="material-symbols-outlined" style="font-size:16px;">category</span>
+                                    {{ categorias|length }} categorias activas
+                                </span>
+                            </div>
+
+                            <div class="config-add-row">
+                                <input type="text" class="form-input form-input-sm" placeholder="Nombre del producto"
+                                       id="newProdName" style="flex: 2;">
+                                <select class="form-input form-input-sm" id="newProdCategory" style="width: 190px;">
+                                    {% for categoria in categorias %}
+                                    <option value="{{ categoria }}">{{ categoria }}</option>
+                                    {% endfor %}
+                                </select>
+                                <input type="number" step="0.5" min="0" class="form-input form-input-sm" placeholder="Precio"
+                                       id="newProdPrice" value="10.0" style="width: 100px;">
+                                <button class="btn btn-accent" onclick="addProduct()">Agregar</button>
+                            </div>
+
+                            <p class="config-inline-hint" style="margin-top: 12px;">
+                                Usa este formulario para cambios rapidos sin tocar el catalogo masivo.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">Productos y precios</div>
+                        <div class="card-body config-scroll-list" id="productList">
+                            {% for p in productos %}
+                            <div class="config-row">
+                                <span class="config-dot" style="background: {{ p.color }}"></span>
+                                <span class="material-symbols-outlined config-product-icon">{{ p.icono }}</span>
+                                <input type="text" class="form-input form-input-sm" id="prod-name-{{ p.id }}"
+                                       value="{{ p.nombre }}" style="flex: 1.4; min-width: 180px;">
+                                <input type="number" step="0.5" min="0" class="form-input form-input-sm price-input"
+                                       value="{{ p.precio }}" id="prod-price-{{ p.id }}">
+                                <select class="form-input form-input-sm" id="prod-category-{{ p.id }}" style="width: 190px;">
+                                    {% for categoria in categorias %}
+                                    <option value="{{ categoria }}" {% if categoria == p.categoria %}selected{% endif %}>{{ categoria }}</option>
+                                    {% endfor %}
+                                </select>
+                                <button class="btn btn-sm btn-primary" onclick="saveProduct({{ p.id }})">
+                                    Guardar
+                                </button>
+                                <button class="btn btn-sm btn-danger-outline" onclick='deleteProduct({{ p.id }}, {{ p.nombre|tojson }})'>
+                                    Eliminar
+                                </button>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="config-stack">
+                    <div class="card">
+                        <div class="card-body">
+                            <h4 class="config-subcard-title">Catalogo oficial</h4>
+                            <p class="config-subcard-copy">
+                                Sube un archivo <strong>.xlsx</strong> o <strong>.csv</strong> con columnas de producto y precio.
+                                El formato oficial de Rich's tambien puede traer menu, categoria y descripcion.
+                            </p>
+                            <div class="catalog-import-example">
+                                <code>Menu,Categoria,Producto,Descripcion,Precio (COP)</code>
+                                <code>Desayunos,Caldos,Caldo de Costilla Normal,,6500</code>
+                            </div>
+                            <div class="catalog-import-actions">
+                                <input type="file" id="catalogFile" class="form-input form-input-sm" accept=".xlsx,.csv">
+                                <button class="btn btn-primary" id="btnImportCatalog" onclick="importCatalog()">
+                                    Importar catalogo
+                                </button>
+                                <a class="btn btn-outline" href="/api/export/productos">
+                                    Descargar Excel
+                                </a>
+                            </div>
+                            <div class="catalog-import-feedback text-muted" id="catalogImportFeedback">
+                                La sincronizacion actualiza el catalogo activo, crea lo nuevo y desactiva lo que ya no venga en el archivo.
+                                Tambien puedes descargar el catalogo completo del sistema en Excel.
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-body">
+                            <h4 class="config-subcard-title">Categorias</h4>
+                            <p class="config-subcard-copy">
+                                Crea grupos nuevos para ordenar mejor la carta del mesero y los productos del punto de venta.
+                            </p>
+                            <div class="recipe-chip-list">
+                                {% for categoria in categorias %}
+                                <span class="chip">{{ categoria }}</span>
+                                {% endfor %}
+                            </div>
+                            <div class="catalog-import-actions">
+                                <input type="text" id="newCategoryName" class="form-input form-input-sm"
+                                       placeholder="Nueva categoria">
+                                <button class="btn btn-primary" onclick="addCategory()">Agregar categoria</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-body">
+                            <h4 class="config-subcard-title">Vista del modulo</h4>
+                            <p class="config-subcard-copy">
+                                El modulo de productos concentra todo lo que antes estaba repartido entre agregar items,
+                                catalogos y categorias. Si necesitas cambiar accesos internos, abre el modulo de pines.
+                            </p>
+                            <button type="button" class="btn btn-outline" onclick="openConfigPicker()">
+                                Abrir selector de modulos
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
+        </section>
+        <section id="config-section-pines" class="config-section">
+            <div class="config-stack">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="config-section-head">
+                            <div>
+                                <h3>Gestion de Pines</h3>
+                                <p>
+                                    Administra el codigo de verificacion de caja y los accesos internos del equipo.
+                                    Todo lo sensible queda concentrado aqui.
+                                </p>
+                            </div>
+                            <span class="config-section-note">
+                                <span class="material-symbols-outlined" style="font-size:16px;">shield_lock</span>
+                                {{ usuarios|length }} usuarios registrados
+                            </span>
+                        </div>
 
-            <div class="catalog-import-box">
-                <div class="catalog-import-copy">
-                    <h4>Categorias de productos</h4>
-                    <p class="text-muted">
-                        Crea nuevas categorias para organizar la carta del mesero y clasificar mejor los productos.
-                    </p>
-                    <div class="recipe-chip-list">
-                        {% for categoria in categorias %}
-                        <span class="chip">{{ categoria }}</span>
+                        <div class="config-section-grid config-pins-grid">
+                            <div class="card" style="margin: 0;">
+                                <div class="card-header">Codigo de verificacion de caja</div>
+                                <div class="card-body">
+                                    <div class="config-add-row" style="padding-top: 0;">
+                                        <input type="password" class="form-input form-input-sm" id="cashCode"
+                                               value="{{ codigo_caja }}" style="width: 180px;">
+                                        <button class="btn btn-primary" onclick="saveCashCode()">Guardar codigo</button>
+                                    </div>
+                                    <p class="text-muted" style="margin-top: 10px;">
+                                        Este codigo se pedira al cerrar o reabrir una caja.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div class="card" style="margin: 0;">
+                                <div class="card-header">Nuevo acceso</div>
+                                <div class="card-body">
+                                    <div class="config-add-row" style="padding-top: 0;">
+                                        <input type="text" class="form-input form-input-sm" placeholder="Nombre"
+                                               id="newUserName" style="flex: 1;">
+                                        <input type="password" class="form-input form-input-sm" placeholder="PIN"
+                                               id="newUserPin" style="width: 100px;">
+                                        <select class="form-input form-input-sm" id="newUserRol" style="width: 140px;">
+                                            <option value="cajero">Cajero</option>
+                                            <option value="panadero">Panadero</option>
+                                            <option value="mesero">Mesero</option>
+                                        </select>
+                                        <button class="btn btn-accent" onclick="addUser()">Agregar</button>
+                                    </div>
+                                    <p class="text-muted" style="margin-top: 10px;">
+                                        Crea un acceso rapido por PIN para cada rol operativo.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">Usuarios y pines</div>
+                    <div class="card-body" id="userList">
+                        <p class="text-muted" style="margin-bottom: 14px;">
+                            Puedes cambiar nombre, rol y, si hace falta, escribir un PIN nuevo. Si el PIN queda vacio, se conserva el actual.
+                        </p>
+                        {% for u in usuarios %}
+                        <div class="config-row config-user-row">
+                            <input type="text" class="form-input form-input-sm"
+                                   id="user-name-{{ u.id }}"
+                                   value="{{ u.nombre }}"
+                                   style="flex: 1; min-width: 180px;">
+                            <input type="password" class="form-input form-input-sm"
+                                   id="user-pin-{{ u.id }}"
+                                   placeholder="Nuevo PIN"
+                                   style="width: 110px;">
+                            <select class="form-input form-input-sm" id="user-rol-{{ u.id }}" style="width: 140px;">
+                                <option value="cajero" {% if u.rol == 'cajero' %}selected{% endif %}>Cajero</option>
+                                <option value="panadero" {% if u.rol == 'panadero' %}selected{% endif %}>Panadero</option>
+                                <option value="mesero" {% if u.rol == 'mesero' %}selected{% endif %}>Mesero</option>
+                            </select>
+                            <button class="btn btn-sm btn-primary"
+                                    onclick='updateUser({{ u.id }}, {{ u.nombre|tojson }})'>
+                                Guardar
+                            </button>
+                            <button class="btn btn-sm btn-danger-outline"
+                                    onclick='deleteUser({{ u.id }}, {{ u.nombre|tojson }})'>
+                                Eliminar
+                            </button>
+                        </div>
                         {% endfor %}
                     </div>
                 </div>
-                <div class="catalog-import-actions">
-                    <input type="text" id="newCategoryName" class="form-input form-input-sm"
-                           placeholder="Nueva categoria">
-                    <button class="btn btn-primary" onclick="addCategory()">Agregar categoria</button>
+            </div>
+        </section>
+
+        <section class="card">
+            <div class="card-body">
+                <div class="config-info-card">
+                    <div class="config-info-item">
+                        <span>Canal de atencion</span>
+                        <strong>Los pedidos se gestionan desde meseros y caja.</strong>
+                    </div>
+                    <div class="config-info-item">
+                        <span>Motor</span>
+                        <strong>Python + Flask + SQLite</strong>
+                    </div>
+                    <div class="config-info-item">
+                        <span>Version</span>
+                        <strong>3.0.0 (Web)</strong>
+                    </div>
                 </div>
             </div>
-        </div>
+        </section>
     </div>
+</div>
 
-    <div class="card">
-        <div class="card-header">Codigo de Verificacion de Caja</div>
-        <div class="card-body">
-            <div class="config-add-row">
-                <input type="password" class="form-input form-input-sm" id="cashCode"
-                       value="{{ codigo_caja }}" style="width: 180px;">
-                <button class="btn btn-primary" onclick="saveCashCode()">Guardar codigo</button>
-            </div>
-            <p class="text-muted" style="margin-top: 10px;">
-                Este codigo se pedira al cerrar o reabrir una caja.
+<div class="modal-overlay" id="configPickerModal" hidden onclick="handleConfigPickerOverlay(event)">
+    <div class="modal-card config-picker-card">
+        <div class="modal-header">
+            <h3>Elige un modulo de configuracion</h3>
+            <button type="button" class="modal-close" onclick="closeConfigPicker()" aria-label="Cerrar">
+                &times;
+            </button>
+        </div>
+        <div class="modal-body">
+            <p class="config-picker-lead">
+                En lugar de mostrar todo junto, aqui entras primero al tema que quieres resolver.
+                Asi la configuracion se siente mas rapida y enfocada.
             </p>
-        </div>
-    </div>
 
-    <div class="card">
-        <div class="card-header">Usuarios</div>
-        <div class="card-body" id="userList">
-            {% for u in usuarios %}
-            <div class="config-row">
-                <span class="badge {% if u.rol == 'panadero' %}badge-primary{% else %}badge-accent{% endif %}">
-                    {{ u.rol|upper }}
-                </span>
-                <span class="config-name">{{ u.nombre }}</span>
-                <button class="btn btn-sm btn-danger-outline"
-                        onclick="deleteUser({{ u.id }}, {{ u.nombre|tojson }})">
-                    Eliminar
+            <div class="config-picker-grid">
+                <button type="button" class="config-picker-option" data-picker-option="productos" onclick="selectConfigSection('productos')">
+                    <span class="config-picker-badge">
+                        <span class="material-symbols-outlined">inventory_2</span>
+                    </span>
+                    <h4>Gestion de Productos</h4>
+                    <p>Edita la carta, importa el catalogo oficial y organiza las categorias activas.</p>
+                    <div class="config-picker-meta">
+                        <span class="chip">{{ productos|length }} productos</span>
+                        <span class="chip">{{ categorias|length }} categorias</span>
+                    </div>
+                </button>
+
+                <button type="button" class="config-picker-option" data-picker-option="pines" onclick="selectConfigSection('pines')">
+                    <span class="config-picker-badge" style="background: rgba(47,107,99,0.12); color: var(--secondary);">
+                        <span class="material-symbols-outlined">pin</span>
+                    </span>
+                    <h4>Gestion de Pines</h4>
+                    <p>Administra el codigo de caja y los accesos internos del equipo por rol.</p>
+                    <div class="config-picker-meta">
+                        <span class="chip">{{ usuarios|length }} usuarios</span>
+                        <span class="chip">Codigo de caja</span>
+                    </div>
                 </button>
             </div>
-            {% endfor %}
-
-            <div class="config-add-row">
-                <input type="text" class="form-input form-input-sm" placeholder="Nombre"
-                       id="newUserName" style="flex: 1;">
-                <input type="password" class="form-input form-input-sm" placeholder="PIN"
-                       id="newUserPin" style="width: 80px;">
-                <select class="form-input form-input-sm" id="newUserRol" style="width: 120px;">
-                    <option value="cajero">Cajero</option>
-                    <option value="panadero">Panadero</option>
-                    <option value="mesero">Mesero</option>
-                </select>
-                <button class="btn btn-accent" onclick="addUser()">Agregar</button>
-            </div>
         </div>
-    </div>
-
-    <div class="card">
-        <div class="card-header">Canal de Atención</div>
-        <div class="card-body">
-            <p>El flujo de cliente por QR fue retirado del producto.</p>
-            <p class="text-muted">Los pedidos ahora se gestionan únicamente desde el módulo de meseros y la caja del negocio.</p>
-        </div>
-    </div>
-
-    <div class="card">
-        <div class="card-header">Acerca del Sistema</div>
-        <div class="card-body">
-            <div class="config-row"><span class="text-muted">Version:</span> <strong>3.0.0 (Web)</strong></div>
-            <div class="config-row"><span class="text-muted">Motor:</span> <strong>Python + Flask + SQLite</strong></div>
-            <div class="config-row"><span class="text-muted">Pronostico:</span> <strong>Estimacion -> Promedio Semanal -> Mixto Dia + Recencia</strong></div>
+        <div class="modal-footer">
+            <span class="config-picker-footer-copy" style="margin-right:auto;">
+                El modulo actual se recuerda en este equipo para abrir mas rapido la proxima vez.
+            </span>
+            <button type="button" class="btn btn-outline" onclick="closeConfigPicker()">Seguir</button>
         </div>
     </div>
 </div>
 
 <script>
+const CONFIG_STORAGE_KEY = 'richs.admin.config.section';
+const CONFIG_SECTIONS = {
+    productos: {
+        title: 'Gestion de Productos',
+        copy: 'Edita precios, categorias y el catalogo oficial desde un solo lugar.'
+    },
+    pines: {
+        title: 'Gestion de Pines',
+        copy: 'Administra el codigo de caja y los accesos internos del equipo por PIN.'
+    }
+};
+
+function getSavedConfigSection() {
+    const section = localStorage.getItem(CONFIG_STORAGE_KEY);
+    return CONFIG_SECTIONS[section] ? section : null;
+}
+
+function updateConfigSectionUI(section) {
+    document.querySelectorAll('[data-section-tab]').forEach((button) => {
+        const isActive = button.dataset.sectionTab === section;
+        button.classList.toggle('is-active', isActive);
+        button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+
+    document.querySelectorAll('.config-section').forEach((panel) => {
+        panel.classList.toggle('is-active', panel.id === 'config-section-' + section);
+    });
+
+    document.querySelectorAll('[data-picker-option]').forEach((button) => {
+        button.classList.toggle('is-active', button.dataset.pickerOption === section);
+    });
+
+    const current = CONFIG_SECTIONS[section] || CONFIG_SECTIONS.productos;
+    document.getElementById('configCurrentTitle').textContent = current.title;
+    document.getElementById('configCurrentCopy').textContent = current.copy;
+}
+
+function setActiveConfigSection(section, options = {}) {
+    const { persist = true } = options;
+    const safeSection = CONFIG_SECTIONS[section] ? section : 'productos';
+    if (persist) {
+        localStorage.setItem(CONFIG_STORAGE_KEY, safeSection);
+    }
+    updateConfigSectionUI(safeSection);
+}
+
+function openConfigPicker() {
+    const modal = document.getElementById('configPickerModal');
+    modal.hidden = false;
+    document.body.classList.add('config-picker-open');
+}
+
+function closeConfigPicker() {
+    const modal = document.getElementById('configPickerModal');
+    modal.hidden = true;
+    document.body.classList.remove('config-picker-open');
+}
+
+function handleConfigPickerOverlay(event) {
+    if (event.target.id === 'configPickerModal') {
+        closeConfigPicker();
+    }
+}
+
+function selectConfigSection(section) {
+    setActiveConfigSection(section);
+    closeConfigPicker();
+}
+
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+        closeConfigPicker();
+    }
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    const storedSection = getSavedConfigSection();
+    const activeSection = storedSection || 'productos';
+    setActiveConfigSection(activeSection, { persist: !!storedSection });
+
+    let shouldOpenPicker = !storedSection;
+    if (!shouldOpenPicker && window.performance && typeof window.performance.getEntriesByType === 'function') {
+        const navigationEntry = window.performance.getEntriesByType('navigation')[0];
+        if (navigationEntry && navigationEntry.type === 'navigate') {
+            shouldOpenPicker = true;
+        }
+    }
+
+    if (shouldOpenPicker) {
+        openConfigPicker();
+    }
+});
+
 function saveProduct(productId) {
     const nombre = document.getElementById('prod-name-' + productId).value.trim();
     const precio = parseFloat(document.getElementById('prod-price-' + productId).value);
     const categoria = document.getElementById('prod-category-' + productId).value;
-    const es_adicional = document.getElementById('prod-additional-' + productId).checked;
 
     if (!nombre) { Toast.warning('Escribe el nombre del producto'); return; }
     if (isNaN(precio) || precio < 0) { Toast.warning('Precio invalido'); return; }
@@ -181,7 +637,7 @@ function saveProduct(productId) {
     fetch('/api/producto/' + productId, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ nombre, precio, categoria, es_adicional }),
+        body: JSON.stringify({ nombre, precio, categoria }),
     })
     .then(r => r.json())
     .then(data => {
@@ -197,13 +653,12 @@ function addProduct() {
     const nombre = document.getElementById('newProdName').value.trim();
     const categoria = document.getElementById('newProdCategory').value;
     const precio = parseFloat(document.getElementById('newProdPrice').value);
-    const esAdicional = document.getElementById('newProdAdditional').checked;
     if (!nombre) { Toast.warning('Escribe el nombre'); return; }
     if (isNaN(precio)) { Toast.warning('Precio invalido'); return; }
     fetch('/api/producto', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ nombre: nombre, precio: precio, categoria: categoria, es_adicional: esAdicional }),
+        body: JSON.stringify({ nombre: nombre, precio: precio, categoria: categoria }),
     })
     .then(r => r.json())
     .then(data => {
@@ -313,7 +768,7 @@ function addUser() {
     .then(r => r.json())
     .then(data => {
         if (data.ok) { Toast.success('Usuario agregado'); setTimeout(() => location.reload(), 600); }
-        else Toast.error('No se pudo agregar');
+        else Toast.error(data.error || 'No se pudo agregar');
     });
 }
 
@@ -338,12 +793,49 @@ function saveCashCode() {
     });
 }
 
+function updateUser(id, nombreActual) {
+    const nombre = document.getElementById('user-name-' + id).value.trim();
+    const pin = document.getElementById('user-pin-' + id).value.trim();
+    const rol = document.getElementById('user-rol-' + id).value;
+    if (!nombre) {
+        Toast.warning('Escribe el nombre del usuario');
+        return;
+    }
+    if (pin && pin.length < 4) {
+        Toast.warning('El PIN debe tener al menos 4 caracteres');
+        return;
+    }
+    fetch('/api/usuario/' + id, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ nombre, pin, rol }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) {
+            Toast.success('Usuario actualizado');
+            setTimeout(() => location.reload(), 600);
+        } else {
+            Toast.error(data.error || ('No se pudo actualizar a ' + nombreActual));
+        }
+    })
+    .catch(err => {
+        Toast.error(err.message || ('No se pudo actualizar a ' + nombreActual));
+    });
+}
+
 async function deleteUser(id, nombre) {
     const ok = await appConfirm('Eliminar a ' + nombre + '?', { type: 'danger', title: 'Eliminar usuario', confirmText: 'Eliminar' });
     if (!ok) return;
     fetch('/api/usuario/' + id, { method: 'DELETE' })
     .then(r => r.json())
-    .then(data => { if (data.ok) { Toast.success('Usuario eliminado'); setTimeout(() => location.reload(), 600); } });
+    .then(data => {
+        if (data.ok) { Toast.success('Usuario eliminado'); setTimeout(() => location.reload(), 600); }
+        else Toast.error(data.error || 'No se pudo eliminar el usuario');
+    })
+    .catch(err => {
+        Toast.error(err.message || 'No se pudo eliminar el usuario');
+    });
 }
 </script>
 {% endblock %}

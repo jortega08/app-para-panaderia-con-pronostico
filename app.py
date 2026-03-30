@@ -15,6 +15,7 @@ import os
 import re
 import secrets
 import socket
+import time
 import unicodedata
 import zipfile
 from collections import defaultdict
@@ -34,6 +35,7 @@ from flask import (
     Flask, render_template, request, redirect,
     url_for, session, jsonify, flash, Response,
 )
+from data.db_adapter import get_database_info
 
 from data.database import (
     inicializar_base_de_datos,
@@ -55,12 +57,12 @@ from data.database import (
     obtener_resumen_cierre_diario,
     exportar_ventas_csv,
     exportar_inventario_csv,
+    exportar_productos_sistema,
     guardar_registro,
     obtener_registros,
     obtener_productos,
     obtener_productos_panaderia,
     obtener_productos_con_precio,
-    obtener_productos_adicionales,
     obtener_producto_por_id,
     obtener_categorias_producto,
     obtener_categoria_producto_nombre,
@@ -76,6 +78,7 @@ from data.database import (
     verificar_pin,
     obtener_usuarios,
     agregar_usuario,
+    actualizar_usuario,
     eliminar_usuario,
     registrar_venta,
     registrar_venta_lote,
@@ -435,12 +438,17 @@ def _obtener_notificaciones_operativas(rol: str, usuario: str = "", limite: int 
             estado = str(data.get("estado", "") or "").strip()
             detalle = str(data.get("detalle", "") or "").strip()
             detalle_lower = detalle.lower()
+            detalle_norm = _normalizar_texto(detalle)
             mesero = str(data.get("mesero", "") or "").strip()
             actor = str(data.get("cambiado_por", "") or "").strip()
             mesa_numero = data.get("mesa_numero")
             mesa_label = f"Mesa {mesa_numero}" if mesa_numero else "Mostrador"
             total_label = f"${_format_display_number(data.get('total', 0), 0)}"
             event_time = _iso_datetime(data.get("cambiado_en"))
+            es_actualizacion = "actualizacion" in detalle_norm or "editado" in detalle_norm
+            motivo_actualizacion = ""
+            if "motivo:" in detalle_lower:
+                motivo_actualizacion = detalle.split("Motivo:", 1)[-1].strip()
 
             if estado in ("pendiente", "listo") and actor and actor == mesero:
                 if "cuenta dividida" in detalle_lower or rol not in ("panadero", "cajero"):
@@ -452,6 +460,23 @@ def _obtener_notificaciones_operativas(rol: str, usuario: str = "", limite: int 
                     **_crear_notificacion(
                         notif_id=f"pedido-evento-{data['id']}",
                         title=title,
+                        description=description,
+                        notif_type="order",
+                        when_iso=event_time,
+                        sound="order",
+                    ),
+                })
+                continue
+
+            if estado == "listo" and es_actualizacion and rol == "panadero":
+                description = f"{mesa_label} · {actor or 'Caja'} · {total_label}"
+                if motivo_actualizacion:
+                    description = f"{description} · {motivo_actualizacion}"
+                items.append({
+                    "_sort": event_time,
+                    **_crear_notificacion(
+                        notif_id=f"pedido-evento-{data['id']}",
+                        title="Pedido ajustado por caja",
                         description=description,
                         notif_type="order",
                         when_iso=event_time,
@@ -585,18 +610,7 @@ def _normalizar_texto(texto):
 
 
 def _obtener_adicionales_operativos():
-    catalogo = []
-    vistos = set()
-
-    for adicional in list(obtener_productos_adicionales()) + list(obtener_adicionales()):
-        nombre = str(adicional.get("nombre", "") or "").strip()
-        clave = _normalizar_texto(nombre)
-        if not clave or clave in vistos:
-            continue
-        catalogo.append(adicional)
-        vistos.add(clave)
-
-    return catalogo
+    return list(obtener_adicionales())
 
 
 def _parse_fecha_iso(fecha: str | None = None) -> str:
@@ -1448,10 +1462,70 @@ def cajero_ventas():
 def cajero_pedidos():
     pedidos = obtener_pedidos_con_detalle()
     caja = obtener_resumen_caja_dia()
+    mesas_index: dict[int, dict] = {}
+    for pedido in pedidos:
+        mesa_numero = pedido.get("mesa_numero")
+        if mesa_numero in (None, ""):
+            continue
+        key = int(mesa_numero)
+        entry = mesas_index.setdefault(key, {
+            "numero": key,
+            "total": 0,
+            "por_cobrar": 0,
+        })
+        entry["total"] += 1
+        if str(pedido.get("estado", "") or "").strip() == "listo":
+            entry["por_cobrar"] += 1
+    mesas_filtro = [mesas_index[key] for key in sorted(mesas_index)]
     return render_template("cajero_pedidos.html",
                            pedidos=pedidos,
+                           mesas_filtro=mesas_filtro,
                            caja=caja,
                            layout="cajero", active_page="pedidos")
+
+
+@app.route("/cajero/pedido/<int:pedido_id>/editar")
+@login_required
+def cajero_editar_pedido(pedido_id):
+    if _rol_usuario_actual() != "cajero":
+        flash("Solo caja puede editar pedidos", "error")
+        return redirect(url_for("cajero_pedidos"))
+
+    pedido = obtener_pedido(pedido_id)
+    if not pedido:
+        flash("Pedido no encontrado", "error")
+        return redirect(url_for("cajero_pedidos"))
+    if str(pedido.get("estado", "") or "").strip() in ("pagado", "cancelado"):
+        flash("Ese pedido ya no se puede editar", "warning")
+        return redirect(url_for("cajero_pedidos"))
+
+    productos = obtener_productos_con_precio()
+    categorias = obtener_categorias_producto()
+    for p in productos:
+        p["icono"] = icono(p["nombre"], p.get("categoria"))
+        p["color"] = color_prod(p["nombre"])
+
+    mesa = {
+        "id": pedido.get("mesa_id"),
+        "numero": pedido.get("mesa_numero"),
+        "nombre": pedido.get("mesa_nombre") or f"Mesa {pedido.get('mesa_numero') or '?'}",
+    }
+
+    return render_template(
+        "mesero_pedido.html",
+        mesa=mesa,
+        productos=productos,
+        categorias=categorias,
+        adicionales=_obtener_adicionales_operativos(),
+        pedido_editable=pedido,
+        editor_role="cajero",
+        pedido_page_title=f"Mesa {mesa['numero']} · Editar pedido",
+        pedido_page_copy="Ajusta el pedido antes de cobrarlo. Cada cambio exige un motivo y queda notificado al admin.",
+        pedido_submit_label="Guardar ajuste",
+        pedido_return_url=url_for("cajero_pedidos"),
+        layout="cajero",
+        active_page="pedidos",
+    )
 
 
 # ── Mesero ──
@@ -1468,7 +1542,6 @@ def mesero_mesas():
 @app.route("/mesero/pedido/<int:mesa_id>")
 @login_required
 def mesero_pedido(mesa_id):
-    mesero_actual = _nombre_usuario_actual()
     productos = obtener_productos_con_precio()
     categorias = obtener_categorias_producto()
     for p in productos:
@@ -1480,12 +1553,16 @@ def mesero_pedido(mesa_id):
     if not mesa:
         flash("Mesa no encontrada", "error")
         return redirect(url_for("mesero_mesas"))
-    pedido_editable = obtener_pedido_activo_mesa_mesero(mesa_id, mesero_actual) if mesero_actual else None
     return render_template("mesero_pedido.html",
                            mesa=mesa, productos=productos,
                            categorias=categorias,
                            adicionales=adicionales,
-                           pedido_editable=pedido_editable,
+                           pedido_editable=None,
+                           editor_role="mesero",
+                           pedido_page_title=f"Mesa {mesa['numero']} - {mesa['nombre']}",
+                           pedido_page_copy="Toca productos para crear un nuevo pedido para esta mesa. Si ya existe uno y hay algo adicional, envialo como un pedido nuevo.",
+                           pedido_submit_label="Enviar pedido",
+                           pedido_return_url=url_for("mesero_mesas"),
                            layout="mesero", active_page="mesas")
 
 
@@ -2727,20 +2804,56 @@ def api_guardar_codigo_caja():
 @app.route("/api/usuario", methods=["POST"])
 @login_required
 def api_agregar_usuario():
-    data = request.json
+    if _rol_usuario_actual() != "panadero":
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    nombre = str(data.get("nombre", "") or "").strip()
+    pin = str(data.get("pin", "") or "").strip()
+    rol = str(data.get("rol", "cajero") or "cajero").strip().lower()
+    if not nombre or not pin:
+        return jsonify({"ok": False, "error": "Llena nombre y PIN"}), 400
+    if len(pin) < 4:
+        return jsonify({"ok": False, "error": "El PIN debe tener al menos 4 caracteres"}), 400
     ok = agregar_usuario(
-        data.get("nombre", "").strip(),
-        data.get("pin", "").strip(),
-        data.get("rol", "cajero"),
+        nombre,
+        pin,
+        rol,
     )
-    return jsonify({"ok": ok})
+    if not ok:
+        return jsonify({"ok": False, "error": "No se pudo agregar el usuario"}), 400
+    return jsonify({"ok": True})
+
+
+@app.route("/api/usuario/<int:uid>", methods=["PUT"])
+@login_required
+def api_actualizar_usuario(uid):
+    if _rol_usuario_actual() != "panadero":
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    nombre = str(data.get("nombre", "") or "").strip()
+    rol = str(data.get("rol", "") or "").strip().lower()
+    pin = str(data.get("pin", "") or "").strip()
+    if not nombre:
+        return jsonify({"ok": False, "error": "El nombre es obligatorio"}), 400
+    if rol not in ("panadero", "cajero", "mesero"):
+        return jsonify({"ok": False, "error": "Rol invalido"}), 400
+    if pin and len(pin) < 4:
+        return jsonify({"ok": False, "error": "El PIN debe tener al menos 4 caracteres"}), 400
+    ok = actualizar_usuario(uid, nombre, rol, pin)
+    if not ok:
+        return jsonify({"ok": False, "error": "No se pudo actualizar el usuario"}), 400
+    return jsonify({"ok": True})
 
 
 @app.route("/api/usuario/<int:uid>", methods=["DELETE"])
 @login_required
 def api_eliminar_usuario(uid):
+    if _rol_usuario_actual() != "panadero":
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
     ok = eliminar_usuario(uid)
-    return jsonify({"ok": ok})
+    if not ok:
+        return jsonify({"ok": False, "error": "No se pudo eliminar el usuario"}), 400
+    return jsonify({"ok": True})
 
 
 # ── API Pedidos ──
@@ -2769,7 +2882,12 @@ def api_crear_pedido():
         pedido_id = None
 
     notas = data.get("notas", "")
-    mesero = _nombre_usuario_actual()
+    usuario_actual = _nombre_usuario_actual()
+    rol_actual = _rol_usuario_actual()
+    motivo_actualizacion = str(data.get("motivo_actualizacion", "") or "").strip()
+
+    if rol_actual not in ("mesero", "cajero"):
+        return jsonify({"ok": False, "error": "No autorizado"}), 403
 
     catalogo_productos_por_id = {
         int(p.get("id", 0) or 0): p
@@ -2853,13 +2971,32 @@ def api_crear_pedido():
         }), 400
 
     if pedido_id is not None:
-        resultado = actualizar_pedido(pedido_id, mesero, items, notas)
+        if rol_actual != "cajero":
+            return jsonify({"ok": False, "error": "Solo caja puede editar pedidos existentes"}), 403
+        resultado = actualizar_pedido(
+            pedido_id,
+            usuario_actual,
+            items,
+            notas,
+            motivo=motivo_actualizacion,
+            rol=rol_actual,
+        )
         status = int(resultado.pop("status", 200 if resultado.get("ok") else 400))
         if resultado.get("ok"):
             resultado["accion"] = "actualizado"
+            registrar_audit(
+                usuario=usuario_actual,
+                accion="editar_pedido",
+                entidad="pedido",
+                entidad_id=str(pedido_id),
+                detalle=f"Pedido #{pedido_id} ajustado. Motivo: {motivo_actualizacion}",
+            )
         return jsonify(resultado), status
 
-    pedido_id = crear_pedido(mesa_id, mesero, items, notas)
+    if rol_actual != "mesero":
+        return jsonify({"ok": False, "error": "Solo los meseros pueden crear nuevos pedidos de mesa"}), 403
+
+    pedido_id = crear_pedido(mesa_id, usuario_actual, items, notas)
     if pedido_id:
         return jsonify({"ok": True, "pedido_id": pedido_id, "accion": "creado"})
     return jsonify({"ok": False, "error": "No se pudo crear el pedido"}), 500
@@ -3459,6 +3596,49 @@ def api_export_inventario():
     )
 
 
+@app.route("/api/export/productos")
+@login_required
+def api_export_productos():
+    if session.get("usuario", {}).get("rol") != "panadero":
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+
+    productos = exportar_productos_sistema()
+    columnas = [
+        ("id", "ID"),
+        ("nombre", "Nombre"),
+        ("categoria", "Categoria"),
+        ("menu", "Menu"),
+        ("descripcion", "Descripcion"),
+        ("precio", "Precio"),
+        ("activo", "Activo"),
+        ("es_panaderia", "Es panaderia"),
+        ("es_adicional", "Es adicional"),
+        ("stock_minimo", "Stock minimo"),
+    ]
+    filas = []
+    for producto in productos:
+        filas.append({
+            "id": str(producto.get("id", "") or ""),
+            "nombre": str(producto.get("nombre", "") or ""),
+            "categoria": str(producto.get("categoria", "") or ""),
+            "menu": str(producto.get("menu", "") or ""),
+            "descripcion": str(producto.get("descripcion", "") or ""),
+            "precio": str(producto.get("precio", "") or 0),
+            "activo": "Si" if int(producto.get("activo", 0) or 0) else "No",
+            "es_panaderia": "Si" if int(producto.get("es_panaderia", 0) or 0) else "No",
+            "es_adicional": "Si" if int(producto.get("es_adicional", 0) or 0) else "No",
+            "stock_minimo": str(producto.get("stock_minimo", "") or 0),
+        })
+
+    contenido = _crear_excel_simple("Productos", columnas, filas)
+    fecha_hoy = datetime.now().strftime("%Y%m%d")
+    return Response(
+        contenido,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=productos_sistema_{fecha_hoy}.xlsx"}
+    )
+
+
 # ── Vista de cierre diario ───────────────────────────────────────────────────
 
 @app.route("/panadero/cierre")
@@ -3510,6 +3690,191 @@ def _format_ui_money(value, decimals: int = 0) -> str:
     return f"${_format_ui_number(value, decimals)}"
 
 
+def _xml_escape(texto) -> str:
+    return (
+        str(texto or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&apos;")
+    )
+
+
+def _xlsx_column_letter(index: int) -> str:
+    resultado = ""
+    numero = max(1, int(index or 1))
+    while numero:
+        numero, resto = divmod(numero - 1, 26)
+        resultado = chr(65 + resto) + resultado
+    return resultado
+
+
+def _crear_excel_simple(nombre_hoja: str, columnas: list[tuple[str, str]], filas: list[dict]) -> bytes:
+    nombre_hoja = str(nombre_hoja or "Hoja1").strip() or "Hoja1"
+    ancho_maximo = []
+    for key, titulo in columnas:
+        valores = [str(titulo or "")]
+        for fila in filas:
+            valores.append(str(fila.get(key, "") or ""))
+        ancho = max(len(valor) for valor in valores) if valores else 10
+        ancho_maximo.append(min(max(ancho + 2, 10), 48))
+
+    filas_xml = []
+    encabezado = []
+    for indice, (_, titulo) in enumerate(columnas, start=1):
+        ref = f"{_xlsx_column_letter(indice)}1"
+        encabezado.append(
+            f'<c r="{ref}" t="inlineStr" s="1"><is><t>{_xml_escape(titulo)}</t></is></c>'
+        )
+    filas_xml.append(f'<row r="1">{"".join(encabezado)}</row>')
+
+    for fila_idx, fila in enumerate(filas, start=2):
+        celdas = []
+        for col_idx, (key, _) in enumerate(columnas, start=1):
+            ref = f"{_xlsx_column_letter(col_idx)}{fila_idx}"
+            valor = str(fila.get(key, "") or "")
+            celdas.append(
+                f'<c r="{ref}" t="inlineStr"><is><t>{_xml_escape(valor)}</t></is></c>'
+            )
+        filas_xml.append(f'<row r="{fila_idx}">{"".join(celdas)}</row>')
+
+    ultima_columna = _xlsx_column_letter(len(columnas))
+    ultima_fila = max(len(filas) + 1, 1)
+    columnas_xml = "".join(
+        f'<col min="{indice}" max="{indice}" width="{ancho}" customWidth="1"/>'
+        for indice, ancho in enumerate(ancho_maximo, start=1)
+    )
+    sheet_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        f'<dimension ref="A1:{ultima_columna}{ultima_fila}"/>'
+        '<sheetViews><sheetView workbookViewId="0"/></sheetViews>'
+        f'<cols>{columnas_xml}</cols>'
+        f'<sheetData>{"".join(filas_xml)}</sheetData>'
+        '</worksheet>'
+    )
+
+    workbook_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<sheets>'
+        f'<sheet name="{_xml_escape(nombre_hoja)}" sheetId="1" r:id="rId1"/>'
+        '</sheets>'
+        '</workbook>'
+    )
+
+    workbook_rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+        'Target="worksheets/sheet1.xml"/>'
+        '<Relationship Id="rId2" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" '
+        'Target="styles.xml"/>'
+        '</Relationships>'
+    )
+
+    styles_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<fonts count="2">'
+        '<font><sz val="11"/><name val="Calibri"/></font>'
+        '<font><b/><sz val="11"/><name val="Calibri"/></font>'
+        '</fonts>'
+        '<fills count="2">'
+        '<fill><patternFill patternType="none"/></fill>'
+        '<fill><patternFill patternType="gray125"/></fill>'
+        '</fills>'
+        '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+        '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+        '<cellXfs count="2">'
+        '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+        '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
+        '</cellXfs>'
+        '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+        '</styleSheet>'
+    )
+
+    content_types_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/xl/workbook.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        '<Override PartName="/xl/worksheets/sheet1.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        '<Override PartName="/xl/styles.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+        '<Override PartName="/docProps/core.xml" '
+        'ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>'
+        '<Override PartName="/docProps/app.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>'
+        '</Types>'
+    )
+
+    root_rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+        'Target="xl/workbook.xml"/>'
+        '<Relationship Id="rId2" '
+        'Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" '
+        'Target="docProps/core.xml"/>'
+        '<Relationship Id="rId3" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" '
+        'Target="docProps/app.xml"/>'
+        '</Relationships>'
+    )
+
+    generado_en = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    core_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" '
+        'xmlns:dc="http://purl.org/dc/elements/1.1/" '
+        'xmlns:dcterms="http://purl.org/dc/terms/" '
+        'xmlns:dcmitype="http://purl.org/dc/dcmitype/" '
+        'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
+        '<dc:creator>Codex</dc:creator>'
+        '<cp:lastModifiedBy>Codex</cp:lastModifiedBy>'
+        f'<dcterms:created xsi:type="dcterms:W3CDTF">{generado_en}</dcterms:created>'
+        f'<dcterms:modified xsi:type="dcterms:W3CDTF">{generado_en}</dcterms:modified>'
+        '</cp:coreProperties>'
+    )
+
+    app_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" '
+        'xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">'
+        '<Application>Codex</Application>'
+        '</Properties>'
+    )
+
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archivo_zip:
+        archivo_zip.writestr("[Content_Types].xml", content_types_xml)
+        archivo_zip.writestr("_rels/.rels", root_rels_xml)
+        archivo_zip.writestr("docProps/core.xml", core_xml)
+        archivo_zip.writestr("docProps/app.xml", app_xml)
+        archivo_zip.writestr("xl/workbook.xml", workbook_xml)
+        archivo_zip.writestr("xl/_rels/workbook.xml.rels", workbook_rels_xml)
+        archivo_zip.writestr("xl/styles.xml", styles_xml)
+        archivo_zip.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+    return buffer.getvalue()
+
+
+def _database_engine() -> str:
+    return str(get_database_info().get("type", "sqlite") or "sqlite").strip().lower()
+
+
+def _supports_app_file_backups() -> bool:
+    return bool(get_database_info().get("supports_app_file_backup"))
+
+
 @app.context_processor
 def utility_processor():
     """Variables globales disponibles en todos los templates."""
@@ -3528,6 +3893,12 @@ def utility_processor():
 
 def _iniciar_scheduler():
     """Inicia el scheduler de backups automáticos diarios."""
+    if not _supports_app_file_backups():
+        app.logger.info(
+            "Backups automáticos en la app desactivados para %s. Usa backups del proveedor.",
+            _database_engine(),
+        )
+        return None
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
         backup_hour = int(os.environ.get("BACKUP_AUTO_HOUR", "23"))
@@ -3554,23 +3925,57 @@ def _iniciar_scheduler():
         return None
 
 
+def _inicializar_base_de_datos_con_retry() -> None:
+    """Inicializa la BD con pequeños reintentos para despliegues en contenedores."""
+    motor = _database_engine()
+    intentos = int(os.environ.get("DB_INIT_MAX_RETRIES", "12" if motor == "postgresql" else "1"))
+    espera = float(os.environ.get("DB_INIT_RETRY_DELAY", "2.5" if motor == "postgresql" else "0"))
+
+    ultimo_error = None
+    for intento in range(1, max(intentos, 1) + 1):
+        try:
+            inicializar_base_de_datos()
+            if intento > 1:
+                app.logger.info("Base de datos lista tras %s intentos.", intento)
+            return
+        except Exception as exc:
+            ultimo_error = exc
+            if intento >= max(intentos, 1):
+                break
+            app.logger.warning(
+                "No se pudo inicializar la base de datos (%s/%s): %s. Reintentando en %.1fs.",
+                intento,
+                intentos,
+                exc,
+                espera,
+            )
+            if espera > 0:
+                time.sleep(espera)
+
+    if ultimo_error is not None:
+        raise ultimo_error
+
+
 # Inicializar BD y scheduler al cargar el módulo (para Gunicorn)
-inicializar_base_de_datos()
+_inicializar_base_de_datos_con_retry()
 _scheduler = _iniciar_scheduler()
 
 
 if __name__ == "__main__":
     # Backup automatico al iniciar en modo desarrollo
-    result = crear_backup("Backup automatico al iniciar")
-    if result["ok"]:
-        app.logger.info("Backup automatico creado")
-    limpiar_backups_antiguos()
+    if _supports_app_file_backups():
+        result = crear_backup("Backup automatico al iniciar")
+        if result["ok"]:
+            app.logger.info("Backup automatico creado")
+        limpiar_backups_antiguos()
     ip = _get_local_ip()
+    port = int(os.environ.get("PORT", os.environ.get("FLASK_RUN_PORT", "5000")))
     app.logger.info("=" * 50)
     app.logger.info("  PANADERIA - Sistema de Ventas y Pronostico")
     app.logger.info("=" * 50)
-    app.logger.info(f"  Abrir en navegador: http://{ip}:5000")
-    app.logger.info(f"  QR clientes:        http://{ip}:5000/cliente/pedido")
+    app.logger.info(f"  Motor de BD:        {_database_engine()}")
+    app.logger.info(f"  Abrir en navegador: http://{ip}:{port}")
+    app.logger.info(f"  QR clientes:        http://{ip}:{port}/cliente/pedido")
     app.logger.info("  ADVERTENCIA: Cambia los PINes por defecto en Configuracion > Usuarios")
     app.logger.info("=" * 50)
-    app.run(host="0.0.0.0", port=5000, debug=os.environ.get("FLASK_ENV") == "development")
+    app.run(host="0.0.0.0", port=port, debug=os.environ.get("FLASK_ENV") == "development")

@@ -93,6 +93,8 @@ def _ejecutar_migracion_tolerante(conn, sql: str, params=()) -> bool:
 
 
 def _schema_tabla_conn(conn, nombre_tabla: str) -> str:
+    if DB_TYPE != "sqlite":
+        return ""
     row = conn.execute(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
         (nombre_tabla,)
@@ -125,6 +127,15 @@ CATEGORIAS_PREDETERMINADAS = [
     "Sándwiches - Pan Saludable",
     "Típico",
 ]
+
+ADICIONALES_LEGADO_PREDETERMINADOS = (
+    "Huevo extra",
+    "Queso extra",
+    "Jamon extra",
+    "Pan adicional",
+    "Cafe adicional",
+    "Mantequilla extra",
+)
 
 ORDEN_CATEGORIAS_PREFERIDO = [
     "Acompañamientos",
@@ -635,6 +646,7 @@ def inicializar_base_de_datos() -> None:
             INSERT OR IGNORE INTO configuracion_sistema (clave, valor)
             VALUES ('codigo_verificacion_caja', '2468')
         """)
+        _desactivar_adicionales_legado(conn)
 
         # Productos iniciales con precios de ejemplo
         productos_iniciales = [
@@ -781,6 +793,8 @@ def inicializar_base_de_datos() -> None:
 
 
 def _tabla_productos_requiere_reconstruccion(conn) -> bool:
+    if DB_TYPE != "sqlite":
+        return False
     schema = _schema_tabla_conn(conn, "productos")
     if not schema:
         return False
@@ -876,6 +890,46 @@ def _sembrar_categorias_producto(conn):
             "INSERT OR IGNORE INTO categorias_producto (nombre, activa) VALUES (?, 1)",
             (categoria,)
         )
+
+
+def _desactivar_adicionales_legado(conn) -> int:
+    """
+    Desactiva adicionales heredados de instalaciones viejas para que
+    en pedidos solo quede visible el catalogo definido por admin.
+    """
+    clave_migracion = "migracion_adicionales_legado_desactivados"
+    row = conn.execute(
+        "SELECT valor FROM configuracion_sistema WHERE clave = ?",
+        (clave_migracion,),
+    ).fetchone()
+    if row and str(row["valor"] or "").strip() == "1":
+        return 0
+
+    desactivados = 0
+    for nombre in ADICIONALES_LEGADO_PREDETERMINADOS:
+        cur = conn.execute(
+            "UPDATE adicionales SET activo = 0 WHERE nombre = ? AND activo = 1",
+            (nombre,),
+        )
+        desactivados += int(cur.rowcount or 0)
+
+    if row is None:
+        conn.execute(
+            "INSERT INTO configuracion_sistema (clave, valor) VALUES (?, ?)",
+            (clave_migracion, "1"),
+        )
+    else:
+        conn.execute(
+            "UPDATE configuracion_sistema SET valor = ? WHERE clave = ?",
+            ("1", clave_migracion),
+        )
+
+    if desactivados:
+        logger.info(
+            "Se desactivaron %s adicionales heredados para dejar solo el catalogo manual.",
+            desactivados,
+        )
+    return desactivados
 
 
 def _migrar_usuarios(conn):
@@ -1695,6 +1749,33 @@ def agregar_usuario(nombre: str, pin: str, rol: str) -> bool:
                 "INSERT INTO usuarios (nombre, pin, rol) VALUES (?, ?, ?)",
                 (nombre, _hash_pin(pin), rol)
             )
+            conn.commit()
+        return True
+    except Exception:
+        return False
+
+
+def actualizar_usuario(usuario_id: int, nombre: str, rol: str, pin: str = "") -> bool:
+    nombre = str(nombre or "").strip()
+    rol = str(rol or "").strip().lower()
+    pin = str(pin or "").strip()
+    if not nombre or rol not in {"panadero", "cajero", "mesero"}:
+        return False
+    if pin and len(pin) < 4:
+        return False
+
+    try:
+        with get_connection() as conn:
+            if pin:
+                conn.execute(
+                    "UPDATE usuarios SET nombre = ?, rol = ?, pin = ? WHERE id = ?",
+                    (nombre, rol, _hash_pin(pin), usuario_id)
+                )
+            else:
+                conn.execute(
+                    "UPDATE usuarios SET nombre = ?, rol = ? WHERE id = ?",
+                    (nombre, rol, usuario_id)
+                )
             conn.commit()
         return True
     except Exception:
@@ -2932,13 +3013,52 @@ def crear_pedido(mesa_id: int, mesero: str, items: list[dict],
         return None
 
 
-def actualizar_pedido(pedido_id: int, mesero: str, items: list[dict],
-                      notas: str = "") -> dict:
-    """Actualiza un pedido editable del mismo mesero."""
+def _contar_actualizaciones_pedido_conn(conn, pedido_id: int) -> int:
+    historial = conn.execute("""
+        SELECT detalle
+        FROM pedido_estado_historial
+        WHERE pedido_id = ?
+        ORDER BY id
+    """, (pedido_id,)).fetchall()
+    return sum(
+        1
+        for row in historial
+        if "actualizacion" in _normalizar_texto_clave(row["detalle"] or "")
+    )
+
+
+def _etiqueta_ordinal_actualizacion(numero: int) -> str:
+    ordinales = {
+        1: "primera",
+        2: "segunda",
+        3: "tercera",
+        4: "cuarta",
+        5: "quinta",
+        6: "sexta",
+        7: "septima",
+        8: "octava",
+        9: "novena",
+        10: "decima",
+    }
+    numero = max(1, int(numero or 1))
+    return ordinales.get(numero, f"#{numero}")
+
+
+def actualizar_pedido(pedido_id: int, actualizado_por: str, items: list[dict],
+                      notas: str = "", motivo: str = "", rol: str = "") -> dict:
+    """Actualiza un pedido existente. Solo caja puede hacerlo."""
     ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    actualizado_por = str(actualizado_por or "").strip() or "Caja"
+    motivo = str(motivo or "").strip()
+    rol = str(rol or "").strip().lower()
 
     try:
         with get_connection() as conn:
+            if rol != "cajero":
+                return {"ok": False, "error": "Solo caja puede editar pedidos existentes", "status": 403}
+            if len(motivo) < 10:
+                return {"ok": False, "error": "Debes escribir una razon de al menos 10 caracteres", "status": 400}
+
             pedido = conn.execute("""
                 SELECT id, mesa_id, mesero, estado, fecha
                 FROM pedidos
@@ -2946,22 +3066,29 @@ def actualizar_pedido(pedido_id: int, mesero: str, items: list[dict],
             """, (pedido_id,)).fetchone()
             if not pedido:
                 return {"ok": False, "error": "Pedido no encontrado", "status": 404}
-            if str(pedido["mesero"] or "").strip() != str(mesero or "").strip():
-                return {"ok": False, "error": "No puedes editar pedidos de otro mesero", "status": 403}
             if pedido["estado"] in ("pagado", "cancelado"):
                 return {"ok": False, "error": "Este pedido ya no se puede editar", "status": 400}
+
+            numero_actualizacion = _contar_actualizaciones_pedido_conn(conn, pedido_id) + 1
+            ordinal = _etiqueta_ordinal_actualizacion(numero_actualizacion)
+            detalle_historial = f"Actualizacion {ordinal} por caja. Motivo: {motivo}"
 
             _reemplazar_pedido_conn(conn, pedido_id, items, notas, estado="listo")
             _registrar_historial_estado_pedido(
                 conn,
                 pedido_id,
                 "listo",
-                cambiado_por=mesero,
-                detalle="Pedido editado y listo para cobrar",
+                cambiado_por=actualizado_por,
+                detalle=detalle_historial,
                 cambiado_en=ahora,
             )
             conn.commit()
-        return {"ok": True, "pedido_id": pedido_id}
+        return {
+            "ok": True,
+            "pedido_id": pedido_id,
+            "motivo": motivo,
+            "actualizacion_numero": numero_actualizacion,
+        }
     except Exception as e:
         logger.error(f"actualizar_pedido: {e}")
         return {"ok": False, "error": str(e), "status": 500}
@@ -4826,5 +4953,26 @@ def exportar_inventario_csv() -> list[dict]:
         rows = conn.execute("""
             SELECT nombre, unidad, stock, stock_minimo, activo
             FROM insumos ORDER BY nombre ASC
+        """).fetchall()
+    return [dict(r) for r in rows]
+
+
+def exportar_productos_sistema() -> list[dict]:
+    """Retorna el catalogo de productos del sistema listo para exportacion."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT
+                id,
+                nombre,
+                categoria,
+                menu,
+                descripcion,
+                precio,
+                activo,
+                es_panaderia,
+                es_adicional,
+                stock_minimo
+            FROM productos
+            ORDER BY activo DESC, categoria ASC, nombre ASC, id ASC
         """).fetchall()
     return [dict(r) for r in rows]

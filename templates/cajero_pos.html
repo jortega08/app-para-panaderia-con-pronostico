@@ -31,8 +31,8 @@
 }
 .pos-hero-shell {
     display: grid;
-    grid-template-columns: minmax(0, 1.4fr) auto;
-    gap: 18px;
+    grid-template-columns: 1fr;
+    gap: 12px;
     padding: 18px 20px;
 }
 .pos-eyebrow {
@@ -273,10 +273,6 @@
     color: var(--text-muted);
     font-size: 12px;
     margin-bottom: 10px;
-}
-.top3-action {
-    width: 100%;
-    justify-content: center;
 }
 .top3-empty,
 .quick-group-empty,
@@ -703,6 +699,68 @@
     flex: 1 1 auto;
     min-height: 200px;
 }
+.mobile-cart-overlay,
+.mobile-cart-fab,
+.mobile-cart-close {
+    display: none;
+}
+.mobile-cart-fab {
+    position: fixed;
+    right: 12px;
+    left: 12px;
+    bottom: calc(92px + env(safe-area-inset-bottom));
+    z-index: 90;
+    min-width: 0;
+    padding: 12px 16px;
+    border-radius: 999px;
+    border: 1px solid rgba(139, 85, 19, 0.16);
+    background: linear-gradient(135deg, rgba(193,120,23,0.98), rgba(224,139,55,0.96));
+    color: #fff;
+    box-shadow: 0 20px 40px rgba(156, 90, 18, 0.28);
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    transition: transform 180ms ease, opacity 180ms ease;
+}
+.mobile-cart-fab-copy {
+    display: grid;
+    gap: 2px;
+    text-align: left;
+}
+.mobile-cart-fab-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: rgba(255,255,255,0.74);
+}
+.mobile-cart-fab-total {
+    font-size: 18px;
+    font-weight: 800;
+    line-height: 1;
+}
+.mobile-cart-fab-count {
+    min-width: 30px;
+    height: 30px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255,255,255,0.16);
+    font-size: 12px;
+    font-weight: 800;
+}
+.mobile-cart-close {
+    width: 36px;
+    height: 36px;
+    border: none;
+    border-radius: 999px;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255,255,255,0.18);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+}
 
 @media (max-width: 1180px) {
     .pos-layout {
@@ -717,9 +775,78 @@
     .pos-layout {
         grid-template-columns: 1fr;
     }
+    .pos-products {
+        padding-bottom: 156px;
+    }
     .cart-panel {
-        position: static;
-        max-height: none;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+    .cart-items {
+        padding-bottom: 16px;
+    }
+    .cart-footer {
+        position: sticky;
+        bottom: 0;
+        padding: 14px 16px calc(16px + env(safe-area-inset-bottom));
+        background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.98));
+        box-shadow: 0 -12px 28px rgba(44, 24, 16, 0.12);
+        z-index: 2;
+    }
+    .cart-actions {
+        grid-template-columns: 1fr;
+    }
+    .cart-actions .btn {
+        width: 100%;
+        justify-content: center;
+    }
+    .cart-total-value {
+        font-size: 30px;
+    }
+    .mobile-cart-overlay,
+    .mobile-cart-fab,
+    .mobile-cart-close {
+        display: flex;
+    }
+    .mobile-cart-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(44, 24, 16, 0.34);
+        backdrop-filter: blur(2px);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 180ms ease;
+        z-index: 84;
+    }
+    .cart-panel {
+        position: fixed;
+        left: 8px;
+        right: 8px;
+        bottom: calc(8px + env(safe-area-inset-bottom));
+        top: auto;
+        max-height: calc(100dvh - 16px - env(safe-area-inset-bottom));
+        border-radius: 26px 26px 20px 20px;
+        box-shadow: 0 24px 48px rgba(44, 24, 16, 0.24);
+        transform: translateY(calc(100% + 28px));
+        opacity: 0;
+        pointer-events: none;
+        transition: transform 220ms ease, opacity 220ms ease;
+        z-index: 88;
+    }
+    body.mobile-cart-open .mobile-cart-overlay {
+        opacity: 1;
+        pointer-events: auto;
+    }
+    body.mobile-cart-open .mobile-cart-fab {
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(18px) scale(0.96);
+    }
+    body.mobile-cart-open .cart-panel {
+        transform: translateY(0);
+        opacity: 1;
+        pointer-events: auto;
     }
 }
 
@@ -730,6 +857,31 @@
         max-width: none;
         margin: 0;
         padding: 14px 12px 24px;
+    }
+}
+@media (max-width: 520px) {
+    .mobile-cart-fab {
+        bottom: calc(84px + env(safe-area-inset-bottom));
+        padding: 11px 14px;
+    }
+    .mobile-cart-fab-total {
+        font-size: 17px;
+    }
+    .mobile-cart-fab-count {
+        min-width: 28px;
+        height: 28px;
+    }
+    .cart-panel {
+        left: 6px;
+        right: 6px;
+        bottom: calc(6px + env(safe-area-inset-bottom));
+        max-height: calc(100dvh - 12px - env(safe-area-inset-bottom));
+    }
+    .cart-header,
+    .cart-footer,
+    .cart-items {
+        padding-left: 14px;
+        padding-right: 14px;
     }
 }
 </style>
@@ -748,31 +900,6 @@
             <p class="pos-summary">
                 Agrega productos y cobra rapido sin tapar el catálogo principal.
             </p>
-        </div>
-        <div class="pos-hero-actions">
-            <div class="pos-hero-tip">
-                <span>Enter cobra</span>
-                <span>Ctrl+F busca</span>
-                <span>Esc cierra</span>
-            </div>
-            <button type="button" class="btn btn-ghost pos-action-btn" onclick="focusProductSearch()">
-                <span class="material-symbols-outlined">search</span>
-                <span class="btn-shortcut-stack">
-                    <span class="btn-shortcut-main">Buscar producto</span>
-                    <span class="btn-shortcut-hint">Ctrl+F</span>
-                </span>
-            </button>
-            <button type="button" class="btn btn-ghost" onclick="setQuickGroup('favoritos')">
-                <span class="material-symbols-outlined">star</span>
-                Ver favoritos
-            </button>
-            <button type="button" class="btn btn-cash pos-action-btn" onclick="quickCashCheckout()">
-                <span class="material-symbols-outlined">payments</span>
-                <span class="btn-shortcut-stack">
-                    <span class="btn-shortcut-main">Cobrar</span>
-                    <span class="btn-shortcut-hint">Enter</span>
-                </span>
-            </button>
         </div>
     </section>
 
@@ -841,32 +968,12 @@
         </div>
 
         <div class="cart-panel">
-            <section class="pos-quick-library">
-                <div class="quick-library-tabs">
-                    <button type="button" class="quick-tab active" data-quick-group="favoritos" onclick="setQuickGroup('favoritos')">Favoritos</button>
-                    <button type="button" class="quick-tab" data-quick-group="combos" onclick="setQuickGroup('combos')">Combos</button>
-                    <button type="button" class="quick-tab" data-quick-group="recurrentes" onclick="setQuickGroup('recurrentes')">Recurrentes</button>
-                </div>
-                <div class="quick-group-panel">
-                    <div class="quick-group-head">
-                        <div>
-                            <strong id="quickGroupTitle">Favoritos del turno</strong>
-                            <span id="quickGroupSubtitle">Basado en lo que mas agregas en esta caja.</span>
-                        </div>
-                        <div class="pos-section-meta" id="quickGroupCount">0 accesos rapidos</div>
-                    </div>
-                    <div id="quickGroupList" class="quick-group-grid">
-                        <div class="quick-group-empty">
-                            <span class="material-symbols-outlined">bolt</span>
-                            <strong style="margin-bottom:4px;">Preparando accesos rapidos...</strong>
-                            <span class="text-muted">Los botones de uso frecuente se ordenaran automaticamente para ti.</span>
-                        </div>
-                    </div>
-                </div>
-            </section>
             <div class="cart-header">
                 <h3>Venta actual</h3>
-                <span class="cart-count" id="cartCount">0 items</span>
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span class="cart-count" id="cartCount">0 items</span>
+                    <button type="button" class="mobile-cart-close" onclick="closeMobileCartPanel()">Cerrar</button>
+                </div>
             </div>
 
             <div class="cart-items" id="cartItems">
@@ -890,21 +997,24 @@
                 </div>
                 <div class="cart-actions">
                     <button class="btn btn-danger-outline" onclick="clearCart()">Limpiar</button>
-                    <button class="btn btn-cash cart-primary-action pos-action-btn pos-action-btn-compact" onclick="quickCashCheckout()">
-                        <span class="btn-shortcut-stack">
-                            <span class="btn-shortcut-main">Cobrar</span>
-                            <span class="btn-shortcut-hint">Enter</span>
-                        </span>
-                    </button>
+                    <button class="btn btn-cash cart-primary-action pos-action-btn pos-action-btn-compact" onclick="quickCashCheckout()">Cobrar</button>
                     <button class="btn btn-success btn-lg cart-primary-action" onclick="openPaymentModal('transferencia')">
                         Elegir otro método
                     </button>
                 </div>
-                <div class="cart-shortcut-note">Enter abre el cobro rápido, Esc cierra modales y Ctrl+F enfoca la búsqueda.</div>
             </div>
         </div>
     </div>
 </div>
+
+<button type="button" class="mobile-cart-fab" id="mobileCartFab" onclick="toggleMobileCartPanel()" hidden>
+    <span class="mobile-cart-fab-copy">
+        <span class="mobile-cart-fab-label">Ver cuenta</span>
+        <span class="mobile-cart-fab-total" id="mobileCartFabTotal">$0</span>
+    </span>
+    <span class="mobile-cart-fab-count" id="mobileCartFabCount">0</span>
+</button>
+<div class="mobile-cart-overlay" id="mobileCartOverlay" onclick="closeMobileCartPanel()"></div>
 
 <div class="modal-overlay" id="modModal" style="display:none;" onclick="if (event.target === this) cerrarModal()">
     <div class="modal-card">
@@ -976,19 +1086,12 @@
                 </div>
             </div>
             <div class="payment-keyline">
-                <span class="chip">Enter confirma</span>
-                <span class="chip">Esc cancela</span>
                 <span class="chip">Efectivo usa cambio automatico</span>
             </div>
         </div>
         <div class="modal-footer">
             <button class="btn btn-outline" onclick="closePaymentModal()">Cancelar</button>
-            <button class="btn btn-cash pos-action-btn" id="paymentConfirmButton" onclick="confirmPayment()">
-                <span class="btn-shortcut-stack">
-                    <span class="btn-shortcut-main">Cobrar</span>
-                    <span class="btn-shortcut-hint">Enter</span>
-                </span>
-            </button>
+            <button class="btn btn-cash pos-action-btn" id="paymentConfirmButton" onclick="confirmPayment()">Cobrar</button>
         </div>
     </div>
 </div>
@@ -1041,6 +1144,7 @@ let topProductStats = [];
 let activeQuickGroup = 'favoritos';
 const quickUseKey = 'richs_pos_quick_use';
 const quickCashButtonId = 'paymentConfirmButton';
+let mobileCartPanelOpen = false;
 
 function money(value) {
     return window.AppUI
@@ -1062,20 +1166,9 @@ function normalizeText(value) {
     return `${value == null ? '' : value}`.toLowerCase();
 }
 
-function renderButtonShortcutLabel(label, hint = '') {
-    const safeLabel = escapeHtml(label);
-    const safeHint = hint ? `<span class="btn-shortcut-hint">${escapeHtml(hint)}</span>` : '';
-    return `
-        <span class="btn-shortcut-stack">
-            <span class="btn-shortcut-main">${safeLabel}</span>
-            ${safeHint}
-        </span>
-    `;
-}
-
-function setButtonShortcutLabel(button, label, hint = '') {
+function setButtonShortcutLabel(button, label) {
     if (!button) return;
-    button.innerHTML = renderButtonShortcutLabel(label, hint);
+    button.textContent = label;
 }
 
 function getQuickUseStats() {
@@ -1134,17 +1227,23 @@ function getProductsByGroup(group) {
 
 function renderQuickGroup(group = activeQuickGroup) {
     activeQuickGroup = group;
+    const titleEl = document.getElementById('quickGroupTitle');
+    const subtitleEl = document.getElementById('quickGroupSubtitle');
+    const countEl = document.getElementById('quickGroupCount');
+    const list = document.getElementById('quickGroupList');
+    if (!titleEl || !subtitleEl || !countEl || !list) {
+        return;
+    }
     document.querySelectorAll('[data-quick-group]').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.quickGroup === group);
     });
 
     const meta = QUICK_GROUP_META[group] || QUICK_GROUP_META.favoritos;
-    document.getElementById('quickGroupTitle').textContent = meta.title;
-    document.getElementById('quickGroupSubtitle').textContent = meta.subtitle;
+    titleEl.textContent = meta.title;
+    subtitleEl.textContent = meta.subtitle;
 
     const items = getProductsByGroup(group);
-    document.getElementById('quickGroupCount').textContent = `${window.AppUI ? AppUI.formatNumber(items.length, 0) : items.length} accesos rapidos`;
-    const list = document.getElementById('quickGroupList');
+    countEl.textContent = `${window.AppUI ? AppUI.formatNumber(items.length, 0) : items.length} accesos rapidos`;
 
     if (!items.length) {
         list.innerHTML = `
@@ -1182,13 +1281,53 @@ function focusProductSearch() {
     input.select?.();
 }
 
+function isMobileCartViewport() {
+    return window.matchMedia('(max-width: 980px)').matches;
+}
+
+function syncMobileCartPanel() {
+    const fab = document.getElementById('mobileCartFab');
+    if (fab) {
+        fab.hidden = !isMobileCartViewport();
+    }
+    if (!isMobileCartViewport()) {
+        closeMobileCartPanel();
+    }
+}
+
+function openMobileCartPanel() {
+    if (!isMobileCartViewport()) return;
+    mobileCartPanelOpen = true;
+    document.body.classList.add('mobile-cart-open');
+}
+
+function closeMobileCartPanel() {
+    mobileCartPanelOpen = false;
+    document.body.classList.remove('mobile-cart-open');
+}
+
+function toggleMobileCartPanel() {
+    if (mobileCartPanelOpen) {
+        closeMobileCartPanel();
+        return;
+    }
+    openMobileCartPanel();
+}
+
+function actualizarBurbujaCuenta(total, totalItems) {
+    const totalEl = document.getElementById('mobileCartFabTotal');
+    const countEl = document.getElementById('mobileCartFabCount');
+    if (totalEl) totalEl.textContent = money(total);
+    if (countEl) countEl.textContent = String(totalItems || 0);
+}
+
 function quickCashCheckout() {
     if (cart.length === 0) {
         Toast.warning('Agrega productos a la venta primero.');
         return;
     }
     const button = document.getElementById(quickCashButtonId);
-    setButtonShortcutLabel(button, 'Cobrar', 'Enter');
+    setButtonShortcutLabel(button, 'Cobrar');
     openPaymentModal('efectivo');
 }
 
@@ -1200,8 +1339,7 @@ function updatePaymentActionLabels(method = 'efectivo') {
     cashButton.classList.toggle('btn-success', method !== 'efectivo');
     setButtonShortcutLabel(
         cashButton,
-        method === 'efectivo' ? 'Cobrar efectivo' : 'Confirmar cobro',
-        'Enter'
+        method === 'efectivo' ? 'Cobrar efectivo' : 'Confirmar cobro'
     );
 }
 
@@ -1489,6 +1627,7 @@ function renderCart() {
             </div>`;
         countEl.textContent = '0 items';
         totalEl.textContent = money(0);
+        actualizarBurbujaCuenta(0, 0);
         return;
     }
 
@@ -1555,6 +1694,7 @@ function renderCart() {
     container.innerHTML = html;
     countEl.textContent = totalItems + (totalItems === 1 ? ' item' : ' items');
     totalEl.textContent = money(total);
+    actualizarBurbujaCuenta(total, totalItems);
     countEl.classList.add('pulse');
     totalEl.classList.add('bump');
     setTimeout(() => {
@@ -1692,6 +1832,7 @@ function openPaymentModal(preferredMethod = 'efectivo') {
         return;
     }
 
+    closeMobileCartPanel();
     document.getElementById('paymentMethod').value = preferredMethod === 'transferencia' ? 'transferencia' : 'efectivo';
     document.getElementById('paymentReceived').value = window.AppUI ? AppUI.suggestedCash(getCartTotal()) : String(Math.ceil(getCartTotal()));
     updatePaymentSummary();
@@ -1794,6 +1935,8 @@ renderCajaStatus();
 renderCart();
 applyProductFilters();
 renderQuickGroup(activeQuickGroup);
+syncMobileCartPanel();
+window.addEventListener('resize', syncMobileCartPanel);
 
 document.getElementById('quickGroupList')?.addEventListener('click', function (event) {
     const button = event.target.closest('[data-quick-product]');
@@ -1801,60 +1944,6 @@ document.getElementById('quickGroupList')?.addEventListener('click', function (e
     const product = PRODUCT_CATALOG.find((item) => normalizeText(item.nombre) === normalizeText(button.dataset.quickProduct));
     if (!product) return;
     addToCart(product.nombre, product.precio, product.icono, product.id, product.stockMinimo || 0);
-});
-
-document.getElementById('top3Banner')?.addEventListener('click', function (event) {
-    const button = event.target.closest('[data-top-product]');
-    if (!button) return;
-    quickAddFromTop(button.dataset.topProduct);
-});
-
-document.addEventListener('keydown', function (event) {
-    const activeTag = (document.activeElement && document.activeElement.tagName) ? document.activeElement.tagName.toLowerCase() : '';
-    const isTyping = ['input', 'textarea', 'select'].includes(activeTag);
-
-    if (event.key === 'Escape') {
-        closePaymentModal();
-        cerrarModal();
-        return;
-    }
-
-    if (event.key === 'Enter' && document.getElementById('paymentModal').style.display === 'flex') {
-        event.preventDefault();
-        confirmPayment();
-        return;
-    }
-
-    if (event.ctrlKey && event.key.toLowerCase() === 'f') {
-        event.preventDefault();
-        focusProductSearch();
-        return;
-    }
-
-    if (event.altKey && event.key === '1') {
-        event.preventDefault();
-        setQuickGroup('favoritos');
-        return;
-    }
-
-    if (event.altKey && event.key === '2') {
-        event.preventDefault();
-        quickCashCheckout();
-        return;
-    }
-
-    if (event.altKey && event.key === '3') {
-        event.preventDefault();
-        clearCart();
-        return;
-    }
-
-    if (event.key === 'Enter' && !isTyping) {
-        event.preventDefault();
-        if (cart.length > 0) {
-            quickCashCheckout();
-        }
-    }
 });
 
 function renderTop3(top) {
@@ -1879,21 +1968,9 @@ function renderTop3(top) {
             <div class="top3-rank">#${index + 1}</div>
             <div class="top3-name">${escapeHtml(item.producto)}</div>
             <div class="top3-units">${window.AppUI ? AppUI.formatNumber(Number(item.unidades || 0), 0) : Number(item.unidades || 0)} unidades hoy</div>
-            <button type="button" class="btn btn-cash btn-sm top3-action" data-top-product="${escapeHtml(item.producto)}">
-                Agregar rapido
-            </button>
         </article>
     `).join('');
     if (meta) meta.textContent = `Actualizado ${new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}`;
-}
-
-function quickAddFromTop(nombre) {
-    const card = PRODUCT_CATALOG.find((item) => normalizeText(item.nombre) === normalizeText(nombre));
-    if (!card) {
-        Toast.warning('No se encontro ese producto en el catalogo.');
-        return;
-    }
-    addToCart(card.nombre, card.precio, card.icono, card.id, card.stockMinimo || 0);
 }
 
 async function cargarTop3() {

@@ -1,19 +1,181 @@
 ﻿{% extends "base.html" %}
 {% block title_extra %} - Pedido Mesa {{ mesa.numero }}{% endblock %}
 {% block content %}
+<style>
+.mobile-order-overlay,
+.mobile-order-fab,
+.mobile-order-close {
+    display: none;
+}
+.mobile-order-fab {
+    position: fixed;
+    right: 12px;
+    left: 12px;
+    bottom: calc(92px + env(safe-area-inset-bottom));
+    z-index: 90;
+    min-width: 0;
+    padding: 12px 16px;
+    border-radius: 999px;
+    border: 1px solid rgba(139, 85, 19, 0.14);
+    background: linear-gradient(135deg, rgba(47,107,99,0.98), rgba(73,145,135,0.96));
+    color: #fff;
+    box-shadow: 0 18px 36px rgba(28, 63, 58, 0.24);
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    transition: transform 180ms ease, opacity 180ms ease;
+}
+.mobile-order-fab-copy {
+    display: grid;
+    gap: 2px;
+    text-align: left;
+}
+.mobile-order-fab-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: rgba(255,255,255,0.72);
+}
+.mobile-order-fab-total {
+    font-size: 18px;
+    font-weight: 800;
+    line-height: 1;
+}
+.mobile-order-fab-count {
+    min-width: 30px;
+    height: 30px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255,255,255,0.14);
+    font-size: 12px;
+    font-weight: 800;
+}
+@media (max-width: 900px) {
+    .pos-layout {
+        position: relative;
+    }
+    .pos-products {
+        padding-bottom: 156px;
+    }
+    .cart-panel {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+    .cart-items {
+        padding-bottom: 16px;
+    }
+    .cart-footer {
+        position: sticky;
+        bottom: 0;
+        padding: 14px 16px calc(16px + env(safe-area-inset-bottom));
+        background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.98));
+        box-shadow: 0 -12px 28px rgba(44, 24, 16, 0.12);
+        z-index: 2;
+    }
+    .cart-actions {
+        grid-template-columns: 1fr;
+    }
+    .cart-actions .btn {
+        width: 100%;
+        justify-content: center;
+    }
+    .cart-total-value {
+        font-size: 30px;
+    }
+    .mobile-order-overlay,
+    .mobile-order-fab,
+    .mobile-order-close {
+        display: flex;
+    }
+    .mobile-order-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(44, 24, 16, 0.34);
+        backdrop-filter: blur(2px);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 180ms ease;
+        z-index: 84;
+    }
+    .mobile-order-close {
+        width: 36px;
+        height: 36px;
+        border: none;
+        border-radius: 999px;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255,255,255,0.18);
+        color: #fff;
+        font-size: 13px;
+        font-weight: 700;
+    }
+    .pos-layout .cart-panel {
+        position: fixed;
+        left: 8px;
+        right: 8px;
+        bottom: calc(8px + env(safe-area-inset-bottom));
+        max-height: calc(100dvh - 16px - env(safe-area-inset-bottom));
+        border-radius: 26px 26px 20px 20px;
+        border: 1px solid rgba(139, 85, 19, 0.12);
+        box-shadow: 0 24px 48px rgba(44, 24, 16, 0.22);
+        transform: translateY(calc(100% + 28px));
+        opacity: 0;
+        pointer-events: none;
+        transition: transform 220ms ease, opacity 220ms ease;
+        z-index: 88;
+    }
+    body.mobile-order-open .mobile-order-overlay {
+        opacity: 1;
+        pointer-events: auto;
+    }
+    body.mobile-order-open .mobile-order-fab {
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(18px) scale(0.96);
+    }
+    body.mobile-order-open .pos-layout .cart-panel {
+        transform: translateY(0);
+        opacity: 1;
+        pointer-events: auto;
+    }
+}
+@media (max-width: 520px) {
+    .mobile-order-fab {
+        bottom: calc(84px + env(safe-area-inset-bottom));
+        padding: 11px 14px;
+    }
+    .mobile-order-fab-total {
+        font-size: 17px;
+    }
+    .mobile-order-fab-count {
+        min-width: 28px;
+        height: 28px;
+    }
+    .pos-layout .cart-panel {
+        left: 6px;
+        right: 6px;
+        bottom: calc(6px + env(safe-area-inset-bottom));
+        max-height: calc(100dvh - 12px - env(safe-area-inset-bottom));
+    }
+    .cart-header,
+    .cart-footer,
+    .cart-items,
+    .pos-layout .cart-panel > div[style] {
+        padding-left: 14px;
+        padding-right: 14px;
+    }
+}
+</style>
 <div class="pos-layout">
     <div class="pos-products">
-        <h2 class="page-title">Mesa {{ mesa.numero }} - {{ mesa.nombre }}</h2>
-        <p class="text-muted" style="margin-bottom: 16px;">
-            {% if pedido_editable %}
-            Edita tu pedido abierto y guárdalo cuando quede listo para cobrar.
-            {% else %}
-            Toca un producto para agregarlo al pedido.
-            {% endif %}
-        </p>
+        <h2 class="page-title">{{ pedido_page_title or ('Mesa ' ~ mesa.numero ~ ' - ' ~ mesa.nombre) }}</h2>
+        <p class="text-muted" style="margin-bottom: 16px;">{{ pedido_page_copy or 'Toca un producto para agregarlo al pedido.' }}</p>
         {% if pedido_editable %}
         <div class="chip chip-filter-active" style="display:inline-flex; margin-bottom:16px;">
-            Editando pedido #{{ pedido_editable.id }}
+            Editando pedido #{{ pedido_editable.id }}{% if editor_role == 'cajero' %} · requiere motivo al guardar{% endif %}
         </div>
         {% endif %}
 
@@ -61,7 +223,10 @@
     <div class="cart-panel">
         <div class="cart-header">
             <h3>Pedido Mesa {{ mesa.numero }}</h3>
-            <span class="cart-count" id="cartCount">0 items</span>
+            <div style="display:flex; align-items:center; gap:10px;">
+                <span class="cart-count" id="cartCount">0 items</span>
+                <button type="button" class="mobile-order-close" onclick="closeMobileOrderPanel()">Cerrar</button>
+            </div>
         </div>
 
         <div class="cart-items" id="cartItems">
@@ -84,14 +249,23 @@
             <span class="cart-total-value" id="cartTotal">$0</span>
             </div>
             <div class="cart-actions">
-                <a href="{{ url_for('mesero_mesas') }}" class="btn btn-outline">Volver</a>
+                <a href="{{ pedido_return_url }}" class="btn btn-outline">Volver</a>
                 <button class="btn btn-success btn-lg" id="submitPedidoBtn" onclick="enviarPedido()">
-                    {% if pedido_editable %}Guardar cambios{% else %}Enviar pedido{% endif %}
+                    {{ pedido_submit_label or ('Guardar cambios' if pedido_editable else 'Enviar pedido') }}
                 </button>
             </div>
         </div>
     </div>
 </div>
+
+<button type="button" class="mobile-order-fab" id="mobileOrderFab" onclick="toggleMobileOrderPanel()" hidden>
+    <span class="mobile-order-fab-copy">
+        <span class="mobile-order-fab-label">Ver pedido</span>
+        <span class="mobile-order-fab-total" id="mobileOrderFabTotal">$0</span>
+    </span>
+    <span class="mobile-order-fab-count" id="mobileOrderFabCount">0</span>
+</button>
+<div class="mobile-order-overlay" id="mobileOrderOverlay" onclick="closeMobileOrderPanel()"></div>
 
 <div class="modal-overlay" id="modModal" style="display:none;">
     <div class="modal-card">
@@ -128,10 +302,14 @@ const MESA_ID = {{ mesa.id }};
 const ADICIONALES = {{ adicionales | tojson }};
 const ADICIONALES_DISPONIBLES = ADICIONALES || [];
 const PEDIDO_EDITABLE = {{ pedido_editable|default(None)|tojson }};
+const EDITOR_ROLE = {{ editor_role|default('mesero')|tojson }};
+const PEDIDO_RETURN_URL = {{ pedido_return_url|tojson }};
+const UPDATE_REASON_MIN = 10;
 const PRODUCT_META = {{ productos|tojson }};
 const PRODUCT_META_BY_NAME = Object.fromEntries((PRODUCT_META || []).map(p => [String(p.nombre || ''), p]));
 const PRODUCT_META_BY_ID = Object.fromEntries((PRODUCT_META || []).map(p => [String(p.id || ''), p]));
 let pedidoEditableId = PEDIDO_EDITABLE ? Number(PEDIDO_EDITABLE.id) : null;
+let mobileOrderPanelOpen = false;
 
 // Stock disponible por producto (se carga al inicio y se actualiza)
 let stockDisponible = {};
@@ -258,6 +436,46 @@ function applyProductFilters() {
     });
 }
 
+function isMobileOrderViewport() {
+    return window.matchMedia('(max-width: 900px)').matches;
+}
+
+function syncMobileOrderPanel() {
+    const fab = document.getElementById('mobileOrderFab');
+    if (fab) {
+        fab.hidden = !isMobileOrderViewport();
+    }
+    if (!isMobileOrderViewport()) {
+        closeMobileOrderPanel();
+    }
+}
+
+function openMobileOrderPanel() {
+    if (!isMobileOrderViewport()) return;
+    mobileOrderPanelOpen = true;
+    document.body.classList.add('mobile-order-open');
+}
+
+function closeMobileOrderPanel() {
+    mobileOrderPanelOpen = false;
+    document.body.classList.remove('mobile-order-open');
+}
+
+function toggleMobileOrderPanel() {
+    if (mobileOrderPanelOpen) {
+        closeMobileOrderPanel();
+        return;
+    }
+    openMobileOrderPanel();
+}
+
+function actualizarBurbujaPedido(total, totalItems) {
+    const totalEl = document.getElementById('mobileOrderFabTotal');
+    const countEl = document.getElementById('mobileOrderFabCount');
+    if (totalEl) totalEl.textContent = money(total);
+    if (countEl) countEl.textContent = String(totalItems || 0);
+}
+
 function getStockRestante(nombre, excluirItemId = null) {
     if (!(nombre in stockDisponible)) return Infinity;
     const enCarrito = getCartQtyForProduct(nombre, excluirItemId);
@@ -380,6 +598,7 @@ function renderCart() {
             </div>`;
         countEl.textContent = '0 items';
         totalEl.textContent = money(0);
+        actualizarBurbujaPedido(0, 0);
         return;
     }
 
@@ -440,6 +659,7 @@ function renderCart() {
     container.innerHTML = html;
     countEl.textContent = totalItems + (totalItems === 1 ? ' item' : ' items');
     totalEl.textContent = money(total);
+    actualizarBurbujaPedido(total, totalItems);
 }
 
 function abrirModal(itemId) {
@@ -594,16 +814,44 @@ async function enviarPedido() {
     }));
 
     const notas = document.getElementById('notasPedido').value;
+    let motivoActualizacion = '';
+
+    if (pedidoEditableId) {
+        if (EDITOR_ROLE !== 'cajero') {
+            Toast.error('Solo caja puede editar pedidos existentes.');
+            return;
+        }
+        const motivo = await appPrompt({
+            title: 'Motivo del ajuste',
+            message: 'Cada ajuste del pedido se notifica al admin y queda guardado en el historial.',
+            label: 'Razon del cambio',
+            placeholder: 'Ej: cliente cambio bebida y agrego postre',
+            confirmText: 'Guardar motivo',
+        });
+        if (motivo === null) return;
+        motivoActualizacion = String(motivo || '').trim();
+        if (motivoActualizacion.length < UPDATE_REASON_MIN) {
+            Toast.warning('Escribe una razon de al menos 10 caracteres.');
+            return;
+        }
+    }
 
     try {
         const res = await fetch('/api/pedido', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({mesa_id: MESA_ID, pedido_id: pedidoEditableId, items, notas}),
+            body: JSON.stringify({
+                mesa_id: MESA_ID,
+                pedido_id: pedidoEditableId,
+                items,
+                notas,
+                motivo_actualizacion: motivoActualizacion,
+            }),
         });
         const data = await res.json();
         if (data.ok) {
-            window.location.href = '/mesero/mesas';
+            closeMobileOrderPanel();
+            window.location.href = PEDIDO_RETURN_URL;
             return;
         }
         const detalle = (data.faltantes || [])
@@ -619,6 +867,8 @@ inicializarPedidoEditable();
 renderCart();
 applyProductFilters();
 cargarStockDisponible();
+syncMobileOrderPanel();
+window.addEventListener('resize', syncMobileOrderPanel);
 setInterval(cargarStockDisponible, 60000);
 </script>
 {% endblock %}

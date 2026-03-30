@@ -7,6 +7,33 @@ Sistema web para ventas, produccion, inventario y pronostico de una panaderia.
 La aplicacion ya no expone el puerto de Flask al exterior. El acceso remoto pasa
 por Nginx y el backend queda solo en la red interna del contenedor.
 
+### Railway con PostgreSQL
+
+La app ya queda preparada para Railway con `DATABASE_URL` de PostgreSQL.
+
+1. Crea un proyecto nuevo en Railway y agrega dos servicios:
+   `web` para esta app y `PostgreSQL` para la base de datos.
+2. Conecta este repositorio al servicio `web`.
+3. Define al menos estas variables en Railway:
+
+```bash
+FLASK_SECRET_KEY=una_clave_larga_y_aleatoria
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+GUNICORN_WORKERS=2
+DB_INIT_MAX_RETRIES=12
+DB_INIT_RETRY_DELAY=2.5
+```
+
+4. Railway detectará el `Dockerfile` y aplicará el `railway.toml` del repo.
+5. El healthcheck queda apuntando a `/ready`, que valida también la conexión a la base.
+
+Notas:
+
+- Railway inyecta `PORT`; la app y Gunicorn ya lo consumen automáticamente.
+- Los backups/restores dentro de la app quedan desactivados para PostgreSQL.
+  Usa snapshots o backups del propio Railway/PostgreSQL.
+- Si quieres un dominio público, genéralo desde la sección `Networking` del servicio.
+
 ### Produccion remota con PostgreSQL externo
 
 1. Define como minimo estas variables en un archivo propio, por ejemplo
@@ -18,9 +45,6 @@ DATABASE_URL=postgresql://usuario:password@host:5432/panaderia
 NGINX_SERVER_NAME=panel.tu-dominio.com
 GUNICORN_WORKERS=3
 ```
-
-Puedes partir de [.env.production.example](./.env.production.example) para
-produccion o de [.env.demo.example](./.env.demo.example) para la demo local.
 
 2. Levanta el stack:
 
@@ -73,9 +97,3 @@ python app.py
   PostgreSQL fuera de la laptop o del Wi-Fi local.
 - En PostgreSQL, los backups/restores ya no se hacen desde la app. Usa
   `pg_dump`, snapshots del proveedor o un runbook externo de respaldo.
-
-## Documentacion
-
-Consulta el manual de usuario completo en:
-
-- [MANUAL_USUARIO.md](C:/Users/mondr/OneDrive/Documentos/VisualStudioCode/PuntoVentaPanaderia/app-para-panaderia-con-pronostico/MANUAL_USUARIO.md)

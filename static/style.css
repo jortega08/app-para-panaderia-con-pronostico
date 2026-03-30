@@ -5411,6 +5411,7 @@ label {
     background: rgba(255,255,255,0.94);
     box-shadow: 0 16px 36px rgba(44,24,16,0.16);
     backdrop-filter: blur(14px);
+    transition: opacity 180ms ease, transform 180ms ease;
 }
 .mobile-bottom-link {
     position: relative;
@@ -5427,14 +5428,21 @@ label {
     font-size: 11px;
     font-weight: 700;
     background: transparent;
+    border: 1px solid transparent;
+    transition: transform 180ms ease, background-color 180ms ease, color 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
 }
 .mobile-bottom-link .material-symbols-outlined {
     font-size: 22px;
 }
 .mobile-bottom-link.active,
 .mobile-bottom-link:hover {
-    background: rgba(255,255,255,0.12);
-    color: #FFF;
+    background: linear-gradient(180deg, rgba(255,244,230,0.98), rgba(245,223,188,0.94));
+    color: var(--primary-dark);
+    border-color: rgba(193,120,23,0.16);
+    box-shadow: 0 10px 22px rgba(193,120,23,0.18);
+}
+.mobile-bottom-link:active {
+    transform: translateY(1px) scale(0.98);
 }
 .mobile-bottom-link-button {
     border: 0;
@@ -5731,6 +5739,13 @@ label {
 
 body.notif-open {
     overflow: hidden;
+}
+
+body.mobile-order-open .mobile-bottom-nav,
+body.mobile-cart-open .mobile-bottom-nav {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(18px);
 }
 
 @media (max-width: 768px) {

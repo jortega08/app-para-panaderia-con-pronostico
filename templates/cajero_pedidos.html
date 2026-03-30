@@ -2,6 +2,62 @@
 {% block title_extra %} - Pedidos{% endblock %}
 {% block content %}
 <style>
+.mesa-filter-card {
+    margin-bottom: 18px;
+}
+.mesa-filter-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+.mesa-filter-head strong {
+    font-size: 15px;
+    color: var(--text);
+}
+.mesa-filter-head span {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.mesa-filter-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.mesa-filter-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid rgba(139, 85, 19, 0.12);
+    background: rgba(255,255,255,0.9);
+    color: var(--text-sec);
+    border-radius: 999px;
+    padding: 9px 14px;
+    font-size: 13px;
+    font-weight: 700;
+}
+.mesa-filter-btn.is-active,
+.mesa-filter-btn:hover {
+    background: rgba(212,114,42,0.12);
+    border-color: rgba(212,114,42,0.28);
+    color: var(--primary-dark);
+}
+.mesa-filter-count {
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(193,120,23,0.12);
+    color: var(--primary-dark);
+    font-size: 11px;
+}
+.pedidos-empty-state {
+    margin-top: 16px;
+}
 @media (max-width: 900px) {
     .cajero-layout .main-content {
         width: 100vw;
@@ -34,14 +90,11 @@
         <h1 class="page-title">Pedidos del Día</h1>
         <div class="page-header-right">
             <div class="filter-group">
-                <label>Filtrar:</label>
+                <label>Mostrar:</label>
                 <select id="filtroEstado" class="form-input form-input-sm" style="width: auto;" onchange="filtrarPedidos()">
-                    <option value="todos" selected>Todos</option>
-                    <option value="pendiente">Recibidos</option>
-                    <option value="en_preparacion">En Preparacion</option>
-                    <option value="listo">Listos para cobrar</option>
+                    <option value="listo" selected>Por cobrar</option>
                     <option value="pagado">Pagados</option>
-                    <option value="cancelado">Cancelados</option>
+                    <option value="todos">Todos</option>
                 </select>
             </div>
             <button class="btn btn-outline btn-sm" onclick="location.reload()">Actualizar</button>
@@ -69,6 +122,30 @@
     </div>
     {% endif %}
 
+    {% if pedidos %}
+    <div class="card mesa-filter-card">
+        <div class="card-body">
+            <div class="mesa-filter-head">
+                <div>
+                    <strong>Ir directo por mesa</strong>
+                    <span>Empieza viendo solo los pedidos listos para cobrar y cambia de mesa con un toque.</span>
+                </div>
+            </div>
+            <div class="mesa-filter-strip">
+                <button type="button" class="mesa-filter-btn is-active" data-mesa-filter-btn="todas" onclick="setMesaFilter('todas')">
+                    Todas
+                </button>
+                {% for mesa in mesas_filtro %}
+                <button type="button" class="mesa-filter-btn" data-mesa-filter-btn="{{ mesa.numero }}" onclick="setMesaFilter('{{ mesa.numero }}')">
+                    Mesa {{ mesa.numero }}
+                    <span class="mesa-filter-count">{{ mesa.por_cobrar if mesa.por_cobrar else mesa.total }}</span>
+                </button>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     {% if not pedidos %}
     <div class="card">
         <div class="card-body text-center" style="padding: 40px;">
@@ -78,7 +155,7 @@
     {% else %}
     <div class="pedidos-list" id="pedidosList">
         {% for p in pedidos %}
-        <div class="pedido-card pedido-estado-{{ p['estado'] }}" data-estado="{{ p['estado'] }}">
+        <div class="pedido-card pedido-estado-{{ p['estado'] }}" data-estado="{{ p['estado'] }}" data-mesa="{{ p['mesa_numero'] or '' }}">
             <div class="pedido-header">
                 <div class="pedido-info">
                     <span class="pedido-id">#{{ p['id'] }}</span>
@@ -173,6 +250,9 @@
             {% endif %}
 
             <div class="pedido-actions">
+                {% if p['estado'] not in ('pagado', 'cancelado') %}
+                <a class="btn btn-sm btn-outline" href="{{ url_for('cajero_editar_pedido', pedido_id=p['id']) }}">Editar pedido</a>
+                {% endif %}
                 {% if p['estado'] == 'pendiente' %}
                 <button class="btn btn-sm btn-accent" onclick="cambiarEstado({{ p['id'] }}, 'listo')">Marcar listo para cobrar</button>
                 <button class="btn btn-sm btn-danger-outline" onclick="cambiarEstado({{ p['id'] }}, 'cancelado')">Cancelar</button>
@@ -184,6 +264,11 @@
             </div>
         </div>
         {% endfor %}
+    </div>
+    <div class="card pedidos-empty-state" id="pedidosEmptyState" hidden>
+        <div class="card-body text-center" style="padding: 32px;">
+            <p class="text-muted" style="margin: 0;">No hay pedidos para ese filtro en este momento.</p>
+        </div>
     </div>
     {% endif %}
 </div>
@@ -238,6 +323,7 @@
 <script>
 let cajaActiva = {{ caja|default({})|tojson }};
 let chargeContext = { pedidoId: null, total: 0, pedido: null, mode: 'full' };
+let mesaFiltroActual = 'todas';
 
 function money(value) {
     return window.AppUI
@@ -254,11 +340,28 @@ function escapeHtml(texto) {
         .replace(/'/g, '&#39;');
 }
 
+function setMesaFilter(mesaNumero) {
+    mesaFiltroActual = String(mesaNumero || 'todas');
+    document.querySelectorAll('[data-mesa-filter-btn]').forEach(btn => {
+        btn.classList.toggle('is-active', btn.dataset.mesaFilterBtn === mesaFiltroActual);
+    });
+    filtrarPedidos();
+}
+
 function filtrarPedidos() {
     const filtro = document.getElementById('filtroEstado').value;
+    let visibles = 0;
     document.querySelectorAll('.pedido-card').forEach(card => {
-        card.style.display = (filtro === 'todos' || card.dataset.estado === filtro) ? '' : 'none';
+        const coincideEstado = filtro === 'todos' || card.dataset.estado === filtro;
+        const coincideMesa = mesaFiltroActual === 'todas' || String(card.dataset.mesa || '') === mesaFiltroActual;
+        const mostrar = coincideEstado && coincideMesa;
+        card.style.display = mostrar ? '' : 'none';
+        if (mostrar) visibles += 1;
     });
+    const emptyState = document.getElementById('pedidosEmptyState');
+    if (emptyState) {
+        emptyState.hidden = visibles > 0;
+    }
 }
 
 async function cambiarEstado(pedidoId, nuevoEstado) {

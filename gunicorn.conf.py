@@ -8,14 +8,15 @@ import multiprocessing
 import os
 
 _default_workers = min(multiprocessing.cpu_count() * 2 + 1, 4)
+_default_port = os.environ.get("PORT", "5000")
 
 # Workers
-workers = int(os.environ.get("GUNICORN_WORKERS", _default_workers))
+workers = int(os.environ.get("GUNICORN_WORKERS", os.environ.get("WEB_CONCURRENCY", _default_workers)))
 worker_class = os.environ.get("GUNICORN_WORKER_CLASS", "sync")
 threads = int(os.environ.get("GUNICORN_THREADS", "1"))
 
 # Binding
-bind = os.environ.get("GUNICORN_BIND", "0.0.0.0:5000")
+bind = os.environ.get("GUNICORN_BIND", f"0.0.0.0:{_default_port}")
 
 # Timeouts
 timeout = int(os.environ.get("GUNICORN_TIMEOUT", "60"))

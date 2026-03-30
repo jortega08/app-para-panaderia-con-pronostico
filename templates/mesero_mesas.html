@@ -22,7 +22,7 @@
             <div class="mesa-info">{{ mesa.num_pedidos }} pedido{{ 's' if mesa.num_pedidos != 1 else '' }}</div>
             <div class="mesa-total">${{ '{:,.0f}'.format(mesa.total_mesa or 0) }}</div>
             {% elif mesa.estado_mesa == 'listo' %}
-            <span class="mesa-badge mesa-badge-listo">Listo para cobrar</span>
+            <span class="mesa-badge mesa-badge-listo">Listo para caja</span>
             <div class="mesa-info">{{ mesa.num_pedidos }} pedido{{ 's' if mesa.num_pedidos != 1 else '' }}</div>
             <div class="mesa-total">${{ '{:,.0f}'.format(mesa.total_mesa or 0) }}</div>
             {% endif %}
