@@ -83,12 +83,8 @@ def _ejecutar_migracion_tolerante(conn, sql: str, params=()) -> bool:
         try:
             conn.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
         except Exception:
+            # Solo como último recurso si el savepoint falla completamente
             _restablecer_transaccion_si_necesario(conn)
-        try:
-            conn.execute(f"RELEASE SAVEPOINT {savepoint}")
-        except Exception:
-            pass
-        _restablecer_transaccion_si_necesario(conn)
         return False
 
 
@@ -350,23 +346,36 @@ def inicializar_base_de_datos() -> None:
                 cantidad        INTEGER NOT NULL,
                 precio_unitario REAL NOT NULL,
                 total           REAL NOT NULL,
-                registrado_por  TEXT DEFAULT ''
+                registrado_por  TEXT DEFAULT '',
+                venta_grupo     TEXT DEFAULT '',
+                metodo_pago     TEXT DEFAULT 'efectivo',
+                monto_recibido  REAL NOT NULL DEFAULT 0.0,
+                cambio          REAL NOT NULL DEFAULT 0.0,
+                referencia_tipo TEXT DEFAULT 'pos',
+                referencia_id   INTEGER
             )
         """)
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS arqueos_caja (
-                id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                fecha           TEXT NOT NULL,
-                abierto_en      TEXT NOT NULL,
-                abierto_por     TEXT NOT NULL DEFAULT '',
-                monto_apertura  REAL NOT NULL DEFAULT 0.0,
-                estado          TEXT NOT NULL DEFAULT 'abierto'
-                                CHECK(estado IN ('abierto', 'cerrado')),
-                notas           TEXT DEFAULT '',
-                cerrado_en      TEXT DEFAULT NULL,
-                cerrado_por     TEXT DEFAULT '',
-                monto_cierre    REAL DEFAULT NULL
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                fecha              TEXT NOT NULL,
+                abierto_en         TEXT NOT NULL,
+                abierto_por        TEXT NOT NULL DEFAULT '',
+                monto_apertura     REAL NOT NULL DEFAULT 0.0,
+                estado             TEXT NOT NULL DEFAULT 'abierto'
+                                   CHECK(estado IN ('abierto', 'cerrado')),
+                notas              TEXT DEFAULT '',
+                cerrado_en         TEXT DEFAULT NULL,
+                cerrado_por        TEXT DEFAULT '',
+                monto_cierre       REAL DEFAULT NULL,
+                efectivo_esperado  REAL DEFAULT NULL,
+                diferencia_cierre  REAL DEFAULT NULL,
+                notas_cierre       TEXT DEFAULT '',
+                reabierto_en       TEXT DEFAULT '',
+                reabierto_por      TEXT DEFAULT '',
+                motivo_reapertura  TEXT DEFAULT '',
+                reaperturas        INTEGER NOT NULL DEFAULT 0
             )
         """)
 
@@ -423,16 +432,22 @@ def inicializar_base_de_datos() -> None:
         # Pedidos con estado y trazabilidad
         conn.execute("""
             CREATE TABLE IF NOT EXISTS pedidos (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                mesa_id     INTEGER,
-                mesero      TEXT NOT NULL DEFAULT '',
-                estado      TEXT NOT NULL DEFAULT 'pendiente'
-                            CHECK(estado IN ('pendiente','en_preparacion','listo','pagado','cancelado')),
-                fecha       TEXT NOT NULL,
-                hora        TEXT NOT NULL,
-                hora_pagado TEXT DEFAULT NULL,
-                notas       TEXT DEFAULT '',
-                total       REAL NOT NULL DEFAULT 0.0,
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                mesa_id        INTEGER,
+                mesero         TEXT NOT NULL DEFAULT '',
+                estado         TEXT NOT NULL DEFAULT 'pendiente'
+                               CHECK(estado IN ('pendiente','en_preparacion','listo','pagado','cancelado')),
+                fecha          TEXT NOT NULL,
+                hora           TEXT NOT NULL,
+                hora_pagado    TEXT DEFAULT NULL,
+                notas          TEXT DEFAULT '',
+                total          REAL NOT NULL DEFAULT 0.0,
+                creado_en      TEXT,
+                pagado_en      TEXT,
+                pagado_por     TEXT DEFAULT '',
+                metodo_pago    TEXT DEFAULT '',
+                monto_recibido REAL NOT NULL DEFAULT 0.0,
+                cambio         REAL NOT NULL DEFAULT 0.0,
                 FOREIGN KEY (mesa_id) REFERENCES mesas(id)
             )
         """)
@@ -616,10 +631,11 @@ def inicializar_base_de_datos() -> None:
             )
         """)
 
-        # ── Índices para columnas que existen en el CREATE TABLE ──
+        # ── Índices ──
         conn.execute("CREATE INDEX IF NOT EXISTS idx_ventas_fecha ON ventas(fecha)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_ventas_producto ON ventas(producto)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_ventas_fecha_producto ON ventas(fecha, producto)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ventas_venta_grupo ON ventas(venta_grupo)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_registros_fecha ON registros_diarios(fecha)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_registros_fecha_producto ON registros_diarios(fecha, producto)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_pedidos_fecha_estado ON pedidos(fecha, estado)")
@@ -632,6 +648,10 @@ def inicializar_base_de_datos() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_mermas_fecha ON mermas(fecha)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_mermas_producto ON mermas(producto)")
 
+        # Persistir tablas e índices antes de ejecutar migraciones.
+        # En PostgreSQL, si una migración falla, el rollback no deshará las tablas.
+        conn.commit()
+
         # Migrar tabla productos existente: agregar columnas si faltan
         _migrar_productos(conn)
         # Migrar tabla usuarios: agregar rol mesero al CHECK
@@ -641,8 +661,6 @@ def inicializar_base_de_datos() -> None:
         _reparar_cantidades_receta_infladas(conn)
         _migrar_ventas_pedidos_caja(conn)
 
-        # ── Índices para columnas agregadas por migraciones ──
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_ventas_venta_grupo ON ventas(venta_grupo)")
         _sembrar_categorias_producto(conn)
         conn.execute("""
             INSERT OR IGNORE INTO configuracion_sistema (clave, valor)
