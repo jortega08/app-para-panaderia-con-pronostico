@@ -154,9 +154,23 @@ class _PGCursor:
         if not pg_sql.strip():
             return self
 
-        self._cur.execute(pg_sql, params or ())
+        # Emular el lastrowid de SQLite devolviendo el id insertado via RETURNING id
+        # solo en las tablas donde sabemos que el codigo fuente espera el lastrowid
+        match_insert = re.match(r"^\s*INSERT\s+(?:OR\s+IGNORE\s+)?INTO\s+([a-zA-Z0-9_]+)", sql, re.IGNORECASE)
+        returning_tables = {"pedidos", "productos", "pedido_items", "movimientos_caja", "arqueos_caja"}
+        
+        if match_insert and match_insert.group(1).lower() in returning_tables and "RETURNING" not in pg_sql.upper():
+            pg_sql = pg_sql.rstrip().rstrip(";") + " RETURNING id"
+            self._cur.execute(pg_sql, params or ())
+            
+            # Recuperar el ID insertado
+            row = self._cur.fetchone()
+            self.lastrowid = row[0] if row else None
+        else:
+            self._cur.execute(pg_sql, params or ())
+            self.lastrowid = None
+
         self.rowcount = self._cur.rowcount
-        self.lastrowid = None
         return self
 
     def fetchone(self):
