@@ -1,4 +1,4 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 {% block title_extra %} - Pedidos{% endblock %}
 {% block content %}
 <style>
@@ -300,12 +300,13 @@
                     <select id="chargeMethod" class="form-input" onchange="updateChargeSummary()">
                         <option value="efectivo">Efectivo</option>
                         <option value="transferencia">Transferencia</option>
+                        <option value="tarjeta">Tarjeta</option>
                     </select>
                 </div>
                 <div>
                     <label class="form-label" for="chargeReceived">Monto recibido</label>
                     <input id="chargeReceived" type="number" min="0" step="1" class="form-input" oninput="updateChargeSummary()">
-                    <div class="form-help">En transferencia se registra el total exacto.</div>
+                    <div class="form-help" id="chargeReceivedHelp">Ingresa el monto que entrega el cliente para calcular la vuelta.</div>
                 </div>
             </div>
             <div class="payment-summary-box payment-summary-box-soft">
@@ -516,16 +517,24 @@ function getChargeTotal() {
 function updateChargeSummary() {
     const metodo = document.getElementById('chargeMethod').value;
     const input = document.getElementById('chargeReceived');
+    const helpText = document.getElementById('chargeReceivedHelp');
     const totalCobro = getChargeTotal();
     document.getElementById('chargeNowTotal').textContent = money(totalCobro);
     document.getElementById('splitSelectedTotal').textContent = money(totalCobro);
-    if (metodo === 'transferencia') {
-        input.value = window.AppUI ? AppUI.suggestedCash(totalCobro) : String(Math.ceil(totalCobro));
+
+    if (metodo === 'transferencia' || metodo === 'tarjeta') {
+        // Pago exacto: bloquear campo y poner el total
+        input.value = String(Math.ceil(totalCobro));
         input.disabled = true;
+        if (helpText) helpText.textContent = metodo === 'tarjeta'
+            ? 'Con tarjeta se registra el total exacto, sin vuelta.'
+            : 'Con transferencia se registra el total exacto, sin vuelta.';
     } else {
+        // Efectivo: campo completamente libre, no se toca el value mientras el cajero escribe
         input.disabled = false;
-    if (!input.value || Number(input.value || 0) < totalCobro) input.value = window.AppUI ? AppUI.suggestedCash(totalCobro) : String(Math.ceil(totalCobro));
+        if (helpText) helpText.textContent = 'Ingresa el monto que entrega el cliente para calcular la vuelta.';
     }
+
     const recibido = Number(input.value || 0);
     const cambio = metodo === 'efectivo' ? Math.max(recibido - totalCobro, 0) : 0;
     document.getElementById('chargeReceivedText').textContent = money(recibido);
@@ -540,8 +549,12 @@ async function confirmCharge() {
         Toast.warning('Selecciona al menos una parte del pedido para dividir la cuenta.');
         return;
     }
+    if (metodo === 'efectivo' && recibido <= 0) {
+        Toast.warning('Ingresa el monto recibido del cliente.');
+        return;
+    }
     if (metodo === 'efectivo' && recibido + 1e-9 < totalCobro) {
-        Toast.warning('El monto recibido debe cubrir el total del pedido.');
+        Toast.warning('El monto recibido (' + money(recibido) + ') no cubre el total (' + money(totalCobro) + '). Ingresa un valor mayor o igual.');
         return;
     }
 

@@ -918,11 +918,15 @@
             wrapper.classList.toggle('has-invalid', !valid);
             field.setAttribute('aria-invalid', valid ? 'false' : 'true');
 
-            feedback.hidden = false;
-            feedback.className = 'field-feedback ' + (valid ? 'is-success' : 'is-error');
-            feedback.textContent = valid
-                ? (field.dataset.successText || 'Dato listo.')
-                : this.message(field);
+            if (valid) {
+                feedback.hidden = true;
+                feedback.textContent = '';
+                feedback.className = 'field-feedback is-success';
+            } else {
+                feedback.hidden = false;
+                feedback.className = 'field-feedback is-error';
+                feedback.textContent = this.message(field);
+            }
 
             if (!valid && forceShake) {
                 field.classList.remove('shake');
@@ -1062,6 +1066,47 @@
             requestAnimationFrame(step);
         });
     }
+
+    /* ══════════════════════════════════════════════
+       SCROLL POSITION PRESERVATION
+       beforeunload saves scroll before any reload.
+       On load, navigation type is checked so scroll
+       is only restored after a reload, not fresh nav.
+       ══════════════════════════════════════════════ */
+    (function() {
+        var SCROLL_KEY = 'richs_scroll_' + window.location.pathname;
+
+        window.addEventListener('beforeunload', function() {
+            try {
+                var y = window.scrollY || document.documentElement.scrollTop || 0;
+                sessionStorage.setItem(SCROLL_KEY, String(y));
+            } catch(e) {}
+        });
+
+        var navEntry = (performance.getEntriesByType && performance.getEntriesByType('navigation')[0]);
+        var wasReload = navEntry
+            ? (navEntry.type === 'reload')
+            : (performance.navigation && performance.navigation.type === 1);
+
+        if (wasReload) {
+            var savedScroll = sessionStorage.getItem(SCROLL_KEY);
+            if (savedScroll !== null) {
+                var scrollTarget = parseInt(savedScroll, 10);
+                function tryRestore(attempts) {
+                    if (attempts <= 0) return;
+                    window.scrollTo({ top: scrollTarget, behavior: 'instant' });
+                    setTimeout(function() {
+                        if (Math.abs(window.scrollY - scrollTarget) > 40) {
+                            tryRestore(attempts - 1);
+                        }
+                    }, 80);
+                }
+                requestAnimationFrame(function() { tryRestore(5); });
+            }
+        } else {
+            try { sessionStorage.removeItem(SCROLL_KEY); } catch(e) {}
+        }
+    })();
 
     /* ══════════════════════════════════════════════
        CARD STAGGER ANIMATION

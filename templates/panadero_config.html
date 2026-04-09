@@ -172,6 +172,41 @@ body.config-picker-open { overflow: hidden; }
     .config-hub-meta-grid { grid-template-columns: 1fr; }
     .config-module-tab { width: 100%; justify-content: center; }
 }
+.product-search-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: rgba(255,249,242,0.9);
+    border-bottom: 1px solid rgba(139, 85, 19, 0.08);
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+.product-search-wrap .material-symbols-outlined {
+    color: var(--text-muted);
+    font-size: 20px;
+    flex-shrink: 0;
+}
+.product-search-wrap input {
+    flex: 1;
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    outline: none;
+    font-size: 14px;
+    color: var(--text);
+    padding: 0 !important;
+    min-width: 0;
+}
+.product-search-wrap input::placeholder { color: var(--text-muted); }
+.product-search-empty {
+    padding: 28px 16px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 14px;
+    display: none;
+}
 </style>
 
 <div class="page-container">
@@ -280,9 +315,16 @@ body.config-picker-open { overflow: hidden; }
 
                     <div class="card">
                         <div class="card-header">Productos y precios</div>
+                        <div class="product-search-wrap">
+                            <span class="material-symbols-outlined">search</span>
+                            <input type="text" id="productSearchInput"
+                                   placeholder="Buscar por nombre, precio o categoria..."
+                                   data-skip-validation="true"
+                                   oninput="filterProductList(this.value)">
+                        </div>
                         <div class="card-body config-scroll-list" id="productList">
                             {% for p in productos %}
-                            <div class="config-row">
+                            <div class="config-row" data-prod-name="{{ p.nombre|lower }}" data-prod-price="{{ p.precio }}" data-prod-cat="{{ p.categoria|lower }}">
                                 <span class="config-dot" style="background: {{ p.color }}"></span>
                                 <span class="material-symbols-outlined config-product-icon">{{ p.icono }}</span>
                                 <input type="text" class="form-input form-input-sm" id="prod-name-{{ p.id }}"
@@ -302,6 +344,10 @@ body.config-picker-open { overflow: hidden; }
                                 </button>
                             </div>
                             {% endfor %}
+                            <div class="product-search-empty" id="productSearchEmpty">
+                                <span class="material-symbols-outlined" style="font-size:32px;display:block;margin-bottom:8px;">search_off</span>
+                                Sin resultados para tu busqueda.
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -624,6 +670,22 @@ document.addEventListener('DOMContentLoaded', () => {
         openConfigPicker();
     }
 });
+
+function filterProductList(query) {
+    const q = (query || '').trim().toLowerCase();
+    const rows = document.querySelectorAll('#productList .config-row[data-prod-name]');
+    const empty = document.getElementById('productSearchEmpty');
+    let visible = 0;
+    rows.forEach(function(row) {
+        const name = (row.dataset.prodName || '');
+        const price = (row.dataset.prodPrice || '');
+        const cat = (row.dataset.prodCat || '');
+        const match = !q || name.includes(q) || price.includes(q) || cat.includes(q);
+        row.style.display = match ? '' : 'none';
+        if (match) visible++;
+    });
+    if (empty) empty.style.display = (visible === 0 && q) ? 'block' : 'none';
+}
 
 function saveProduct(productId) {
     const nombre = document.getElementById('prod-name-' + productId).value.trim();

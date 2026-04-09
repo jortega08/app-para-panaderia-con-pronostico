@@ -1,4 +1,4 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 {% block title_extra %} - Ventas de Hoy{% endblock %}
 {% block content %}
 <div class="page-container cajero-ventas-page ventas-page">
@@ -15,7 +15,7 @@
                 <span class="sales-pill sales-pill-soft">Datos en tiempo real</span>
             </div>
             <div class="sales-hero-actions">
-                <button class="btn btn-accent" onclick="loadData()">
+                <button class="btn btn-accent" onclick="loadData(false)">
                     <span class="material-symbols-outlined">refresh</span>
                     Actualizar
                 </button>
@@ -170,7 +170,7 @@ function formatHoraCompleta(valor) {
     return texto.slice(0, 8) || texto;
 }
 
-function loadData() {
+function loadData(isAuto = false) {
     fetch('/api/ventas/hoy')
     .then(r => r.json())
     .then(data => {
@@ -189,7 +189,13 @@ function loadData() {
         updateVentasResponsable(data.ventas_por_responsable || []);
         updateMovimientos(movimientosActuales || []);
         updateTable(data.ventas || []);
-        renderCaja();
+
+        // Renderea la caja unicamente si fue cargada manual (isAuto=false) 
+        // para que no le borre el progreso al cajero mientras cuenta dinero
+        if (!isAuto) {
+            renderCaja();
+        }
+
         document.getElementById('lastUpdate').textContent =
             'Actualizado: ' + new Date().toLocaleTimeString('es-CO', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
     })
@@ -661,7 +667,7 @@ async function reabrirCaja() {
 }
 
 renderCaja();
-loadData();
-setInterval(loadData, 30000);
+loadData(false);
+setInterval(() => loadData(true), 30000);
 </script>
 {% endblock %}

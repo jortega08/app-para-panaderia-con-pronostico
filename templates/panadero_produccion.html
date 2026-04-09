@@ -90,6 +90,45 @@
                 </div>
             </article>
 
+        </div>
+        <div class="production-side-column">
+            <article class="card production-adjust-card">
+                <div class="card-header production-section-header">
+                    <div><strong>Meta operativa</strong><span>Si quieres seguir el sistema a tu ritmo, ajusta aqui la meta total del dia. No necesitas tocar esto para cada tanda.</span></div>
+                </div>
+                <div class="card-body production-adjust-body">
+                    <div class="production-adjust-current">
+                        <span class="production-adjust-label">Meta activa</span>
+                        <strong id="adjustMetaActual">0</strong>
+                        <span id="adjustMetaCopy">Usando sugerencia del sistema</span>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="metaOperativaInput">Meta diaria del producto</label>
+                        <input type="number" id="metaOperativaInput" class="form-input" min="0" placeholder="Meta del dia">
+                    </div>
+                    <div class="form-group">
+                        <label for="motivoAjuste">Motivo del ajuste</label>
+                        <input type="text" id="motivoAjuste" class="form-input" placeholder="Ej: voy a hornear por tandas mas pequenas hoy">
+                    </div>
+                    <div class="production-inline-actions">
+                        <button type="button" class="btn btn-accent btn-sm" onclick="guardarMetaOperativa()">Guardar meta</button>
+                        <button type="button" class="btn btn-outline btn-sm" onclick="restaurarMetaSugerida()">Volver al sugerido</button>
+                    </div>
+                    <div class="production-adjust-note">
+                        El ajuste cambia la meta del dia. Luego registras tus tandas normales contra esa meta.
+                    </div>
+                </div>
+            </article>
+
+        </div>
+    
+    </section>
+
+    <!-- Seccion de ancho completo para registros -->
+    <section class="production-main-column full-width-production" style="margin-top: 18px;">
+
+
             <article class="card production-quick-card">
                 <div class="card-header production-section-header">
                     <div><strong>Registro rapido de produccion</strong><span>Selecciona varios panes, escribe solo la tanda que vas a hornear ahora y guarda todo junto sin hacerlo uno por uno.</span></div>
@@ -267,77 +306,48 @@
                     </div>
                 </div>
             </article>
+
+</section>
+
+<section class="production-history-section">
+    <article class="card production-history-card">
+        <div class="card-header production-section-header">
+            <div><strong>Resumen reciente</strong><span>Vista diaria para revisar producido contra vendido real en los ultimos 30 dias.</span></div>
         </div>
-
-        <div class="production-side-column">
-            <article class="card production-adjust-card">
-                <div class="card-header production-section-header">
-                    <div><strong>Meta operativa</strong><span>Si quieres seguir el sistema a tu ritmo, ajusta aqui la meta total del dia. No necesitas tocar esto para cada tanda.</span></div>
-                </div>
-                <div class="card-body production-adjust-body">
-                    <div class="production-adjust-current">
-                        <span class="production-adjust-label">Meta activa</span>
-                        <strong id="adjustMetaActual">0</strong>
-                        <span id="adjustMetaCopy">Usando sugerencia del sistema</span>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="metaOperativaInput">Meta diaria del producto</label>
-                        <input type="number" id="metaOperativaInput" class="form-input" min="0" placeholder="Meta del dia">
-                    </div>
-                    <div class="form-group">
-                        <label for="motivoAjuste">Motivo del ajuste</label>
-                        <input type="text" id="motivoAjuste" class="form-input" placeholder="Ej: voy a hornear por tandas mas pequenas hoy">
-                    </div>
-                    <div class="production-inline-actions">
-                        <button type="button" class="btn btn-accent btn-sm" onclick="guardarMetaOperativa()">Guardar meta</button>
-                        <button type="button" class="btn btn-outline btn-sm" onclick="restaurarMetaSugerida()">Volver al sugerido</button>
-                    </div>
-                    <div class="production-adjust-note">
-                        El ajuste cambia la meta del dia. Luego registras tus tandas normales contra esa meta.
-                    </div>
-                </div>
-            </article>
-
-            <article class="card production-history-card">
-                <div class="card-header production-section-header">
-                    <div><strong>Resumen reciente</strong><span>Vista diaria para revisar producido contra vendido real en los ultimos 30 dias.</span></div>
-                </div>
-                <div class="card-body production-table-wrap">
-                    <table class="table table-compact production-table">
-                        <thead>
-                            <tr>
-                                <th>Fecha</th>
-                                <th>Producto</th>
-                                <th class="text-center">Producido</th>
-                                <th class="text-center">Vendido real</th>
-                                <th class="text-center">Sobrante</th>
-                                <th class="text-center">Faltante</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% if registros_recientes %}
-                                {% for r in registros_recientes[:40] %}
-                                <tr class="{% if r.faltante > 0 %}row-danger{% elif r.sobrante > 0 %}row-warning{% endif %}">
-                                    <td>{{ r.fecha }}</td>
-                                    <td>{{ r.producto }}</td>
-                                    <td class="text-center">{{ r.producido }}</td>
-                                    <td class="text-center">{{ r.vendido }}</td>
-                                    <td class="text-center">{{ r.sobrante if r.sobrante > 0 else 0 }}</td>
-                                    <td class="text-center">{{ r.faltante if r.faltante > 0 else 0 }}</td>
-                                </tr>
-                                {% endfor %}
-                            {% else %}
-                                <tr>
-                                    <td colspan="6" class="text-center text-muted">No hay registros recientes.</td>
-                                </tr>
-                            {% endif %}
-                        </tbody>
-                    </table>
-                </div>
-            </article>
+        <div class="card-body production-table-wrap">
+            <table class="table table-compact production-table">
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Producto</th>
+                        <th class="text-center">Producido</th>
+                        <th class="text-center">Vendido real</th>
+                        <th class="text-center">Sobrante</th>
+                        <th class="text-center">Faltante</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if registros_recientes %}
+                        {% for r in registros_recientes[:40] %}
+                        <tr class="{% if r.faltante > 0 %}row-danger{% elif r.sobrante > 0 %}row-warning{% endif %}">
+                            <td>{{ r.fecha }}</td>
+                            <td>{{ r.producto }}</td>
+                            <td class="text-center">{{ r.producido }}</td>
+                            <td class="text-center">{{ r.vendido }}</td>
+                            <td class="text-center">{{ r.sobrante if r.sobrante > 0 else 0 }}</td>
+                            <td class="text-center">{{ r.faltante if r.faltante > 0 else 0 }}</td>
+                        </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="6" class="text-center text-muted">No hay registros recientes.</td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
         </div>
-    </section>
+    </article>
+</section>
 </div>
 
 <script>

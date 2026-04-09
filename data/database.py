@@ -26,7 +26,7 @@ import sqlite3
 import os
 import re
 import unicodedata
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -1830,7 +1830,7 @@ def _registrar_historial_estado_pedido(conn, pedido_id: int, estado: str,
 
 
 def obtener_arqueo_caja_activo(fecha: str | None = None) -> dict | None:
-    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
     with get_connection() as conn:
         row = conn.execute("""
             SELECT id, fecha, abierto_en, abierto_por, monto_apertura, estado, notas,
@@ -1846,7 +1846,7 @@ def obtener_arqueo_caja_activo(fecha: str | None = None) -> dict | None:
 
 
 def obtener_arqueo_caja_dia(fecha: str | None = None) -> dict | None:
-    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
     with get_connection() as conn:
         row = conn.execute("""
             SELECT id, fecha, abierto_en, abierto_por, monto_apertura, estado, notas,
@@ -1865,7 +1865,7 @@ def obtener_arqueo_caja_dia(fecha: str | None = None) -> dict | None:
 
 def abrir_arqueo_caja(abierto_por: str, monto_apertura: float, notas: str = "",
                       fecha: str | None = None) -> dict:
-    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
     if monto_apertura < 0:
         return {"ok": False, "error": "El monto de apertura no puede ser negativo"}
 
@@ -1910,7 +1910,7 @@ def obtener_historial_arqueos(limite: int = 15) -> list[dict]:
 
 
 def obtener_movimientos_caja(fecha: str | None = None, limite: int | None = None) -> list[dict]:
-    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
     query = """
         SELECT id, arqueo_id, fecha, creado_en, tipo, concepto, monto, registrado_por, notas
         FROM movimientos_caja
@@ -1929,7 +1929,7 @@ def obtener_movimientos_caja(fecha: str | None = None, limite: int | None = None
 def registrar_movimiento_caja(tipo: str, concepto: str, monto: float,
                               registrado_por: str = "", notas: str = "",
                               fecha: str | None = None) -> dict:
-    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
     tipo = str(tipo or "").strip().lower()
     if tipo not in ("ingreso", "egreso"):
         return {"ok": False, "error": "Tipo de movimiento invalido"}
@@ -1970,7 +1970,7 @@ def registrar_movimiento_caja(tipo: str, concepto: str, monto: float,
 def cerrar_arqueo_caja(cerrado_por: str, monto_cierre: float,
                        notas_cierre: str = "", codigo_verificacion: str = "",
                        fecha: str | None = None) -> dict:
-    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
     if float(monto_cierre or 0) < 0:
         return {"ok": False, "error": "El monto de cierre no puede ser negativo"}
 
@@ -2025,7 +2025,7 @@ def cerrar_arqueo_caja(cerrado_por: str, monto_cierre: float,
 
 def reabrir_arqueo_caja(reabierto_por: str, codigo_verificacion: str,
                         motivo_reapertura: str, fecha: str | None = None) -> dict:
-    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
     arqueo = obtener_arqueo_caja_dia(fecha)
     if not arqueo or arqueo.get("estado") != "cerrado":
         return {"ok": False, "error": "No hay una caja cerrada para reabrir"}
@@ -2061,7 +2061,7 @@ def reabrir_arqueo_caja(reabierto_por: str, codigo_verificacion: str,
 
 
 def obtener_resumen_caja_dia(fecha: str | None = None) -> dict:
-    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
     arqueo = obtener_arqueo_caja_dia(fecha)
 
     with get_connection() as conn:
@@ -2149,7 +2149,7 @@ def registrar_venta_lote(items: list[dict], registrado_por: str = "",
         return {"ok": False, "error": "No hay items para registrar"}
 
     ahora = fecha_hora or datetime.now()
-    fecha = ahora.strftime("%Y-%m-%d")
+    fecha = (ahora - timedelta(hours=4)).strftime("%Y-%m-%d")
     hora = ahora.strftime("%H:%M:%S")
     metodo_pago = _metodo_pago_normalizado(metodo_pago)
 
@@ -2244,7 +2244,7 @@ def registrar_venta(producto: str, cantidad: int,
 def obtener_ventas_dia(fecha: str = None) -> list[dict]:
     """Retorna todas las ventas de un dia."""
     if fecha is None:
-        fecha = datetime.now().strftime("%Y-%m-%d")
+        fecha = (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT hora, producto, cantidad, precio_unitario, total, registrado_por,
@@ -2260,7 +2260,7 @@ def obtener_ventas_dia(fecha: str = None) -> list[dict]:
 def obtener_resumen_ventas_dia(fecha: str = None) -> list[dict]:
     """Resumen agrupado por producto para un dia."""
     if fecha is None:
-        fecha = datetime.now().strftime("%Y-%m-%d")
+        fecha = (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT producto,
@@ -2282,7 +2282,7 @@ def obtener_resumen_ventas_por_responsable(fecha: str = None) -> list[dict]:
     - POS directo: se agrupan como POS / caja.
     """
     if fecha is None:
-        fecha = datetime.now().strftime("%Y-%m-%d")
+        fecha = (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT
@@ -2308,7 +2308,7 @@ def obtener_resumen_ventas_por_responsable(fecha: str = None) -> list[dict]:
 def obtener_total_ventas_dia(fecha: str = None) -> dict:
     """Total general de ventas del dia."""
     if fecha is None:
-        fecha = datetime.now().strftime("%Y-%m-%d")
+        fecha = (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
     with get_connection() as conn:
         row = conn.execute("""
             SELECT COALESCE(SUM(cantidad), 0) as panes,
@@ -3119,7 +3119,7 @@ def actualizar_pedido(pedido_id: int, actualizado_por: str, items: list[dict],
 def obtener_pedido_activo_mesa_mesero(mesa_id: int, mesero: str,
                                       fecha: str | None = None) -> dict | None:
     """Retorna el pedido activo más reciente de una mesa para un mesero."""
-    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
     with get_connection() as conn:
         row = conn.execute("""
             SELECT id
@@ -3140,7 +3140,7 @@ def obtener_pedidos(estado: str = None, mesa_id: int = None,
                     fecha: str = None, mesero: str | None = None) -> list[dict]:
     """Obtiene pedidos filtrados por estado, mesa y/o fecha."""
     if fecha is None:
-        fecha = datetime.now().strftime("%Y-%m-%d")
+        fecha = (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
 
     query = """
         SELECT p.id, p.mesa_id, m.numero as mesa_numero, m.nombre as mesa_nombre,
@@ -3174,7 +3174,7 @@ def obtener_pedidos_con_detalle(estado: str = None, mesa_id: int = None,
                                 fecha: str = None, mesero: str | None = None) -> list[dict]:
     """Obtiene pedidos con items, modificaciones e historial en pocas queries (sin N+1)."""
     if fecha is None:
-        fecha = datetime.now().strftime("%Y-%m-%d")
+        fecha = (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
 
     # 1) Pedidos base (con JOIN a mesas)
     query = """
@@ -3275,7 +3275,7 @@ def obtener_pedido(pedido_id: int) -> dict | None:
 def obtener_pedidos_con_detalle(fecha: str | None = None, estado: str | None = None,
                                 mesa_id: int | None = None, mesero: str | None = None) -> list[dict]:
     """Obtiene pedidos con items, modificaciones e historial en queries eficientes (sin N+1)."""
-    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
     with get_connection() as conn:
         query = """
             SELECT p.id, p.mesa_id, m.numero as mesa_numero, m.nombre as mesa_nombre,
@@ -3622,7 +3622,7 @@ def obtener_pedidos_activos_mesa(mesa_id: int) -> list[dict]:
             WHERE mesa_id = ? AND estado NOT IN ('pagado', 'cancelado')
               AND fecha = ?
             ORDER BY hora DESC
-        """, (mesa_id, datetime.now().strftime("%Y-%m-%d"))).fetchall()
+        """, (mesa_id, (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d"))).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -4037,7 +4037,7 @@ def _pedidos_comprometidos_panaderia_conn(conn, fecha: str,
 
 def validar_items_contra_produccion_panaderia(items: list[dict], fecha: str | None = None,
                                               excluir_pedido_id: int | None = None) -> dict:
-    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
 
     with get_connection() as conn:
         requeridos = _requerimiento_panaderia_items_conn(conn, items)
@@ -4101,7 +4101,7 @@ def obtener_stock_disponible_hoy(fecha: str | None = None) -> dict[str, int]:
     Solo incluye productos con registro de producción para hoy.
     Productos sin registro = sin límite (no se validan).
     """
-    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
     with get_connection() as conn:
         # 1. Producción y vendido manual del día (fuente única, igual al inventario)
         prod_rows = conn.execute(
@@ -4146,7 +4146,7 @@ def validar_stock_pedido(items: list[dict], fecha: str | None = None,
     Aplica a TODOS los productos con producción registrada hoy, sin importar categoría.
     Si un producto no tiene registro de producción, se permite (sin límite).
     """
-    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
 
     # Calcular requeridos del pedido (suma por producto)
     requeridos: dict[str, float] = {}
@@ -4426,7 +4426,7 @@ def guardar_receta(producto: str, ingredientes: list[dict], ficha: dict | None =
 def obtener_consumo_diario(fecha: str = None) -> list[dict]:
     """Calcula el consumo teorico del dia combinando produccion y pedidos pagados."""
     if fecha is None:
-        fecha = datetime.now().strftime("%Y-%m-%d")
+        fecha = (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
 
     consumo = {}
     with get_connection() as conn:
@@ -4490,7 +4490,7 @@ def obtener_consumo_diario(fecha: str = None) -> list[dict]:
 def obtener_estadisticas_pedidos(fecha: str = None) -> dict:
     """Estadisticas de pedidos del dia."""
     if fecha is None:
-        fecha = datetime.now().strftime("%Y-%m-%d")
+        fecha = (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
 
     with get_connection() as conn:
         row = conn.execute("""
@@ -4510,7 +4510,7 @@ def obtener_estadisticas_pedidos(fecha: str = None) -> dict:
 def obtener_resumen_mesas() -> list[dict]:
     """Resumen de mesas con sus pedidos activos."""
     mesas = obtener_mesas()
-    hoy = datetime.now().strftime("%Y-%m-%d")
+    hoy = (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
     resultado = []
     with get_connection() as conn:
         for mesa in mesas:
@@ -4586,7 +4586,7 @@ def obtener_audit_log(dias: int = 30, limite: int = 200) -> list[dict]:
 
 def obtener_top_productos_dia(fecha: str | None = None, limite: int = 3) -> list[dict]:
     """Top N productos más vendidos hoy (unidades vendidas)."""
-    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
     with get_connection() as conn:
         # Ventas del cajero
         rows_ventas = conn.execute("""
@@ -4631,7 +4631,7 @@ def obtener_alertas_stock_productos(fecha: str | None = None) -> list[dict]:
     Devuelve estado de stock de productos de panadería del día.
     Estado: 'verde' (ok), 'amarillo' (pocas unidades), 'rojo' (agotado).
     """
-    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
     with get_connection() as conn:
         productos = conn.execute("""
             SELECT MIN(id) AS id, nombre, MAX(stock_minimo) AS stock_minimo
@@ -4780,7 +4780,7 @@ def registrar_merma(
 
 
 def obtener_mermas_dia(fecha: str | None = None) -> list[dict]:
-    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT id, fecha, creado_en, producto, cantidad, tipo, registrado_por, notas
@@ -4870,7 +4870,7 @@ def obtener_resumen_cierre_diario(fecha: str | None = None) -> dict:
     Genera el resumen completo del cierre del día:
     ventas, ticket promedio, top producto, caja, merma, pronóstico mañana.
     """
-    fecha = fecha or datetime.now().strftime("%Y-%m-%d")
+    fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
 
     with get_connection() as conn:
         # ── Ventas del día ───────────────────────────────────────────────────

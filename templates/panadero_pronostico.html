@@ -2,105 +2,867 @@
 {% block title_extra %} - Dashboard de Pronostico{% endblock %}
 {% block content %}
 <style>
-.forecast-page{display:grid;gap:18px}
-.forecast-shell{--surface:#fff8f2;--surface-card:rgba(255,255,255,.95);--surface-muted:rgba(247,238,226,.92);--ink:#2b1a12;--muted:#6d584b;--accent:#c17817;--accent2:#2f6b63;--accent3:#d4722a;display:grid;gap:18px}
-.forecast-page .card{border:1px solid rgba(139,85,19,.12);box-shadow:0 10px 24px rgba(71,40,20,.08)}
-.forecast-hero{position:relative;overflow:hidden;border-radius:24px;background:var(--surface);border:1px solid rgba(139,85,19,.12);box-shadow:0 18px 48px rgba(71,40,20,.12);padding:clamp(20px,3vw,32px);display:grid;grid-template-columns:minmax(0,1.5fr) minmax(280px,.95fr);gap:24px}
-.forecast-hero-copy,.forecast-hero-sidebar{position:relative;z-index:1}
-.forecast-eyebrow{display:inline-flex;align-items:center;gap:8px;width:fit-content;padding:7px 12px;border-radius:999px;background:rgba(193,120,23,.1);color:var(--accent);font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
-.forecast-hero-title{font-size:clamp(30px,4vw,48px);line-height:.95;letter-spacing:-.04em;color:var(--ink);margin:0}
-.forecast-hero-display{display:grid;gap:6px}
-.forecast-hero-big{font-size:clamp(42px,7vw,82px);line-height:.92;letter-spacing:-.06em;font-weight:800;color:var(--accent)}
-.forecast-hero-sub{font-size:16px;line-height:1.55;color:var(--muted);max-width:62ch}
-.forecast-hero-tags{display:flex;flex-wrap:wrap;gap:10px}
-.forecast-pill{display:inline-flex;align-items:center;gap:8px;min-height:34px;padding:8px 12px;border-radius:999px;background:var(--surface-card);border:1px solid rgba(139,85,19,.12);color:var(--ink);font-size:13px;font-weight:600}
-.forecast-pill-soft{background:var(--surface-muted)}
-.forecast-hero-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:4px}
-.forecast-hero-summary-card{background:var(--surface-card);border:1px solid rgba(139,85,19,.12);border-radius:22px;padding:18px;display:grid;gap:14px}
-.forecast-hero-summary-title{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
-.forecast-hero-context{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-.forecast-context-item{border-radius:18px;background:var(--surface-muted);border:1px solid rgba(139,85,19,.1);padding:14px 12px}
-.forecast-context-item span{display:block;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
-.forecast-context-item strong{display:block;margin-top:6px;font-size:18px;line-height:1.05;color:var(--ink)}
-.forecast-context-item small{display:block;margin-top:4px;color:var(--muted);line-height:1.4}
-.forecast-progress{display:grid;gap:8px}
-.forecast-progress-head{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;color:var(--muted)}
-.forecast-progress-track{position:relative;overflow:hidden;height:12px;border-radius:999px;background:rgba(193,120,23,.12)}
-.forecast-progress-track span{display:block;height:100%;width:0;border-radius:inherit;background:var(--accent);transition:width 280ms ease}
-.forecast-toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:end}
-.forecast-controls{display:flex;flex-wrap:wrap;gap:12px;align-items:end}
-.forecast-control{display:grid;gap:6px;min-width:220px}
-.forecast-control label{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
-.forecast-control .form-input{min-height:44px;border-color:rgba(139,85,19,.14);background:#fff}
-.forecast-mode-switch{display:inline-flex;padding:4px;border-radius:16px;background:rgba(247,238,226,.95);border:1px solid rgba(139,85,19,.12);gap:4px}
-.forecast-mode-switch button{min-height:42px;padding:0 14px;border-radius:12px;background:transparent;color:var(--muted);font-weight:700;transition:background 180ms ease,color 180ms ease,transform 180ms ease}
-.forecast-mode-switch button.is-active{background:#fff;color:var(--accent);box-shadow:0 8px 16px rgba(71,40,20,.08)}
-.forecast-summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
-.forecast-summary-card{border-radius:20px;border:1px solid rgba(139,85,19,.12);background:var(--surface-card);padding:16px;display:grid;gap:10px;min-height:154px}
-.forecast-summary-top{display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--muted)}
-.forecast-summary-top span{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em}
-.forecast-summary-top .material-symbols-outlined{color:var(--accent)}
-.forecast-summary-value{font-size:clamp(24px,4vw,36px);line-height:.95;font-weight:800;letter-spacing:-.04em;color:var(--ink)}
-.forecast-summary-meta{color:var(--muted);line-height:1.45;font-size:13px}
-.forecast-section-header{display:flex;justify-content:space-between;gap:14px;align-items:start}
-.forecast-section-header strong{display:block;font-size:16px;color:var(--ink)}
-.forecast-section-header span{display:block;margin-top:4px;font-size:13px;color:var(--muted);line-height:1.45}
-.forecast-week-strip{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:12px}
-.forecast-day-card{position:relative;overflow:hidden;border-radius:18px;border:1px solid rgba(139,85,19,.12);background:var(--surface-card);padding:14px;display:grid;gap:10px;min-height:178px;box-shadow:0 8px 20px rgba(71,40,20,.06);animation:forecastCardIn 320ms ease both;animation-delay:var(--delay,0ms)}
-.forecast-day-card.state-good{border-top:4px solid #2f6b63}
-.forecast-day-card.state-warning{border-top:4px solid #d9a441}
-.forecast-day-card.state-danger{border-top:4px solid #b7422f}
-.forecast-day-head{display:flex;align-items:start;justify-content:space-between;gap:10px}
-.forecast-day-head h4{font-size:15px;line-height:1.1;color:var(--ink)}
-.forecast-day-head span{display:block;margin-top:4px;font-size:12px;color:var(--muted)}
-.forecast-tag{display:inline-flex;align-items:center;min-height:28px;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap}
-.confidence-good{background:rgba(47,107,99,.12);color:#2f6b63}.confidence-medium{background:rgba(217,164,65,.14);color:#8f6511}.confidence-low{background:rgba(183,66,47,.12);color:#9c3528}
-.forecast-day-value{font-size:34px;line-height:1;font-weight:800;letter-spacing:-.05em;color:var(--accent)}
-.forecast-day-meta,.forecast-day-card p{font-size:13px;color:var(--muted);line-height:1.5}
-.forecast-day-delta{display:inline-flex;width:fit-content;align-items:center;gap:6px;min-height:28px;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:700}
-.forecast-day-delta.is-up{background:rgba(47,107,99,.12);color:#2f6b63}.forecast-day-delta.is-down{background:rgba(183,66,47,.12);color:#9c3528}
-.forecast-insight-card{display:grid;gap:16px}
-.forecast-confidence{display:grid;gap:10px;padding:4px 0 8px}
-.forecast-confidence-header{display:flex;justify-content:space-between;gap:10px;align-items:end}
-.forecast-confidence-header span{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
-.forecast-confidence-header strong{font-size:14px;color:var(--ink)}
-.forecast-confidence-track{display:grid;grid-template-columns:1fr 1fr 1fr;height:12px;overflow:hidden;border-radius:999px;background:rgba(139,85,19,.08)}
-.forecast-confidence-bar{height:100%;width:0}.forecast-confidence-good{background:#2f6b63}.forecast-confidence-medium{background:#d9a441}.forecast-confidence-low{background:#b7422f}
-.forecast-confidence-legend{display:flex;flex-wrap:wrap;gap:10px;font-size:13px;color:var(--muted)}
-.forecast-confidence-legend span{display:inline-flex;align-items:center;gap:8px}
-.dot{width:10px;height:10px;border-radius:50%;display:inline-block}.dot-good{background:#2f6b63}.dot-medium{background:#d9a441}.dot-low{background:#b7422f}
-.forecast-insight-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-.forecast-insight-item{padding:14px;border-radius:18px;background:var(--surface-card);border:1px solid rgba(139,85,19,.1)}
-.forecast-insight-label{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
-.forecast-insight-value{margin-top:8px;font-size:18px;font-weight:800;color:var(--ink)}
-.forecast-insight-helper{margin-top:4px;font-size:13px;line-height:1.45;color:var(--muted)}
-.forecast-tabs{display:flex;flex-wrap:wrap;gap:8px}
-.forecast-tab{min-height:42px;padding:0 14px;border-radius:12px;background:rgba(247,238,226,.96);color:var(--muted);border:1px solid rgba(139,85,19,.12);font-weight:700}
-.forecast-tab.is-active{background:#fff;color:var(--accent);box-shadow:0 8px 18px rgba(71,40,20,.08)}
-.forecast-tab-panels{display:grid;gap:16px}.forecast-tab-panel{display:none}.forecast-tab-panel.is-active{display:block;animation:forecastFadeIn 240ms ease both}
-.forecast-chart-shell{min-height:320px}.forecast-chart-shell canvas{max-height:320px}
-.forecast-grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
-.forecast-details{border-radius:20px;border:1px solid rgba(139,85,19,.12);background:var(--surface-card);overflow:hidden}
-.forecast-details summary{list-style:none;cursor:pointer;padding:16px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-weight:700;color:var(--ink)}
-.forecast-details summary::-webkit-details-marker{display:none}.forecast-details-body{border-top:1px solid rgba(139,85,19,.08);padding:16px 18px 18px}
-.forecast-table-wrap{overflow:auto}.forecast-table{min-width:980px}
-.forecast-loading{display:grid;gap:14px}.forecast-loading-line,.forecast-loading-block{position:relative;overflow:hidden;border-radius:14px;background:rgba(139,85,19,.08)}.forecast-loading-line{height:16px}.forecast-loading-block{height:220px}
-.forecast-loading-line::after,.forecast-loading-block::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,rgba(255,255,255,.72),transparent);animation:forecastShimmer 1.15s infinite}
-.forecast-empty-state{display:grid;place-items:center;padding:28px 18px;text-align:center;gap:12px}.forecast-empty-state svg{width:120px;height:120px;opacity:.95}.forecast-empty-state strong{font-size:16px;color:var(--ink)}.forecast-empty-state p{color:var(--muted);line-height:1.5;max-width:42ch}
-.forecast-empty-action{display:inline-flex;justify-content:center}.forecast-support-note{color:var(--muted);font-size:13px;line-height:1.5}
-.forecast-simple-only,.forecast-analyst-only,.analyst-only{display:block}
-.forecast-mode-simple .forecast-analyst-only,
-.forecast-mode-simple .analyst-only{display:none!important}
-.forecast-layout-shell{display:grid;gap:18px}
-.forecast-shell>#forecastWeekSection{order:1}
-.forecast-shell>#forecastAnalystSection{order:2}
-.forecast-shell>#forecastDecisionSection{order:3}
-@keyframes forecastShimmer{100%{transform:translateX(100%)}}
-@keyframes forecastFadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
-@keyframes forecastCardIn{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}
-@media (max-width:1180px){.forecast-hero{grid-template-columns:1fr}.forecast-summary-grid,.forecast-grid-2{grid-template-columns:repeat(2,minmax(0,1fr))}.forecast-week-strip{grid-template-columns:repeat(4,minmax(0,1fr))}}
-@media (max-width:900px){.forecast-toolbar{grid-template-columns:1fr}.forecast-controls{align-items:stretch}.forecast-control{min-width:0;flex:1 1 100%}.forecast-summary-grid,.forecast-grid-2,.forecast-insight-list{grid-template-columns:1fr}.forecast-week-strip{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media (max-width:640px){.forecast-page{gap:14px}.forecast-hero{padding:18px;border-radius:20px}.forecast-hero-big{font-size:clamp(40px,15vw,60px)}.forecast-summary-grid,.forecast-week-strip{grid-template-columns:1fr}.forecast-hero-context{grid-template-columns:1fr}.forecast-mode-switch{width:100%}.forecast-mode-switch button{flex:1 1 0}.forecast-tab{flex:1 1 calc(50% - 8px)}}
+  .forecast-page {
+    display: grid;
+    gap: 18px
+  }
+
+  .forecast-shell {
+    --surface: #fff8f2;
+    --surface-card: rgba(255, 255, 255, .95);
+    --surface-muted: rgba(247, 238, 226, .92);
+    --ink: #2b1a12;
+    --muted: #6d584b;
+    --accent: #c17817;
+    --accent2: #2f6b63;
+    --accent3: #d4722a;
+    display: grid;
+    gap: 18px
+  }
+
+  .forecast-page .card {
+    border: 1px solid rgba(139, 85, 19, .12);
+    box-shadow: 0 10px 24px rgba(71, 40, 20, .08)
+  }
+
+  .forecast-hero {
+    position: relative;
+    overflow: hidden;
+    border-radius: 24px;
+    background: var(--surface);
+    border: 1px solid rgba(139, 85, 19, .12);
+    box-shadow: 0 18px 48px rgba(71, 40, 20, .12);
+    padding: clamp(20px, 3vw, 32px);
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(280px, .95fr);
+    gap: 24px
+  }
+
+  .forecast-hero-copy,
+  .forecast-hero-sidebar {
+    position: relative;
+    z-index: 1
+  }
+
+  .forecast-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: fit-content;
+    padding: 7px 12px;
+    border-radius: 999px;
+    background: rgba(193, 120, 23, .1);
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase
+  }
+
+  .forecast-hero-title {
+    font-size: clamp(30px, 4vw, 48px);
+    line-height: .95;
+    letter-spacing: -.04em;
+    color: var(--ink);
+    margin: 0
+  }
+
+  .forecast-hero-display {
+    display: grid;
+    gap: 6px
+  }
+
+  .forecast-hero-big {
+    font-size: clamp(42px, 7vw, 82px);
+    line-height: .92;
+    letter-spacing: -.06em;
+    font-weight: 800;
+    color: var(--accent)
+  }
+
+  .forecast-hero-sub {
+    font-size: 16px;
+    line-height: 1.55;
+    color: var(--muted);
+    max-width: 62ch
+  }
+
+  .forecast-hero-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px
+  }
+
+  .forecast-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 34px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: var(--surface-card);
+    border: 1px solid rgba(139, 85, 19, .12);
+    color: var(--ink);
+    font-size: 13px;
+    font-weight: 600
+  }
+
+  .forecast-pill-soft {
+    background: var(--surface-muted)
+  }
+
+  .forecast-hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 4px
+  }
+
+  .forecast-hero-summary-card {
+    background: var(--surface-card);
+    border: 1px solid rgba(139, 85, 19, .12);
+    border-radius: 22px;
+    padding: 18px;
+    display: grid;
+    gap: 14px
+  }
+
+  .forecast-hero-summary-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--muted)
+  }
+
+  .forecast-hero-context {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px
+  }
+
+  .forecast-context-item {
+    border-radius: 18px;
+    background: var(--surface-muted);
+    border: 1px solid rgba(139, 85, 19, .1);
+    padding: 14px 12px
+  }
+
+  .forecast-context-item span {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted)
+  }
+
+  .forecast-context-item strong {
+    display: block;
+    margin-top: 6px;
+    font-size: 18px;
+    line-height: 1.05;
+    color: var(--ink)
+  }
+
+  .forecast-context-item small {
+    display: block;
+    margin-top: 4px;
+    color: var(--muted);
+    line-height: 1.4
+  }
+
+  .forecast-progress {
+    display: grid;
+    gap: 8px
+  }
+
+  .forecast-progress-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 13px;
+    color: var(--muted)
+  }
+
+  .forecast-progress-track {
+    position: relative;
+    overflow: hidden;
+    height: 12px;
+    border-radius: 999px;
+    background: rgba(193, 120, 23, .12)
+  }
+
+  .forecast-progress-track span {
+    display: block;
+    height: 100%;
+    width: 0;
+    border-radius: inherit;
+    background: var(--accent);
+    transition: width 280ms ease
+  }
+
+  .forecast-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 16px;
+    align-items: end
+  }
+
+  .forecast-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: end
+  }
+
+  .forecast-control {
+    display: grid;
+    gap: 6px;
+    min-width: 220px
+  }
+
+  .forecast-control label {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--muted)
+  }
+
+  .forecast-control .form-input {
+    min-height: 44px;
+    border-color: rgba(139, 85, 19, .14);
+    background: #fff
+  }
+
+  .forecast-mode-switch {
+    display: inline-flex;
+    padding: 4px;
+    border-radius: 16px;
+    background: rgba(247, 238, 226, .95);
+    border: 1px solid rgba(139, 85, 19, .12);
+    gap: 4px
+  }
+
+  .forecast-mode-switch button {
+    min-height: 42px;
+    padding: 0 14px;
+    border-radius: 12px;
+    background: transparent;
+    color: var(--muted);
+    font-weight: 700;
+    transition: background 180ms ease, color 180ms ease, transform 180ms ease
+  }
+
+  .forecast-mode-switch button.is-active {
+    background: #fff;
+    color: var(--accent);
+    box-shadow: 0 8px 16px rgba(71, 40, 20, .08)
+  }
+
+  .forecast-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px
+  }
+
+  .forecast-summary-card {
+    border-radius: 20px;
+    border: 1px solid rgba(139, 85, 19, .12);
+    background: var(--surface-card);
+    padding: 16px;
+    display: grid;
+    gap: 10px;
+    min-height: 154px
+  }
+
+  .forecast-summary-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    color: var(--muted)
+  }
+
+  .forecast-summary-top span {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .08em
+  }
+
+  .forecast-summary-top .material-symbols-outlined {
+    color: var(--accent)
+  }
+
+  .forecast-summary-value {
+    font-size: clamp(24px, 4vw, 36px);
+    line-height: .95;
+    font-weight: 800;
+    letter-spacing: -.04em;
+    color: var(--ink)
+  }
+
+  .forecast-summary-meta {
+    color: var(--muted);
+    line-height: 1.45;
+    font-size: 13px
+  }
+
+  .forecast-section-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    align-items: start
+  }
+
+  .forecast-section-header strong {
+    display: block;
+    font-size: 20px;
+    color: var(--ink)
+  }
+
+  .forecast-section-header span {
+    display: block;
+    margin-top: 4px;
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.45
+  }
+
+  .forecast-week-strip {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 12px
+  }
+
+  .forecast-day-card {
+    position: relative;
+    overflow: hidden;
+    border-radius: 18px;
+    border: 1px solid rgba(139, 85, 19, .12);
+    background: var(--surface-card);
+    padding: 14px;
+    display: grid;
+    gap: 10px;
+    min-height: 178px;
+    box-shadow: 0 8px 20px rgba(71, 40, 20, .06);
+    animation: forecastCardIn 320ms ease both;
+    animation-delay: var(--delay, 0ms)
+  }
+
+  .forecast-day-card.state-good {
+    border-top: 4px solid #2f6b63
+  }
+
+  .forecast-day-card.state-warning {
+    border-top: 4px solid #d9a441
+  }
+
+  .forecast-day-card.state-danger {
+    border-top: 4px solid #b7422f
+  }
+
+  .forecast-day-head {
+    display: flex;
+    align-items: start;
+    justify-content: space-between;
+    gap: 10px
+  }
+
+  .forecast-day-head h4 {
+    font-size: 15px;
+    line-height: 1.1;
+    color: var(--ink)
+  }
+
+  .forecast-day-head span {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--muted)
+  }
+
+  .forecast-tag {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap
+  }
+
+  .confidence-good {
+    background: rgba(47, 107, 99, .12);
+    color: #2f6b63
+  }
+
+  .confidence-medium {
+    background: rgba(217, 164, 65, .14);
+    color: #8f6511
+  }
+
+  .confidence-low {
+    background: rgba(183, 66, 47, .12);
+    color: #9c3528
+  }
+
+  .forecast-day-value {
+    font-size: 34px;
+    line-height: 1;
+    font-weight: 800;
+    letter-spacing: -.05em;
+    color: var(--accent)
+  }
+
+  .forecast-day-meta,
+  .forecast-day-card p {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.5
+  }
+
+  .forecast-day-delta {
+    display: inline-flex;
+    width: fit-content;
+    align-items: center;
+    gap: 6px;
+    min-height: 28px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700
+  }
+
+  .forecast-day-delta.is-up {
+    background: rgba(47, 107, 99, .12);
+    color: #2f6b63
+  }
+
+  .forecast-day-delta.is-down {
+    background: rgba(183, 66, 47, .12);
+    color: #9c3528
+  }
+
+  .forecast-insight-card {
+    display: grid;
+    gap: 16px
+  }
+
+  .forecast-confidence {
+    display: grid;
+    gap: 10px;
+    padding: 4px 0 8px
+  }
+
+  .forecast-confidence-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: end
+  }
+
+  .forecast-confidence-header span {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted)
+  }
+
+  .forecast-confidence-header strong {
+    font-size: 14px;
+    color: var(--ink)
+  }
+
+  .forecast-confidence-track {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    height: 12px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(139, 85, 19, .08)
+  }
+
+  .forecast-confidence-bar {
+    height: 100%;
+    width: 0
+  }
+
+  .forecast-confidence-good {
+    background: #2f6b63
+  }
+
+  .forecast-confidence-medium {
+    background: #d9a441
+  }
+
+  .forecast-confidence-low {
+    background: #b7422f
+  }
+
+  .forecast-confidence-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--muted)
+  }
+
+  .forecast-confidence-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px
+  }
+
+  .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block
+  }
+
+  .dot-good {
+    background: #2f6b63
+  }
+
+  .dot-medium {
+    background: #d9a441
+  }
+
+  .dot-low {
+    background: #b7422f
+  }
+
+  .forecast-insight-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px
+  }
+
+  .forecast-insight-item {
+    padding: 14px;
+    border-radius: 18px;
+    background: var(--surface-card);
+    border: 1px solid rgba(139, 85, 19, .1)
+  }
+
+  .forecast-insight-label {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted)
+  }
+
+  .forecast-insight-value {
+    margin-top: 8px;
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--ink)
+  }
+
+  .forecast-insight-helper {
+    margin-top: 4px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--muted)
+  }
+
+  .forecast-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px
+  }
+
+  .forecast-tab {
+    min-height: 42px;
+    padding: 0 14px;
+    border-radius: 12px;
+    background: rgba(247, 238, 226, .96);
+    color: var(--muted);
+    border: 1px solid rgba(139, 85, 19, .12);
+    font-weight: 700
+  }
+
+  .forecast-tab.is-active {
+    background: #fff;
+    color: var(--accent);
+    box-shadow: 0 8px 18px rgba(71, 40, 20, .08)
+  }
+
+  .forecast-tab-panels {
+    display: grid;
+    gap: 16px
+  }
+
+  .forecast-tab-panel {
+    display: none
+  }
+
+  .forecast-tab-panel.is-active {
+    display: block;
+    animation: forecastFadeIn 240ms ease both
+  }
+
+  .forecast-chart-shell {
+    min-height: 320px
+  }
+
+  .forecast-chart-shell canvas {
+    max-height: 320px
+  }
+
+  .forecast-grid-2 {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px
+  }
+
+  .forecast-details {
+    border-radius: 20px;
+    border: 1px solid rgba(139, 85, 19, .12);
+    background: var(--surface-card);
+    overflow: hidden
+  }
+
+  .forecast-details summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 16px 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-weight: 700;
+    color: var(--ink)
+  }
+
+  .forecast-details summary::-webkit-details-marker {
+    display: none
+  }
+
+  .forecast-details-body {
+    border-top: 1px solid rgba(139, 85, 19, .08);
+    padding: 16px 18px 18px
+  }
+
+  .forecast-table-wrap {
+    overflow: auto
+  }
+
+  .forecast-table {
+    min-width: 980px
+  }
+
+  .forecast-loading {
+    display: grid;
+    gap: 14px
+  }
+
+  .forecast-loading-line,
+  .forecast-loading-block {
+    position: relative;
+    overflow: hidden;
+    border-radius: 14px;
+    background: rgba(139, 85, 19, .08)
+  }
+
+  .forecast-loading-line {
+    height: 16px
+  }
+
+  .forecast-loading-block {
+    height: 220px
+  }
+
+  .forecast-loading-line::after,
+  .forecast-loading-block::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .72), transparent);
+    animation: forecastShimmer 1.15s infinite
+  }
+
+  .forecast-empty-state {
+    display: grid;
+    place-items: center;
+    padding: 28px 18px;
+    text-align: center;
+    gap: 12px
+  }
+
+  .forecast-empty-state svg {
+    width: 120px;
+    height: 120px;
+    opacity: .95
+  }
+
+  .forecast-empty-state strong {
+    font-size: 16px;
+    color: var(--ink)
+  }
+
+  .forecast-empty-state p {
+    color: var(--muted);
+    line-height: 1.5;
+    max-width: 42ch
+  }
+
+  .forecast-empty-action {
+    display: inline-flex;
+    justify-content: center
+  }
+
+  .forecast-support-note {
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.5
+  }
+
+  .forecast-simple-only,
+  .forecast-analyst-only,
+  .analyst-only {
+    display: block
+  }
+
+  .forecast-mode-simple .forecast-analyst-only,
+  .forecast-mode-simple .analyst-only {
+    display: none !important
+  }
+
+  .forecast-layout-shell {
+    display: grid;
+    gap: 18px
+  }
+
+  .forecast-shell>#forecastWeekSection {
+    order: 1
+  }
+
+  .forecast-shell>#forecastAnalystSection {
+    order: 2
+  }
+
+  .forecast-shell>#forecastDecisionSection {
+    order: 3
+  }
+
+  @keyframes forecastShimmer {
+    100% {
+      transform: translateX(100%)
+    }
+  }
+
+  @keyframes forecastFadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px)
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0)
+    }
+  }
+
+  @keyframes forecastCardIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(.985)
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1)
+    }
+  }
+
+  @media (max-width:1180px) {
+    .forecast-hero {
+      grid-template-columns: 1fr
+    }
+
+    .forecast-summary-grid,
+    .forecast-grid-2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr))
+    }
+
+    .forecast-week-strip {
+      grid-template-columns: repeat(4, minmax(0, 1fr))
+    }
+  }
+
+  @media (max-width:900px) {
+    .forecast-toolbar {
+      grid-template-columns: 1fr
+    }
+
+    .forecast-controls {
+      align-items: stretch
+    }
+
+    .forecast-control {
+      min-width: 0;
+      flex: 1 1 100%
+    }
+
+    .forecast-summary-grid,
+    .forecast-grid-2,
+    .forecast-insight-list {
+      grid-template-columns: 1fr
+    }
+
+    .forecast-week-strip {
+      grid-template-columns: repeat(2, minmax(0, 1fr))
+    }
+  }
+
+  @media (max-width:640px) {
+    .forecast-page {
+      gap: 14px
+    }
+
+    .forecast-hero {
+      padding: 18px;
+      border-radius: 20px
+    }
+
+    .forecast-hero-big {
+      font-size: clamp(40px, 15vw, 60px)
+    }
+
+    .forecast-summary-grid,
+    .forecast-week-strip {
+      grid-template-columns: 1fr
+    }
+
+    .forecast-hero-context {
+      grid-template-columns: 1fr
+    }
+
+    .forecast-mode-switch {
+      width: 100%
+    }
+
+    .forecast-mode-switch button {
+      flex: 1 1 0
+    }
+
+    .forecast-tab {
+      flex: 1 1 calc(50% - 8px)
+    }
+  }
 </style>
 
 <div class="page-container analytics-page forecast-page">
@@ -111,7 +873,8 @@
         <h2 class="forecast-hero-title">Dashboard de Pronostico</h2>
         <div class="forecast-hero-display">
           <div class="forecast-hero-big" id="heroProductionToday">Cargando...</div>
-          <p class="forecast-hero-sub" id="forecastHeroSummary">Estamos calculando la lectura de hoy para que puedas decidir rapido cuanto producir y con que confianza.</p>
+          <p class="forecast-hero-sub" id="forecastHeroSummary">Estamos calculando la lectura de hoy para que puedas
+            decidir rapido cuanto producir y con que confianza.</p>
         </div>
         <div class="forecast-hero-tags">
           <span class="forecast-pill" id="forecastPeriodoPill">30 dias historicos</span>
@@ -119,21 +882,30 @@
           <span class="forecast-pill forecast-pill-soft" id="forecastVentanaPill">Ventana: -</span>
         </div>
         <div class="forecast-hero-actions">
-          <button class="btn btn-accent" type="button" id="btnRefrescarPronostico" onclick="cargarPronosticoDashboard()"><span class="material-symbols-outlined">refresh</span>Actualizar dashboard</button>
-          <button class="btn btn-outline" type="button" onclick="scrollToSection('forecastWeekSection')"><span class="material-symbols-outlined">today</span>Ver semana</button>
+          <button class="btn btn-accent" type="button" id="btnRefrescarPronostico"
+            onclick="cargarPronosticoDashboard()"><span class="material-symbols-outlined">refresh</span>Actualizar
+            dashboard</button>
+          <button class="btn btn-outline" type="button" onclick="scrollToSection('forecastWeekSection')"><span
+              class="material-symbols-outlined">today</span>Ver semana</button>
         </div>
       </div>
       <div class="forecast-hero-sidebar">
         <div class="forecast-hero-summary-card">
-          <div class="forecast-hero-summary-title"><span>Lectura rapida</span><span class="material-symbols-outlined">auto_graph</span></div>
+          <div class="forecast-hero-summary-title"><span>Lectura rapida</span><span
+              class="material-symbols-outlined">auto_graph</span></div>
           <div class="forecast-hero-context">
-            <div class="forecast-context-item"><span>Producto</span><strong id="heroProductName">-</strong><small>Producto seleccionado en el pronostico.</small></div>
-            <div class="forecast-context-item"><span>Confianza</span><strong id="heroConfidenceValue">-</strong><small id="heroConfidenceCopy">Lectura del modelo.</small></div>
-            <div class="forecast-context-item"><span>Dia pico</span><strong id="heroPeakDay">-</strong><small id="heroPeakCopy">Mayor presion operativa.</small></div>
-            <div class="forecast-context-item"><span>Brecha</span><strong id="heroGapValue">-</strong><small id="heroGapCopy">Contra la base historica.</small></div>
+            <div class="forecast-context-item"><span>Producto</span><strong
+                id="heroProductName">-</strong><small>Producto seleccionado en el pronostico.</small></div>
+            <div class="forecast-context-item"><span>Confianza</span><strong id="heroConfidenceValue">-</strong><small
+                id="heroConfidenceCopy">Lectura del modelo.</small></div>
+            <div class="forecast-context-item"><span>Dia pico</span><strong id="heroPeakDay">-</strong><small
+                id="heroPeakCopy">Mayor presion operativa.</small></div>
+            <div class="forecast-context-item"><span>Brecha</span><strong id="heroGapValue">-</strong><small
+                id="heroGapCopy">Contra la base historica.</small></div>
           </div>
           <div class="forecast-progress">
-            <div class="forecast-progress-head"><span>Progreso esperado de la semana</span><strong id="heroProgressLabel">0%</strong></div>
+            <div class="forecast-progress-head"><span>Progreso esperado de la semana</span><strong
+                id="heroProgressLabel">0%</strong></div>
             <div class="forecast-progress-track"><span id="heroProgressBar"></span></div>
           </div>
         </div>
@@ -145,17 +917,25 @@
         <form class="forecast-controls" onsubmit="event.preventDefault(); cargarPronosticoDashboard();">
           <div class="forecast-control">
             <label for="filtroProductoPronostico">Producto</label>
-            <select id="filtroProductoPronostico" class="form-input form-input-sm">{% for p in productos %}<option value="{{ p }}" {% if p == producto_default %}selected{% endif %}>{{ p }}</option>{% endfor %}</select>
+            <select id="filtroProductoPronostico" class="form-input form-input-sm">{% for p in productos %}<option
+                value="{{ p }}" {% if p==producto_default %}selected{% endif %}>{{ p }}</option>{% endfor %}</select>
           </div>
           <div class="forecast-control">
             <label for="filtroDiasPronostico">Ventana historica</label>
-            <select id="filtroDiasPronostico" class="form-input form-input-sm"><option value="14">14 dias</option><option value="30" selected>30 dias</option><option value="60">60 dias</option><option value="90">90 dias</option></select>
+            <select id="filtroDiasPronostico" class="form-input form-input-sm">
+              <option value="14">14 dias</option>
+              <option value="30" selected>30 dias</option>
+              <option value="60">60 dias</option>
+              <option value="90">90 dias</option>
+            </select>
           </div>
-          <button class="btn btn-accent" type="submit"><span class="material-symbols-outlined">search</span>Actualizar lectura</button>
+          <button class="btn btn-accent" type="submit"><span class="material-symbols-outlined">search</span>Actualizar
+            lectura</button>
         </form>
         <div class="forecast-actions-inline">
           <div class="forecast-mode-switch" role="tablist" aria-label="Modo del dashboard">
-            <button type="button" id="modeSimpleBtn" class="is-active" onclick="setForecastMode('simple')">Modo simple</button>
+            <button type="button" id="modeSimpleBtn" class="is-active" onclick="setForecastMode('simple')">Modo
+              simple</button>
             <button type="button" id="modeAnalystBtn" onclick="setForecastMode('analyst')">Modo analista</button>
           </div>
         </div>
@@ -163,78 +943,197 @@
     </section>
 
     <section class="forecast-summary-grid">
-      <article class="forecast-summary-card"><div class="forecast-summary-top"><span>Produccion sugerida</span><span class="material-symbols-outlined">shopping_basket</span></div><div class="forecast-summary-value" id="kpiSugeridoSemana">0</div><div class="forecast-summary-meta" id="kpiSugeridoMeta">0 por dia</div></article>
-      <article class="forecast-summary-card"><div class="forecast-summary-top"><span>Aprovechamiento</span><span class="material-symbols-outlined">track_changes</span></div><div class="forecast-summary-value" id="kpiAprovechamiento">0%</div><div class="forecast-summary-meta" id="kpiAprovechamientoMeta">Sin lectura</div></article>
-      <article class="forecast-summary-card"><div class="forecast-summary-top"><span>Brecha promedio</span><span class="material-symbols-outlined">compare_arrows</span></div><div class="forecast-summary-value" id="kpiBrechaPromedio">0</div><div class="forecast-summary-meta" id="kpiBrechaMeta">Comparado con base</div></article>
-      <article class="forecast-summary-card"><div class="forecast-summary-top"><span>Dia mas exigente</span><span class="material-symbols-outlined">local_fire_department</span></div><div class="forecast-summary-value" id="kpiDiaPico">-</div><div class="forecast-summary-meta" id="kpiDiaPicoMeta">Sin dia pico</div></article>
+      <article class="forecast-summary-card">
+        <div class="forecast-summary-top"><span>Produccion sugerida</span><span
+            class="material-symbols-outlined">shopping_basket</span></div>
+        <div class="forecast-summary-value" id="kpiSugeridoSemana">0</div>
+        <div class="forecast-summary-meta" id="kpiSugeridoMeta">0 por dia</div>
+      </article>
+      <article class="forecast-summary-card">
+        <div class="forecast-summary-top"><span>Aprovechamiento</span><span
+            class="material-symbols-outlined">track_changes</span></div>
+        <div class="forecast-summary-value" id="kpiAprovechamiento">0%</div>
+        <div class="forecast-summary-meta" id="kpiAprovechamientoMeta">Sin lectura</div>
+      </article>
+      <article class="forecast-summary-card">
+        <div class="forecast-summary-top"><span>Brecha promedio</span><span
+            class="material-symbols-outlined">compare_arrows</span></div>
+        <div class="forecast-summary-value" id="kpiBrechaPromedio">0</div>
+        <div class="forecast-summary-meta" id="kpiBrechaMeta">Comparado con base</div>
+      </article>
+      <article class="forecast-summary-card">
+        <div class="forecast-summary-top"><span>Dia mas exigente</span><span
+            class="material-symbols-outlined">local_fire_department</span></div>
+        <div class="forecast-summary-value" id="kpiDiaPico">-</div>
+        <div class="forecast-summary-meta" id="kpiDiaPicoMeta">Sin dia pico</div>
+      </article>
     </section>
 
     <section class="card forecast-simple-only" id="forecastWeekSection">
-      <div class="card-header forecast-section-header"><div><strong>Semana operativa recomendada</strong><span>Lectura rapida por dia con nivel de confianza, brecha y mensaje del modelo.</span></div></div>
+      <div class="card-header forecast-section-header">
+        <div><strong>Semana operativa recomendada</strong><span>Lectura rapida por dia con nivel de confianza, brecha y
+            mensaje del modelo.</span></div>
+      </div>
       <div class="card-body">
         <div class="forecast-week-strip" id="forecastWeekCards">
-          <div class="forecast-loading"><div class="forecast-loading-line" style="width:60%"></div><div class="forecast-loading-line" style="width:84%"></div><div class="forecast-loading-block"></div></div>
+          <div class="forecast-loading">
+            <div class="forecast-loading-line" style="width:60%"></div>
+            <div class="forecast-loading-line" style="width:84%"></div>
+            <div class="forecast-loading-block"></div>
+          </div>
         </div>
       </div>
     </section>
 
     <section class="forecast-grid-2 forecast-simple-only" id="forecastDecisionSection">
       <article class="card">
-        <div class="card-header forecast-section-header"><div><strong>Pulso de decision</strong><span>Resumen ejecutivo para tomar accion mas rapido.</span></div></div>
+        <div class="card-header forecast-section-header">
+          <div><strong>Pulso de decision</strong><span>Resumen ejecutivo para tomar accion mas rapido.</span></div>
+        </div>
         <div class="card-body forecast-insight-card">
           <div class="forecast-confidence">
-            <div class="forecast-confidence-header"><span>Confianza del modelo</span><strong id="forecastConfidenceTotal">0 lecturas</strong></div>
-            <div class="forecast-confidence-track"><span id="forecastConfidenceGoodBar" class="forecast-confidence-bar forecast-confidence-good"></span><span id="forecastConfidenceMediumBar" class="forecast-confidence-bar forecast-confidence-medium"></span><span id="forecastConfidenceLowBar" class="forecast-confidence-bar forecast-confidence-low"></span></div>
+            <div class="forecast-confidence-header"><span>Confianza del modelo</span><strong
+                id="forecastConfidenceTotal">0 lecturas</strong></div>
+            <div class="forecast-confidence-track"><span id="forecastConfidenceGoodBar"
+                class="forecast-confidence-bar forecast-confidence-good"></span><span id="forecastConfidenceMediumBar"
+                class="forecast-confidence-bar forecast-confidence-medium"></span><span id="forecastConfidenceLowBar"
+                class="forecast-confidence-bar forecast-confidence-low"></span></div>
             <div class="forecast-confidence-legend" id="forecastConfidenceLegend"></div>
           </div>
           <div class="forecast-insight-list" id="forecastInsightList"></div>
         </div>
       </article>
       <article class="card">
-        <div class="card-header forecast-section-header"><div><strong>Lectura operativa</strong><span>Un solo vistazo para decidir produccion, ritmo y riesgo.</span></div></div>
+        <div class="card-header forecast-section-header">
+          <div><strong>Lectura operativa</strong><span>Un solo vistazo para decidir produccion, ritmo y riesgo.</span>
+          </div>
+        </div>
         <div class="card-body">
           <div class="forecast-empty-state" id="forecastEmptyHint" hidden>
-            <svg viewBox="0 0 160 160" fill="none" aria-hidden="true"><rect x="26" y="52" width="108" height="64" rx="18" fill="#F7EEE2" stroke="#D8B98E"/><path d="M45 82H115" stroke="#C17817" stroke-width="7" stroke-linecap="round"/><path d="M62 70H98" stroke="#2F6B63" stroke-width="7" stroke-linecap="round"/><circle cx="80" cy="112" r="10" fill="#D4722A"/></svg>
+            <svg viewBox="0 0 160 160" fill="none" aria-hidden="true">
+              <rect x="26" y="52" width="108" height="64" rx="18" fill="#F7EEE2" stroke="#D8B98E" />
+              <path d="M45 82H115" stroke="#C17817" stroke-width="7" stroke-linecap="round" />
+              <path d="M62 70H98" stroke="#2F6B63" stroke-width="7" stroke-linecap="round" />
+              <circle cx="80" cy="112" r="10" fill="#D4722A" />
+            </svg>
             <strong>Sin lectura disponible todavia</strong>
             <p>Selecciona un producto y presiona actualizar para ver la recomendacion de hoy.</p>
           </div>
-          <div class="forecast-support-note" id="forecastSupportNote">Revisa primero lo esencial. En modo analista podras abrir el detalle completo de charts y tabla.</div>
+          <div class="forecast-support-note" id="forecastSupportNote">Revisa primero lo esencial. En modo analista
+            podras abrir el detalle completo de charts y tabla.</div>
         </div>
       </article>
     </section>
 
     <section class="card analyst-only" id="forecastAnalystSection">
-      <div class="card-header forecast-section-header"><div><strong>Detalle analitico</strong><span>Secciones colapsables para revisar la profundidad sin saturar la vista principal.</span></div></div>
+      <div class="card-header forecast-section-header">
+        <div><strong>Detalle analitico</strong><span>Secciones colapsables para revisar la profundidad sin saturar la
+            vista principal.</span></div>
+      </div>
       <div class="card-body forecast-accordion">
         <div class="forecast-tabs" role="tablist" aria-label="Analisis de pronostico">
-          <button type="button" class="forecast-tab is-active" data-forecast-tab="scenario" onclick="setForecastTab('scenario')">Escenario semanal</button>
-          <button type="button" class="forecast-tab" data-forecast-tab="control" onclick="setForecastTab('control')">Control</button>
-          <button type="button" class="forecast-tab" data-forecast-tab="trend" onclick="setForecastTab('trend')">Tendencias</button>
-          <button type="button" class="forecast-tab" data-forecast-tab="ranking" onclick="setForecastTab('ranking')">Ranking</button>
+          <button type="button" class="forecast-tab is-active" data-forecast-tab="scenario"
+            onclick="setForecastTab('scenario')">Escenario semanal</button>
+          <button type="button" class="forecast-tab" data-forecast-tab="control"
+            onclick="setForecastTab('control')">Control</button>
+          <button type="button" class="forecast-tab" data-forecast-tab="trend"
+            onclick="setForecastTab('trend')">Tendencias</button>
+          <button type="button" class="forecast-tab" data-forecast-tab="ranking"
+            onclick="setForecastTab('ranking')">Ranking</button>
         </div>
         <div class="forecast-tab-panels">
           <div class="forecast-tab-panel is-active" data-forecast-panel="scenario">
             <div class="forecast-grid-2">
-              <article class="card"><div class="card-header forecast-section-header"><div><strong>Escenario semanal</strong><span>Sugerido, base historica y brecha del modelo.</span></div></div><div class="card-body forecast-chart-shell"><canvas id="chartPrediccionSemanal"></canvas></div></article>
-              <article class="card"><div class="card-header forecast-section-header"><div><strong>Matriz semanal</strong><span>Heatmap para ver intensidad, base y sugerido por dia.</span></div></div><div class="card-body"><div class="forecast-heatmap" id="forecastHeatmap"></div></div></article>
+              <article class="card">
+                <div class="card-header forecast-section-header">
+                  <div><strong>Escenario semanal</strong><span>Sugerido, base historica y brecha del modelo.</span>
+                  </div>
+                </div>
+                <div class="card-body forecast-chart-shell"><canvas id="chartPrediccionSemanal"></canvas></div>
+              </article>
+              <article class="card">
+                <div class="card-header forecast-section-header">
+                  <div><strong>Matriz semanal</strong><span>Heatmap para ver intensidad, base y sugerido por dia.</span>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div class="forecast-heatmap" id="forecastHeatmap"></div>
+                </div>
+              </article>
             </div>
           </div>
           <div class="forecast-tab-panel" data-forecast-panel="control">
             <div class="forecast-grid-2">
-              <article class="card"><div class="card-header forecast-section-header"><div><strong>Control producido vs vendido</strong><span>Ultimos 14 registros para vigilar sobrantes.</span></div></div><div class="card-body forecast-chart-shell"><canvas id="chartControlProduccion"></canvas></div></article>
-              <article class="card"><div class="card-header forecast-section-header"><div><strong>Tabla semanal</strong><span>Detalle operativo para revisar sugerido, base, brecha y lectura del modelo.</span></div></div><div class="card-body forecast-table-wrap"><table class="table table-compact forecast-table"><thead><tr><th>Dia</th><th>Fecha</th><th class="text-center">Sugerido</th><th class="text-center">Base</th><th class="text-center">Brecha</th><th>Confianza</th><th>Modelo</th><th>Lectura</th></tr></thead><tbody id="tablaPrediccionBody"><tr><td colspan="8" class="text-center text-muted">Cargando...</td></tr></tbody></table></div></article>
+              <article class="card">
+                <div class="card-header forecast-section-header">
+                  <div><strong>Control producido vs vendido</strong><span>Ultimos 14 registros para vigilar
+                      sobrantes.</span></div>
+                </div>
+                <div class="card-body forecast-chart-shell"><canvas id="chartControlProduccion"></canvas></div>
+              </article>
+              <article class="card">
+                <div class="card-header forecast-section-header">
+                  <div><strong>Tabla semanal</strong><span>Detalle operativo para revisar sugerido, base, brecha y
+                      lectura del modelo.</span></div>
+                </div>
+                <div class="card-body forecast-table-wrap">
+                  <table class="table table-compact forecast-table">
+                    <thead>
+                      <tr>
+                        <th>Dia</th>
+                        <th>Fecha</th>
+                        <th class="text-center">Sugerido</th>
+                        <th class="text-center">Base</th>
+                        <th class="text-center">Brecha</th>
+                        <th>Confianza</th>
+                        <th>Modelo</th>
+                        <th>Lectura</th>
+                      </tr>
+                    </thead>
+                    <tbody id="tablaPrediccionBody">
+                      <tr>
+                        <td colspan="8" class="text-center text-muted">Cargando...</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </article>
             </div>
           </div>
           <div class="forecast-tab-panel" data-forecast-panel="trend">
             <div class="forecast-grid-2">
-              <article class="card"><div class="card-header forecast-section-header"><div><strong>Radar de comportamiento</strong><span>Comparacion visual entre sugerido y patron historico.</span></div></div><div class="card-body forecast-chart-shell"><canvas id="chartRadarPronostico"></canvas></div></article>
-              <article class="card"><div class="card-header forecast-section-header"><div><strong>Ingresos del producto</strong><span>Serie diaria para conectar volumen recomendado con ventas reales.</span></div></div><div class="card-body forecast-chart-shell"><canvas id="chartVentasProducto"></canvas></div></article>
+              <article class="card">
+                <div class="card-header forecast-section-header">
+                  <div><strong>Radar de comportamiento</strong><span>Comparacion visual entre sugerido y patron
+                      historico.</span></div>
+                </div>
+                <div class="card-body forecast-chart-shell"><canvas id="chartRadarPronostico"></canvas></div>
+              </article>
+              <article class="card">
+                <div class="card-header forecast-section-header">
+                  <div><strong>Ingresos del producto</strong><span>Serie diaria para conectar volumen recomendado con
+                      ventas reales.</span></div>
+                </div>
+                <div class="card-body forecast-chart-shell"><canvas id="chartVentasProducto"></canvas></div>
+              </article>
             </div>
           </div>
           <div class="forecast-tab-panel" data-forecast-panel="ranking">
             <div class="forecast-grid-2">
-              <article class="card"><div class="card-header forecast-section-header"><div><strong>Participacion comercial</strong><span>Ranking de productos para poner el pronostico en contexto del negocio.</span></div></div><div class="card-body forecast-chart-shell"><canvas id="chartRankingProductos"></canvas></div></article>
-              <details class="forecast-details" open><summary><span>Lecturas secundarias</span><span class="material-symbols-outlined">expand_more</span></summary><div class="forecast-details-body"><div class="forecast-insight-list" id="forecastDeepInsights"></div></div></details>
+              <article class="card">
+                <div class="card-header forecast-section-header">
+                  <div><strong>Participacion comercial</strong><span>Ranking de productos para poner el pronostico en
+                      contexto del negocio.</span></div>
+                </div>
+                <div class="card-body forecast-chart-shell"><canvas id="chartRankingProductos"></canvas></div>
+              </article>
+              <details class="forecast-details" open>
+                <summary><span>Lecturas secundarias</span><span class="material-symbols-outlined">expand_more</span>
+                </summary>
+                <div class="forecast-details-body">
+                  <div class="forecast-insight-list" id="forecastDeepInsights"></div>
+                </div>
+              </details>
             </div>
           </div>
         </div>
@@ -244,141 +1143,141 @@
 </div>
 
 <script>
-let chartPrediccionSemanal = null, chartControlProduccion = null, chartVentasProducto = null, chartRankingProductos = null, chartRadarPronostico = null;
-const FORECAST_MODE_STORAGE_KEY = 'richs_forecast_mode_v2';
-let latestForecastPayload = null;
-let forecastMode = localStorage.getItem(FORECAST_MODE_STORAGE_KEY) || 'analyst';
-let forecastTab = 'scenario';
+  let chartPrediccionSemanal = null, chartControlProduccion = null, chartVentasProducto = null, chartRankingProductos = null, chartRadarPronostico = null;
+  const FORECAST_MODE_STORAGE_KEY = 'richs_forecast_mode_v2';
+  let latestForecastPayload = null;
+  let forecastMode = localStorage.getItem(FORECAST_MODE_STORAGE_KEY) || 'analyst';
+  let forecastTab = 'scenario';
 
-const n = (v, decimals = 0) => window.AppUI
+  const n = (v, decimals = 0) => window.AppUI
     ? AppUI.formatNumber(v, decimals)
     : Number(v || 0).toLocaleString('es-CO', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
-const money = (v, decimals = 0) => window.AppUI
+  const money = (v, decimals = 0) => window.AppUI
     ? AppUI.formatMoney(v, decimals)
     : ('$' + Number(v || 0).toLocaleString('es-CO', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }));
-const cap = (t) => !t ? '-' : `${t}`.charAt(0).toUpperCase() + `${t}`.slice(1);
-const model = (t) => cap(`${t || '-'}`.replace(/_/g, ' '));
-const sgn = (v, d = 0) => `${Number(v || 0) > 0 ? '+' : ''}${n(v, d)}`;
-const shortDate = (f) => !f || f.split('-').length !== 3 ? (f || '-') : `${f.split('-')[2]}/${f.split('-')[1]}`;
-const heat = (v) => `linear-gradient(180deg, rgba(193,120,23,${(0.16 + Math.max(0.08, Math.min(Number(v || 0), 1)) * 0.48).toFixed(2)}), rgba(255,255,255,0.98))`;
-const esc = (t) => `${t == null ? '' : t}`.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const confidenceLabel = (v) => ({ buena: 'Buena', media: 'Media', poca: 'Poca' }[v] || cap(v));
-const confidenceClass = (v) => ({ buena: 'confidence-good', media: 'confidence-medium', poca: 'confidence-low' }[v] || 'confidence-medium');
-const stateClass = (v) => ({ bien: 'state-good', alerta: 'state-warning', problema: 'state-danger' }[v] || 'state-warning');
-const typeLabel = (v) => ({ laboral: 'Laboral', viernes: 'Viernes', fin_semana: 'Fin semana' }[v] || cap(v));
+  const cap = (t) => !t ? '-' : `${t}`.charAt(0).toUpperCase() + `${t}`.slice(1);
+  const model = (t) => cap(`${t || '-'}`.replace(/_/g, ' '));
+  const sgn = (v, d = 0) => `${Number(v || 0) > 0 ? '+' : ''}${n(v, d)}`;
+  const shortDate = (f) => !f || f.split('-').length !== 3 ? (f || '-') : `${f.split('-')[2]}/${f.split('-')[1]}`;
+  const heat = (v) => `linear-gradient(180deg, rgba(193,120,23,${(0.16 + Math.max(0.08, Math.min(Number(v || 0), 1)) * 0.48).toFixed(2)}), rgba(255,255,255,0.98))`;
+  const esc = (t) => `${t == null ? '' : t}`.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const confidenceLabel = (v) => ({ buena: 'Buena', media: 'Media', poca: 'Poca' }[v] || cap(v));
+  const confidenceClass = (v) => ({ buena: 'confidence-good', media: 'confidence-medium', poca: 'confidence-low' }[v] || 'confidence-medium');
+  const stateClass = (v) => ({ bien: 'state-good', alerta: 'state-warning', problema: 'state-danger' }[v] || 'state-warning');
+  const typeLabel = (v) => ({ laboral: 'Laboral', viernes: 'Viernes', fin_semana: 'Fin semana' }[v] || cap(v));
 
-function destroyChart(ref) { if (ref) ref.destroy(); }
-function setTextIfPresent(id, value) {
+  function destroyChart(ref) { if (ref) ref.destroy(); }
+  function setTextIfPresent(id, value) {
     const node = document.getElementById(id);
     if (node) node.textContent = value;
-}
-function resizeForecastCharts() {
+  }
+  function resizeForecastCharts() {
     [chartPrediccionSemanal, chartControlProduccion, chartVentasProducto, chartRankingProductos, chartRadarPronostico].forEach((chart) => {
-        if (chart && typeof chart.resize === 'function') chart.resize();
+      if (chart && typeof chart.resize === 'function') chart.resize();
     });
-}
+  }
 
-function getForecastTabChartConfigs(data, tab = forecastTab) {
+  function getForecastTabChartConfigs(data, tab = forecastTab) {
     const source = data || latestForecastPayload || {};
     return {
-        scenario: [
-            { id: 'chartPrediccionSemanal', label: 'Escenario semanal', render: () => renderMainChart(source.prediccion_semana || []) },
-        ],
-        control: [
-            { id: 'chartControlProduccion', label: 'Control producido vs vendido', render: () => renderControlChart(source.historial_producto || []) },
-        ],
-        trend: [
-            { id: 'chartRadarPronostico', label: 'Radar de comportamiento', render: () => renderRadarChart(source.matriz_semana || []) },
-            { id: 'chartVentasProducto', label: 'Serie de ingresos', render: () => renderSalesChart(source.serie_ventas_producto || []) },
-        ],
-        ranking: [
-            { id: 'chartRankingProductos', label: 'Ranking comercial', render: () => renderRankingChart(source.ranking_productos || []) },
-        ],
+      scenario: [
+        { id: 'chartPrediccionSemanal', label: 'Escenario semanal', render: () => renderMainChart(source.prediccion_semana || []) },
+      ],
+      control: [
+        { id: 'chartControlProduccion', label: 'Control producido vs vendido', render: () => renderControlChart(source.historial_producto || []) },
+      ],
+      trend: [
+        { id: 'chartRadarPronostico', label: 'Radar de comportamiento', render: () => renderRadarChart(source.matriz_semana || []) },
+        { id: 'chartVentasProducto', label: 'Serie de ingresos', render: () => renderSalesChart(source.serie_ventas_producto || []) },
+      ],
+      ranking: [
+        { id: 'chartRankingProductos', label: 'Ranking comercial', render: () => renderRankingChart(source.ranking_productos || []) },
+      ],
     }[tab] || [];
-}
+  }
 
-function scheduleForecastChartRender(tab = forecastTab, data = latestForecastPayload) {
+  function scheduleForecastChartRender(tab = forecastTab, data = latestForecastPayload) {
     if (forecastMode !== 'analyst' || !data) return;
     const activeTab = tab || forecastTab;
 
     const renderTab = () => {
-        if (!window.Chart) {
-            setChartsUnavailable('La libreria de graficos no pudo inicializarse en este momento.');
-            return;
-        }
-        getForecastTabChartConfigs(data, activeTab).forEach(({ id, label, render }) => {
-            safeChartRender(render, label, id);
-        });
-        requestAnimationFrame(() => setTimeout(resizeForecastCharts, 80));
+      if (!window.Chart) {
+        setChartsUnavailable('La libreria de graficos no pudo inicializarse en este momento.');
+        return;
+      }
+      getForecastTabChartConfigs(data, activeTab).forEach(({ id, label, render }) => {
+        safeChartRender(render, label, id);
+      });
+      requestAnimationFrame(() => setTimeout(resizeForecastCharts, 80));
     };
 
     if (window.Chart) {
-        requestAnimationFrame(renderTab);
-        return;
+      requestAnimationFrame(renderTab);
+      return;
     }
 
     Promise.resolve(window.ensureChartJs ? window.ensureChartJs() : window.Chart)
-        .then(() => requestAnimationFrame(renderTab))
-        .catch((error) => {
-            console.error('No se pudo inicializar Chart.js:', error);
-            setChartsUnavailable('La libreria de graficos no pudo inicializarse en este momento.');
-        });
-}
+      .then(() => requestAnimationFrame(renderTab))
+      .catch((error) => {
+        console.error('No se pudo inicializar Chart.js:', error);
+        setChartsUnavailable('La libreria de graficos no pudo inicializarse en este momento.');
+      });
+  }
 
-function todayIso() {
+  function todayIso() {
     const d = new Date();
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
     return `${y}-${m}-${day}`;
-}
+  }
 
-function showLoadingState(isLoading) {
+  function showLoadingState(isLoading) {
     const btn = document.getElementById('btnRefrescarPronostico');
     if (btn) {
-        btn.disabled = isLoading;
-        btn.innerHTML = isLoading
-            ? '<span class="material-symbols-outlined">progress_activity</span>Actualizando...'
-            : '<span class="material-symbols-outlined">refresh</span>Actualizar dashboard';
+      btn.disabled = isLoading;
+      btn.innerHTML = isLoading
+        ? '<span class="material-symbols-outlined">progress_activity</span>Actualizando...'
+        : '<span class="material-symbols-outlined">refresh</span>Actualizar dashboard';
     }
-}
+  }
 
-function setModeButtons(mode) {
+  function setModeButtons(mode) {
     document.getElementById('modeSimpleBtn')?.classList.toggle('is-active', mode === 'simple');
     document.getElementById('modeAnalystBtn')?.classList.toggle('is-active', mode === 'analyst');
-}
+  }
 
-function setForecastMode(mode) {
+  function setForecastMode(mode) {
     forecastMode = mode === 'analyst' ? 'analyst' : 'simple';
     localStorage.setItem(FORECAST_MODE_STORAGE_KEY, forecastMode);
     document.getElementById('forecastShell')?.classList.toggle('forecast-mode-simple', forecastMode === 'simple');
     document.getElementById('forecastShell')?.classList.toggle('forecast-mode-analyst', forecastMode === 'analyst');
     setModeButtons(forecastMode);
     if (forecastMode === 'analyst') {
-        setTimeout(() => scheduleForecastChartRender(forecastTab), 80);
+      setTimeout(() => scheduleForecastChartRender(forecastTab), 80);
     }
-}
+  }
 
-function setForecastTab(tab) {
+  function setForecastTab(tab) {
     forecastTab = tab;
     document.querySelectorAll('[data-forecast-tab]').forEach((btn) => btn.classList.toggle('is-active', btn.dataset.forecastTab === tab));
     document.querySelectorAll('[data-forecast-panel]').forEach((panel) => panel.classList.toggle('is-active', panel.dataset.forecastPanel === tab));
     scheduleForecastChartRender(tab);
-}
+  }
 
-function scrollToSection(id) {
+  function scrollToSection(id) {
     const node = document.getElementById(id);
     if (node) node.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
+  }
 
-function renderLoadingRows() {
+  function renderLoadingRows() {
     const week = document.getElementById('forecastWeekCards');
     if (week) {
-        week.innerHTML = '<div class="forecast-loading"><div class="forecast-loading-line" style="width:60%"></div><div class="forecast-loading-line" style="width:84%"></div><div class="forecast-loading-block"></div></div>';
+      week.innerHTML = '<div class="forecast-loading"><div class="forecast-loading-line" style="width:60%"></div><div class="forecast-loading-line" style="width:84%"></div><div class="forecast-loading-block"></div></div>';
     }
-}
+  }
 
-function renderHero(data) {
+  function renderHero(data) {
     const r = data.resumen || {};
     const i = data.insights || {};
     const p = data.periodo || {};
@@ -394,8 +1293,8 @@ function renderHero(data) {
 
     document.getElementById('heroProductionToday').textContent = `Hoy deberias producir ${n(heroUnits)} unidades`;
     document.getElementById('forecastHeroSummary').textContent =
-        `${data.producto || 'Producto'} concentra su mayor presion el ${peak.dia || 'dia pico'} y su menor carga el ${low.dia || 'dia ligero'}. ` +
-        `La lectura actual muestra una tendencia ${r.tendencia || 'sin datos'} y un aprovechamiento acumulado de ${n(r.aprovechamiento || 0, 1)}%.`;
+      `${data.producto || 'Producto'} concentra su mayor presion el ${peak.dia || 'dia pico'} y su menor carga el ${low.dia || 'dia ligero'}. ` +
+      `La lectura actual muestra una tendencia ${r.tendencia || 'sin datos'} y un aprovechamiento acumulado de ${n(r.aprovechamiento || 0, 1)}%.`;
     document.getElementById('forecastPeriodoPill').textContent = `${p.dias || 0} dias historicos`;
     document.getElementById('forecastModeloPill').textContent = `Modelo principal: ${i.modelo_principal_label || '-'}`;
     document.getElementById('forecastVentanaPill').textContent = p.desde && p.hasta ? `Ventana: ${p.desde} a ${p.hasta}` : 'Ventana: sin historial';
@@ -408,9 +1307,9 @@ function renderHero(data) {
     document.getElementById('heroGapCopy').textContent = `Brecha promedio ${sgn(r.brecha_promedio_semana || 0, 1)} vs base.`;
     document.getElementById('heroProgressLabel').textContent = `${n(heroProgress, 0)}%`;
     document.getElementById('heroProgressBar').style.width = `${heroProgress}%`;
-}
+  }
 
-function renderKpis(r, i, p) {
+  function renderKpis(r, i, p) {
     const peak = i.dia_pico || {};
     setTextIfPresent('kpiSugeridoSemana', n(r.sugerido_semana || 0));
     setTextIfPresent('kpiSugeridoMeta', `${n(r.promedio_sugerido || 0, 1)} por dia`);
@@ -422,13 +1321,13 @@ function renderKpis(r, i, p) {
     setTextIfPresent('kpiDiaPicoMeta', peak.dia ? `${n(peak.valor || 0)} unidades sugeridas` : 'Sin dia pico');
     setTextIfPresent('kpiTendencia', cap(r.tendencia || '-'));
     setTextIfPresent('kpiTendenciaMeta', `Promedio vendido ${n(r.ventas_promedio_periodo || 0, 1)} - ${p.muestras || 0} muestras`);
-}
+  }
 
-function renderWeekCards(rows) {
+  function renderWeekCards(rows) {
     const box = document.getElementById('forecastWeekCards');
     if (!rows.length) {
-        box.innerHTML = '<div class="forecast-empty-state"><strong>Sin datos para la semana proyectada</strong><p>El pronostico no devolvio filas para esta combinacion de producto y ventana historica.</p><div class="forecast-empty-action"><button class="btn btn-accent" type="button" onclick="cargarPronosticoDashboard()">Reintentar</button></div></div>';
-        return;
+      box.innerHTML = '<div class="forecast-empty-state"><strong>Sin datos para la semana proyectada</strong><p>El pronostico no devolvio filas para esta combinacion de producto y ventana historica.</p><div class="forecast-empty-action"><button class="btn btn-accent" type="button" onclick="cargarPronosticoDashboard()">Reintentar</button></div></div>';
+      return;
     }
     box.innerHTML = rows.map((row, index) => `
         <article class="forecast-day-card ${stateClass(row.estado)}" style="--delay:${index * 50}ms">
@@ -442,211 +1341,211 @@ function renderWeekCards(rows) {
             <p>${esc(row.mensaje || 'Sin lectura adicional para este dia.')}</p>
         </article>
     `).join('');
-}
+  }
 
-function renderConfidence(i) {
+  function renderConfidence(i) {
     const c = i.confianza || {}, total = (c.buena || 0) + (c.media || 0) + (c.poca || 0) || 1;
     document.getElementById('forecastConfidenceTotal').textContent = `${total} lecturas`;
     document.getElementById('forecastConfidenceGoodBar').style.width = `${((c.buena || 0) / total) * 100}%`;
     document.getElementById('forecastConfidenceMediumBar').style.width = `${((c.media || 0) / total) * 100}%`;
     document.getElementById('forecastConfidenceLowBar').style.width = `${((c.poca || 0) / total) * 100}%`;
     document.getElementById('forecastConfidenceLegend').innerHTML = `<span><i class="dot dot-good"></i>Buena ${c.buena || 0}</span><span><i class="dot dot-medium"></i>Media ${c.media || 0}</span><span><i class="dot dot-low"></i>Poca ${c.poca || 0}</span>`;
-}
+  }
 
-function renderInsights(data) {
+  function renderInsights(data) {
     const r = data.resumen || {}, i = data.insights || {}, p = data.periodo || {};
     const peakValue = i.dia_pico && i.dia_pico.dia ? `${i.dia_pico.dia} - ${n(i.dia_pico.valor || 0, 1)}` : '-';
     const peakHelper = i.dia_pico && i.dia_pico.fecha ? `Fecha ${i.dia_pico.fecha}` : 'Sin fecha disponible';
     const historyValue = i.mejor_historial && i.mejor_historial.dia ? `${i.mejor_historial.dia} - ${n(i.mejor_historial.valor || 0, 1)}` : '-';
     const items = [
-        { label: 'Pico proyectado', value: peakValue, helper: peakHelper },
-        { label: 'Dia historico mas fuerte', value: historyValue, helper: 'Promedio historico por dia' },
-        { label: 'Modelo dominante', value: i.modelo_principal_label || '-', helper: `${p.muestras || 0} registros revisados` },
-        { label: 'Variacion semanal', value: n(i.variacion_semana || 0), helper: `${n(r.total_sobrante || 0)} unidades sobrantes en el periodo` },
+      { label: 'Pico proyectado', value: peakValue, helper: peakHelper },
+      { label: 'Dia historico mas fuerte', value: historyValue, helper: 'Promedio historico por dia' },
+      { label: 'Modelo dominante', value: i.modelo_principal_label || '-', helper: `${p.muestras || 0} registros revisados` },
+      { label: 'Variacion semanal', value: n(i.variacion_semana || 0), helper: `${n(r.total_sobrante || 0)} unidades sobrantes en el periodo` },
     ];
     document.getElementById('forecastInsightList').innerHTML = items.map((item) => `<article class="forecast-insight-item"><div class="forecast-insight-label">${esc(item.label)}</div><div class="forecast-insight-value">${esc(item.value)}</div><div class="forecast-insight-helper">${esc(item.helper)}</div></article>`).join('');
     document.getElementById('forecastDeepInsights').innerHTML = items.map((item) => `<article class="forecast-insight-item"><div class="forecast-insight-label">${esc(item.label)}</div><div class="forecast-insight-value">${esc(item.value)}</div><div class="forecast-insight-helper">${esc(item.helper)}</div></article>`).join('');
-}
+  }
 
-function renderHeatmap(rows) {
+  function renderHeatmap(rows) {
     const box = document.getElementById('forecastHeatmap');
     if (!rows.length) {
-        box.innerHTML = '<div class="forecast-empty-state"><strong>Sin historial para construir la matriz</strong><p>Cuando haya mas registros, este bloque mostrara intensidad diaria y peso relativo por dia.</p></div>';
-        return;
+      box.innerHTML = '<div class="forecast-empty-state"><strong>Sin historial para construir la matriz</strong><p>Cuando haya mas registros, este bloque mostrara intensidad diaria y peso relativo por dia.</p></div>';
+      return;
     }
     box.innerHTML = rows.map((row) => `<article class="forecast-day-card" style="background:${heat(row.intensidad)};"><div class="forecast-day-head"><div><h4>${esc(row.dia)}</h4><span>${esc(typeLabel(row.tipo_dia))}</span></div><span class="forecast-tag ${confidenceClass(row.confianza)}">${confidenceLabel(row.confianza)}</span></div><div class="forecast-day-value">${n(row.sugerido || 0)}</div><div class="forecast-day-meta">Base ${n(row.promedio || 0, 1)} - ${row.muestras || 0} muestras</div><div class="forecast-day-delta ${(Number(row.participacion || 0) >= 50) ? 'is-up' : 'is-down'}">${n(row.participacion || 0, 0)}%</div></article>`).join('');
-}
+  }
 
-function renderTable(rows) {
+  function renderTable(rows) {
     const tbody = document.getElementById('tablaPrediccionBody');
     if (!tbody) return;
     if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">Sin datos para mostrar.</td></tr>';
-        return;
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">Sin datos para mostrar.</td></tr>';
+      return;
     }
     tbody.innerHTML = rows.map((row) => `<tr><td>${esc(row.dia)}</td><td>${esc(row.fecha)}</td><td class="text-center"><strong>${n(row.sugerido || 0)}</strong></td><td class="text-center">${n(row.promedio || 0, 1)}</td><td class="text-center ${(Number(row.delta || 0) >= 0) ? 'text-accent' : 'text-success'}">${sgn(row.delta || 0, 1)}</td><td><span class="forecast-tag ${confidenceClass(row.confianza)}">${confidenceLabel(row.confianza)}</span></td><td>${esc(model(row.modelo))}</td><td>${esc(row.mensaje || '-')}</td></tr>`).join('');
-}
+  }
 
-function renderMainChart(rows) {
+  function renderMainChart(rows) {
     destroyChart(chartPrediccionSemanal);
     chartPrediccionSemanal = new Chart(document.getElementById('chartPrediccionSemanal'), {
-        data: {
-            labels: rows.map((r) => r.dia),
-            datasets: [
-                { type: 'bar', label: 'Sugerido', data: rows.map((r) => r.sugerido), backgroundColor: 'rgba(193,120,23,0.78)', borderRadius: 14, borderSkipped: false, maxBarThickness: 34 },
-                { type: 'line', label: 'Base historica', data: rows.map((r) => r.promedio), borderColor: '#2F6B63', backgroundColor: 'rgba(47,107,99,0.12)', fill: true, tension: 0.36, pointRadius: 4 },
-                { type: 'line', label: 'Brecha', data: rows.map((r) => r.delta), borderColor: '#D4722A', borderDash: [6, 4], yAxisID: 'y1', tension: 0.3, pointRadius: 3, pointBackgroundColor: '#D4722A' },
-            ],
-        },
-        options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${n(ctx.parsed.y || 0, 1)}` } } }, scales: { y: { beginAtZero: true, grid: { color: 'rgba(139,85,19,0.08)' } }, y1: { position: 'right', grid: { drawOnChartArea: false } } } },
+      data: {
+        labels: rows.map((r) => r.dia),
+        datasets: [
+          { type: 'bar', label: 'Sugerido', data: rows.map((r) => r.sugerido), backgroundColor: 'rgba(193,120,23,0.78)', borderRadius: 14, borderSkipped: false, maxBarThickness: 34 },
+          { type: 'line', label: 'Base historica', data: rows.map((r) => r.promedio), borderColor: '#2F6B63', backgroundColor: 'rgba(47,107,99,0.12)', fill: true, tension: 0.36, pointRadius: 4 },
+          { type: 'line', label: 'Brecha', data: rows.map((r) => r.delta), borderColor: '#D4722A', borderDash: [6, 4], yAxisID: 'y1', tension: 0.3, pointRadius: 3, pointBackgroundColor: '#D4722A' },
+        ],
+      },
+      options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${n(ctx.parsed.y || 0, 1)}` } } }, scales: { y: { beginAtZero: true, grid: { color: 'rgba(139,85,19,0.08)' } }, y1: { position: 'right', grid: { drawOnChartArea: false } } } },
     });
-}
+  }
 
-function renderControlChart(rows) {
+  function renderControlChart(rows) {
     const data = rows.slice(-14);
     destroyChart(chartControlProduccion);
     chartControlProduccion = new Chart(document.getElementById('chartControlProduccion'), {
-        data: { labels: data.map((r) => shortDate(r.fecha)), datasets: [{ type: 'bar', label: 'Producido', data: data.map((r) => r.producido), backgroundColor: 'rgba(224,122,95,0.7)', borderRadius: 10, borderSkipped: false }, { type: 'bar', label: 'Vendido', data: data.map((r) => r.vendido), backgroundColor: 'rgba(56,142,60,0.74)', borderRadius: 10, borderSkipped: false }, { type: 'line', label: 'Sobrante', data: data.map((r) => r.sobrante), borderColor: '#5D4037', backgroundColor: 'rgba(93,64,55,0.12)', pointRadius: 3, tension: 0.28, yAxisID: 'y1' }] },
-        options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true, grid: { color: 'rgba(139,85,19,0.08)' } }, y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false } } } },
+      data: { labels: data.map((r) => shortDate(r.fecha)), datasets: [{ type: 'bar', label: 'Producido', data: data.map((r) => r.producido), backgroundColor: 'rgba(224,122,95,0.7)', borderRadius: 10, borderSkipped: false }, { type: 'bar', label: 'Vendido', data: data.map((r) => r.vendido), backgroundColor: 'rgba(56,142,60,0.74)', borderRadius: 10, borderSkipped: false }, { type: 'line', label: 'Sobrante', data: data.map((r) => r.sobrante), borderColor: '#5D4037', backgroundColor: 'rgba(93,64,55,0.12)', pointRadius: 3, tension: 0.28, yAxisID: 'y1' }] },
+      options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true, grid: { color: 'rgba(139,85,19,0.08)' } }, y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false } } } },
     });
-}
+  }
 
-function renderSalesChart(rows) {
+  function renderSalesChart(rows) {
     destroyChart(chartVentasProducto);
     chartVentasProducto = new Chart(document.getElementById('chartVentasProducto'), {
-        type: 'line',
-        data: { labels: rows.map((r) => shortDate(r.fecha)), datasets: [{ label: 'Ingresos diarios', data: rows.map((r) => r.dinero), borderColor: '#D4722A', backgroundColor: 'rgba(212,114,42,0.18)', fill: true, tension: 0.28, pointRadius: 2.5 }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: (ctx) => `Ingresos: ${money(ctx.parsed.y)}` } } }, scales: { y: { beginAtZero: true, ticks: { callback: (v) => money(v) }, grid: { color: 'rgba(139,85,19,0.08)' } } } },
+      type: 'line',
+      data: { labels: rows.map((r) => shortDate(r.fecha)), datasets: [{ label: 'Ingresos diarios', data: rows.map((r) => r.dinero), borderColor: '#D4722A', backgroundColor: 'rgba(212,114,42,0.18)', fill: true, tension: 0.28, pointRadius: 2.5 }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: (ctx) => `Ingresos: ${money(ctx.parsed.y)}` } } }, scales: { y: { beginAtZero: true, ticks: { callback: (v) => money(v) }, grid: { color: 'rgba(139,85,19,0.08)' } } } },
     });
-}
+  }
 
-function renderRankingChart(rows) {
+  function renderRankingChart(rows) {
     const data = rows.slice(0, 8).reverse();
     destroyChart(chartRankingProductos);
     chartRankingProductos = new Chart(document.getElementById('chartRankingProductos'), {
-        type: 'bar',
-        data: { labels: data.map((r) => r.producto), datasets: [{ label: 'Ingresos', data: data.map((r) => r.dinero), backgroundColor: ['#5D4037', '#81B29A', '#A7C957', '#D9A441', '#E8B44D', '#D4722A', '#E07A5F', '#C17817'], borderRadius: 12, borderSkipped: false }] },
-        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `Ingresos: ${money(ctx.parsed.x)}` } } }, scales: { x: { beginAtZero: true, ticks: { callback: (v) => money(v) }, grid: { color: 'rgba(139,85,19,0.08)' } }, y: { grid: { display: false } } } },
+      type: 'bar',
+      data: { labels: data.map((r) => r.producto), datasets: [{ label: 'Ingresos', data: data.map((r) => r.dinero), backgroundColor: ['#5D4037', '#81B29A', '#A7C957', '#D9A441', '#E8B44D', '#D4722A', '#E07A5F', '#C17817'], borderRadius: 12, borderSkipped: false }] },
+      options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `Ingresos: ${money(ctx.parsed.x)}` } } }, scales: { x: { beginAtZero: true, ticks: { callback: (v) => money(v) }, grid: { color: 'rgba(139,85,19,0.08)' } }, y: { grid: { display: false } } } },
     });
-}
+  }
 
-function renderRadarChart(rows) {
+  function renderRadarChart(rows) {
     destroyChart(chartRadarPronostico);
     chartRadarPronostico = new Chart(document.getElementById('chartRadarPronostico'), {
-        type: 'radar',
-        data: { labels: rows.map((r) => r.dia), datasets: [{ label: 'Sugerido', data: rows.map((r) => r.sugerido), borderColor: '#C17817', backgroundColor: 'rgba(193,120,23,0.18)', pointBackgroundColor: '#C17817', pointRadius: 3 }, { label: 'Base historica', data: rows.map((r) => r.promedio), borderColor: '#2F6B63', backgroundColor: 'rgba(47,107,99,0.12)', pointBackgroundColor: '#2F6B63', pointRadius: 3 }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { r: { beginAtZero: true, angleLines: { color: 'rgba(139,85,19,0.08)' }, grid: { color: 'rgba(139,85,19,0.08)' }, pointLabels: { font: { size: 11 } } } } },
+      type: 'radar',
+      data: { labels: rows.map((r) => r.dia), datasets: [{ label: 'Sugerido', data: rows.map((r) => r.sugerido), borderColor: '#C17817', backgroundColor: 'rgba(193,120,23,0.18)', pointBackgroundColor: '#C17817', pointRadius: 3 }, { label: 'Base historica', data: rows.map((r) => r.promedio), borderColor: '#2F6B63', backgroundColor: 'rgba(47,107,99,0.12)', pointBackgroundColor: '#2F6B63', pointRadius: 3 }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { r: { beginAtZero: true, angleLines: { color: 'rgba(139,85,19,0.08)' }, grid: { color: 'rgba(139,85,19,0.08)' }, pointLabels: { font: { size: 11 } } } } },
     });
-}
+  }
 
-function updateAnalystAvailability(rows) {
+  function updateAnalystAvailability(rows) {
     const hasRows = Array.isArray(rows) && rows.length > 0;
     document.getElementById('forecastEmptyHint')?.toggleAttribute('hidden', hasRows);
     document.getElementById('forecastSupportNote')?.toggleAttribute('hidden', !hasRows);
-}
+  }
 
-function resetChartShell(canvasId) {
+  function resetChartShell(canvasId) {
     const canvas = document.getElementById(canvasId);
     if (!canvas?.parentElement) return null;
     canvas.hidden = false;
     canvas.parentElement.querySelector('[data-chart-fallback]')?.remove();
     return canvas;
-}
+  }
 
-function setChartUnavailableState(canvasId, title, message) {
+  function setChartUnavailableState(canvasId, title, message) {
     const canvas = document.getElementById(canvasId);
     if (!canvas?.parentElement) return;
     canvas.hidden = true;
     let fallback = canvas.parentElement.querySelector('[data-chart-fallback]');
     if (!fallback) {
-        fallback = document.createElement('div');
-        fallback.dataset.chartFallback = 'true';
-        fallback.className = 'forecast-empty-state';
-        canvas.parentElement.appendChild(fallback);
+      fallback = document.createElement('div');
+      fallback.dataset.chartFallback = 'true';
+      fallback.className = 'forecast-empty-state';
+      canvas.parentElement.appendChild(fallback);
     }
     fallback.innerHTML = `<strong>${esc(title)}</strong><p>${esc(message)}</p>`;
-}
+  }
 
-function setChartsUnavailable(message) {
+  function setChartsUnavailable(message) {
     [
-        { ref: chartPrediccionSemanal, id: 'chartPrediccionSemanal', title: 'Escenario semanal no disponible' },
-        { ref: chartControlProduccion, id: 'chartControlProduccion', title: 'Control producido vs vendido no disponible' },
-        { ref: chartVentasProducto, id: 'chartVentasProducto', title: 'Serie de ingresos no disponible' },
-        { ref: chartRankingProductos, id: 'chartRankingProductos', title: 'Ranking comercial no disponible' },
-        { ref: chartRadarPronostico, id: 'chartRadarPronostico', title: 'Radar de comportamiento no disponible' },
+      { ref: chartPrediccionSemanal, id: 'chartPrediccionSemanal', title: 'Escenario semanal no disponible' },
+      { ref: chartControlProduccion, id: 'chartControlProduccion', title: 'Control producido vs vendido no disponible' },
+      { ref: chartVentasProducto, id: 'chartVentasProducto', title: 'Serie de ingresos no disponible' },
+      { ref: chartRankingProductos, id: 'chartRankingProductos', title: 'Ranking comercial no disponible' },
+      { ref: chartRadarPronostico, id: 'chartRadarPronostico', title: 'Radar de comportamiento no disponible' },
     ].forEach(({ ref, id, title }) => {
-        destroyChart(ref);
-        setChartUnavailableState(id, title, message);
+      destroyChart(ref);
+      setChartUnavailableState(id, title, message);
     });
     chartPrediccionSemanal = null;
     chartControlProduccion = null;
     chartVentasProducto = null;
     chartRankingProductos = null;
     chartRadarPronostico = null;
-}
+  }
 
-function safeChartRender(renderFn, label, canvasId) {
+  function safeChartRender(renderFn, label, canvasId) {
     resetChartShell(canvasId);
     try {
-        renderFn();
+      renderFn();
     } catch (error) {
-        console.error(`Error al renderizar ${label}:`, error);
-        setChartUnavailableState(canvasId, `${label} no disponible`, 'La lectura principal sigue activa, pero este grafico no pudo renderizarse.');
+      console.error(`Error al renderizar ${label}:`, error);
+      setChartUnavailableState(canvasId, `${label} no disponible`, 'La lectura principal sigue activa, pero este grafico no pudo renderizarse.');
     }
-}
+  }
 
-function renderForecastCharts(data) {
+  function renderForecastCharts(data) {
     if (!window.Chart) {
-        setChartsUnavailable('La libreria de graficos no pudo inicializarse en este momento.');
-        return;
+      setChartsUnavailable('La libreria de graficos no pudo inicializarse en este momento.');
+      return;
     }
     scheduleForecastChartRender(forecastTab, data);
-}
+  }
 
-async function cargarPronosticoDashboard() {
+  async function cargarPronosticoDashboard() {
     const producto = document.getElementById('filtroProductoPronostico').value;
     const dias = document.getElementById('filtroDiasPronostico').value;
     showLoadingState(true);
     renderLoadingRows();
     try {
-        const response = await fetch(`/api/pronostico/dashboard?producto=${encodeURIComponent(producto)}&dias=${dias}`);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
-        const rows = data.prediccion_semana || [];
+      const response = await fetch(`/api/pronostico/dashboard?producto=${encodeURIComponent(producto)}&dias=${dias}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      const rows = data.prediccion_semana || [];
 
-        renderHero(data);
-        renderKpis(data.resumen || {}, data.insights || {}, data.periodo || {});
-        renderWeekCards(rows);
-        renderConfidence(data.insights || {});
-        renderInsights(data);
-        renderHeatmap(data.matriz_semana || []);
-        renderTable(rows);
-        updateAnalystAvailability(rows);
-        latestForecastPayload = data;
+      renderHero(data);
+      renderKpis(data.resumen || {}, data.insights || {}, data.periodo || {});
+      renderWeekCards(rows);
+      renderConfidence(data.insights || {});
+      renderInsights(data);
+      renderHeatmap(data.matriz_semana || []);
+      renderTable(rows);
+      updateAnalystAvailability(rows);
+      latestForecastPayload = data;
 
-        await (window.ensureChartJs ? window.ensureChartJs() : Promise.resolve(window.Chart));
-        if (!window.Chart) {
-            setChartsUnavailable('La libreria de graficos no pudo inicializarse en este momento.');
-            return;
-        }
-        if (forecastMode === 'analyst') {
-            renderForecastCharts(data);
-        }
+      await (window.ensureChartJs ? window.ensureChartJs() : Promise.resolve(window.Chart));
+      if (!window.Chart) {
+        setChartsUnavailable('La libreria de graficos no pudo inicializarse en este momento.');
+        return;
+      }
+      if (forecastMode === 'analyst') {
+        renderForecastCharts(data);
+      }
     } catch (error) {
-        console.error(error);
-        Toast.error('No se pudo cargar el dashboard de pronostico.');
-        document.getElementById('forecastWeekCards').innerHTML = '<div class="forecast-empty-state"><strong>No se pudo cargar la lectura de hoy</strong><p>Revisa la conexion y vuelve a intentar. El dashboard no modifico ninguna configuracion.</p><div class="forecast-empty-action"><button class="btn btn-accent" type="button" onclick="cargarPronosticoDashboard()">Reintentar</button></div></div>';
-        document.getElementById('forecastSupportNote').textContent = 'No hay datos visibles todavia.';
-        updateAnalystAvailability([]);
+      console.error(error);
+      Toast.error('No se pudo cargar el dashboard de pronostico.');
+      document.getElementById('forecastWeekCards').innerHTML = '<div class="forecast-empty-state"><strong>No se pudo cargar la lectura de hoy</strong><p>Revisa la conexion y vuelve a intentar. El dashboard no modifico ninguna configuracion.</p><div class="forecast-empty-action"><button class="btn btn-accent" type="button" onclick="cargarPronosticoDashboard()">Reintentar</button></div></div>';
+      document.getElementById('forecastSupportNote').textContent = 'No hay datos visibles todavia.';
+      updateAnalystAvailability([]);
     } finally {
-        showLoadingState(false);
+      showLoadingState(false);
     }
-}
+  }
 
-document.addEventListener('DOMContentLoaded', function () {
+  document.addEventListener('DOMContentLoaded', function () {
     setForecastMode(forecastMode);
     setForecastTab(forecastTab);
     cargarPronosticoDashboard();
-});
+  });
 </script>
 {% endblock %}
