@@ -92,9 +92,9 @@ def _translate_sql_for_pg(sql: str) -> str:
     def _replace_date_now(match: re.Match) -> str:
         modifier = match.group(1).strip()
         if modifier == "%s":
-            return "(CURRENT_DATE + %s::interval)"
+            return "TO_CHAR((CURRENT_DATE + %s::interval)::date, 'YYYY-MM-DD')"
         modifier = modifier.strip("'\"")
-        return f"(CURRENT_DATE + INTERVAL '{modifier}')"
+        return f"TO_CHAR((CURRENT_DATE + INTERVAL '{modifier}')::date, 'YYYY-MM-DD')"
 
     result = re.sub(
         r"date\s*\(\s*'now'\s*,\s*([^)]+)\)",
@@ -102,8 +102,18 @@ def _translate_sql_for_pg(sql: str) -> str:
         result,
         flags=re.IGNORECASE,
     )
-    result = re.sub(r"date\s*\(\s*'now'\s*\)", "CURRENT_DATE", result, flags=re.IGNORECASE)
-    result = re.sub(r"datetime\s*\(\s*'now'\s*\)", "NOW()", result, flags=re.IGNORECASE)
+    result = re.sub(
+        r"date\s*\(\s*'now'\s*\)",
+        "TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD')",
+        result,
+        flags=re.IGNORECASE,
+    )
+    result = re.sub(
+        r"datetime\s*\(\s*'now'\s*\)",
+        "TO_CHAR(NOW(), 'YYYY-MM-DD HH24:MI:SS')",
+        result,
+        flags=re.IGNORECASE,
+    )
     result = re.sub(
         r"INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT",
         "SERIAL PRIMARY KEY",
