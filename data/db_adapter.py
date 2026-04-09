@@ -90,7 +90,10 @@ def _translate_sql_for_pg(sql: str) -> str:
     result = sql.replace("?", "%s")
 
     def _replace_date_now(match: re.Match) -> str:
-        modifier = match.group(1).strip().strip("'\"")
+        modifier = match.group(1).strip()
+        if modifier == "%s":
+            return "(CURRENT_DATE + %s::interval)"
+        modifier = modifier.strip("'\"")
         return f"(CURRENT_DATE + INTERVAL '{modifier}')"
 
     result = re.sub(
