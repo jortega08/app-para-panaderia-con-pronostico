@@ -1816,7 +1816,7 @@ def eliminar_usuario(usuario_id: int) -> bool:
 
 def _metodo_pago_normalizado(metodo_pago: str) -> str:
     metodo = str(metodo_pago or "").strip().lower()
-    return metodo if metodo in ("efectivo", "transferencia") else "efectivo"
+    return metodo if metodo in ("efectivo", "transferencia", "tarjeta") else "efectivo"
 
 
 def _registrar_historial_estado_pedido(conn, pedido_id: int, estado: str,
@@ -4092,27 +4092,35 @@ def obtener_stock_disponible_hoy(fecha: str | None = None) -> dict[str, int]:
     """
     Retorna el stock disponible REAL por producto para la fecha indicada.
     Usa la misma fuente que el inventario: registros_diarios.vendido (ingresado manualmente
-    por el panadero), y descuenta además los pedidos activos aún no cobrados.
+    por el panadero), y descuenta además los pedidos activos y las ventas reales de caja.
 
-    Fórmula: producido - vendido_manual - comprometido_pedidos_activos
-    - vendido_manual: registros_diarios.vendido (mismo valor que muestra el inventario)
+    Fórmula: producido - max(vendido_manual, ventas_reales_caja) - comprometido_pedidos_activos
+    - vendido_manual: registros_diarios.vendido (el panadero lo ajusta)
+    - ventas_reales_caja: suma de las ventas reales POS y mesero ya cobradas (tabla ventas)
     - comprometido_activos: pedidos en estado pendiente/en_preparacion/listo
 
     Solo incluye productos con registro de producción para hoy.
-    Productos sin registro = sin límite (no se validan).
     """
     fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
     with get_connection() as conn:
-        # 1. Producción y vendido manual del día (fuente única, igual al inventario)
+        # 1. Producción y vendido manual del día
         prod_rows = conn.execute(
-            "SELECT producto, SUM(producido) as producido, SUM(vendido) as vendido "
+            "SELECT producto, SUM(producido) as producido, SUM(vendido) as vendido_manual "
             "FROM registros_diarios WHERE fecha = ? GROUP BY producto",
             (fecha,)
         ).fetchall()
         if not prod_rows:
             return {}
 
-        # 2. Pedidos activos (aún no cobrados): pendiente, en_preparacion, listo
+        # 2. Ventas reales registradas en caja (POS) o pedidos ya pagados
+        ventas_rows = conn.execute(
+            "SELECT producto, SUM(cantidad) as vendido_real "
+            "FROM ventas WHERE fecha = ? GROUP BY producto",
+            (fecha,)
+        ).fetchall()
+        ventas_totales = { r["producto"]: int(r["vendido_real"] or 0) for r in ventas_rows }
+
+        # 3. Pedidos activos (aún no cobrados): pendiente, en_preparacion, listo
         pedido_ids = [
             row["id"] for row in conn.execute(
                 "SELECT id FROM pedidos WHERE fecha = ? AND estado IN ('pendiente', 'en_preparacion', 'listo')",
@@ -4127,14 +4135,18 @@ def obtener_stock_disponible_hoy(fecha: str | None = None) -> dict[str, int]:
                 p = item["producto"]
                 comprometidos[p] = comprometidos.get(p, 0) + int(item["cantidad"] or 0)
 
-        # 3. Calcular disponible = producido - vendido_manual - comprometido_activos
+        # 4. Calcular disponible descontando tanto en curso como ya procesadas
         disponibles: dict[str, int] = {}
         for r in prod_rows:
             producto = r["producto"]
             producido = int(r["producido"] or 0)
-            vendido = int(r["vendido"] or 0)
+            vendido_manual = int(r["vendido_manual"] or 0)
+            ventas_reales = ventas_totales.get(producto, 0)
             comprometido = comprometidos.get(producto, 0)
-            disponibles[producto] = max(producido - vendido - comprometido, 0)
+            
+            # Tomamos el valor mayor entre lo reportado manual y lo real del cajero
+            total_descontado = max(vendido_manual, ventas_reales) + comprometido
+            disponibles[producto] = max(producido - total_descontado, 0)
 
     return disponibles
 
