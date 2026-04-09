@@ -1212,6 +1212,33 @@ def agregar_categoria_producto(nombre: str) -> bool:
         return False
 
 
+def eliminar_categoria_producto(nombre: str) -> dict:
+    if nombre == "Panaderia":
+        return {"ok": False, "error": "No se puede eliminar la categoria por defecto."}
+    try:
+        with get_connection() as conn:
+            # Validar si hay productos usando esta configuracion
+            count = conn.execute(
+                "SELECT COUNT(*) FROM productos WHERE categoria = ? AND activo = 1",
+                (nombre,)
+            ).fetchone()[0]
+
+            if count > 0:
+                return {
+                    "ok": False, 
+                    "error": f"No se puede eliminar porque hay {count} productos usandola."
+                }
+            
+            conn.execute("DELETE FROM categorias_producto WHERE nombre = ?", (nombre,))
+            
+            # Pasar a inactivos a panaderia por seguridad
+            conn.execute("UPDATE productos SET categoria = 'Panaderia' WHERE categoria = ?", (nombre,))
+            conn.commit()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def obtener_productos(categoria: str = None) -> list[str]:
     filtro = "AND categoria = ?" if categoria else ""
     query = f"SELECT nombre FROM productos WHERE activo = 1 {filtro} ORDER BY nombre"
@@ -2851,6 +2878,61 @@ def _reemplazar_pedido_conn(conn, pedido_id: int, items: list[dict], notas: str 
     """, (notas, total, estado, pedido_id))
     return total
 
+def unir_cuentas_mesa(mesa_id: int) -> dict:
+    """Une todos los pedidos activos (pendiente, en_preparacion, listo) de una mesa en un solo pedido."""
+    try:
+        if not mesa_id:
+            return {"ok": False, "error": "Mesa invalida."}
+            
+        with get_connection() as conn:
+            # 1. Obtener todos los pedidos activos de la mesa
+            pedidos = conn.execute(
+                "SELECT id, total FROM pedidos WHERE mesa_id = ? AND estado IN ('pendiente', 'en_preparacion', 'listo') ORDER BY id ASC",
+                (mesa_id,)
+            ).fetchall()
+            
+            if len(pedidos) <= 1:
+                return {"ok": False, "error": "La mesa no tiene multiples pedidos activos para unir."}
+                
+            # 2. Elegir el pedido principal (el mas antiguo)
+            pedido_principal_id = pedidos[0]["id"]
+            total_principal = float(pedidos[0]["total"] or 0)
+            
+            ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # 3. Trasladar items y dependencias de los demas pedidos al principal
+            for p in pedidos[1:]:
+                pid = p["id"]
+                ptotal = float(p["total"] or 0)
+                
+                # Mover items al pedido principal
+                conn.execute(
+                    "UPDATE pedido_items SET pedido_id = ? WHERE pedido_id = ?",
+                    (pedido_principal_id, pid)
+                )
+                
+                # Mover historial de estado si hay algo util (en este caso el trigger)
+                conn.execute(
+                    "INSERT INTO pedido_estado_historial (pedido_id, estado, cambiado_por, detalle, cambiado_en) "
+                    "VALUES (?, ?, 'Sistema', ?, ?)",
+                    (pedido_principal_id, 'listo', f"Cuenta fusionada con el pedido #{pid}", ahora)
+                )
+                
+                total_principal += ptotal
+                
+                # Eliminar los pedidos huérfanos que ya vaciamos
+                conn.execute("DELETE FROM pedido_estado_historial WHERE pedido_id = ?", (pid,))
+                conn.execute("DELETE FROM pedidos WHERE id = ?", (pid,))
+                
+            # Actualizar el total del pedido principal, y pasarlo a 'listo'
+            conn.execute(
+                "UPDATE pedidos SET total = ?, estado = 'listo' WHERE id = ?", 
+                (round(total_principal, 2), pedido_principal_id)
+            )
+            conn.commit()
+            return {"ok": True, "pedido_id": pedido_principal_id}
+            
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 def _obtener_pedido_conn(conn, pedido_id: int) -> dict | None:
     pedido = conn.execute("""

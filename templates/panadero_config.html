@@ -388,7 +388,12 @@ body.config-picker-open { overflow: hidden; }
                             </p>
                             <div class="recipe-chip-list">
                                 {% for categoria in categorias %}
-                                <span class="chip">{{ categoria }}</span>
+                                <span class="chip" style="display:inline-flex; align-items:center; gap:4px;">
+                                    {{ categoria }}
+                                    {% if categoria != 'Panaderia' %}
+                                    <span class="material-symbols-outlined" style="font-size:14px; cursor:pointer;" onclick="deleteCategory('{{ categoria }}')">close</span>
+                                    {% endif %}
+                                </span>
                                 {% endfor %}
                             </div>
                             <div class="catalog-import-actions">
@@ -897,6 +902,24 @@ async function deleteUser(id, nombre) {
     })
     .catch(err => {
         Toast.error(err.message || 'No se pudo eliminar el usuario');
+    });
+}
+async function deleteCategory(nombre) {
+    const ok = await appConfirm(`Eliminar categoria "${nombre}"?`, { type: 'danger', title: 'Eliminar categoria', confirmText: 'Eliminar' });
+    if (!ok) return;
+    
+    fetch('/api/categoria-producto/' + encodeURIComponent(nombre), { method: 'DELETE' })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) { 
+            Toast.success('Categoria eliminada'); 
+            setTimeout(() => location.reload(), 600); 
+        } else {
+            Toast.error(data.error || 'No se pudo eliminar la categoria');
+        }
+    })
+    .catch(err => {
+        Toast.error(err.message || 'Error al eliminar la categoria');
     });
 }
 </script>

@@ -1,14 +1,3 @@
-﻿"""
-app.py - Panaderia: Sistema de Ventas y Pronostico (Web)
-========================================================
-Aplicacion Flask ligera con:
-  - Login por PIN con roles (panadero / cajero)
-  - POS con carrito multi-producto
-  - Dashboard de ventas con graficas
-  - Pronostico de produccion
-  - Pagina publica para clientes via QR
-"""
-
 import csv
 import io
 import os
@@ -2744,6 +2733,16 @@ def api_agregar_categoria_producto():
     ok = agregar_categoria_producto(nombre)
     return jsonify({"ok": ok})
 
+@app.route("/api/categoria-producto/<path:nombre>", methods=["DELETE"])
+@login_required
+def api_eliminar_categoria_producto(nombre):
+    from data.database import eliminar_categoria_producto
+    if not nombre or nombre.strip() == "":
+        return jsonify({"ok": False, "error": "Nombre de categoria invalido"}), 400
+        
+    resultado = eliminar_categoria_producto(nombre.strip())
+    return jsonify(resultado)
+
 
 @app.route("/api/producto/precio", methods=["PUT"])
 @login_required
@@ -2789,6 +2788,15 @@ def api_actualizar_producto_adicional():
         return jsonify({"ok": False, "error": "Producto invalido"}), 400
     ok = actualizar_producto_adicional(nombre, es_adicional)
     return jsonify({"ok": ok})
+
+@app.route("/api/mesa/<int:mesa_id>/unir-cuentas", methods=["POST"])
+@login_required
+def api_unir_cuentas_mesa(mesa_id):
+    from data.database import unir_cuentas_mesa
+    res = unir_cuentas_mesa(mesa_id)
+    if res.get("ok"):
+        return jsonify(res)
+    return jsonify(res), 400
 
 
 @app.route("/api/config/codigo-caja", methods=["PUT"])
