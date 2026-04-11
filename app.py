@@ -88,7 +88,6 @@ from data.database import (
     obtener_arqueo_caja_activo,
     abrir_arqueo_caja,
     cerrar_arqueo_caja,
-    reabrir_arqueo_caja,
     obtener_historial_arqueos,
     obtener_arqueos_rango,
     obtener_movimientos_caja,
@@ -119,6 +118,12 @@ from data.database import (
     actualizar_adicional,
     eliminar_adicional,
     guardar_configuracion_adicional,
+    crear_encargo,
+    obtener_encargos,
+    obtener_encargo,
+    actualizar_estado_encargo,
+    eliminar_encargo,
+    unificar_pedidos,
     obtener_insumos,
     agregar_insumo,
     actualizar_stock,
@@ -256,6 +261,10 @@ def _nombre_usuario_actual() -> str:
 
 def _rol_usuario_actual() -> str:
     return str(_usuario_actual().get("rol", "") or "").strip()
+
+
+def _usuario_puede_registrar_produccion() -> bool:
+    return _rol_usuario_actual() in ("panadero", "cajero")
 
 
 def _pedido_visible_para_usuario(pedido: dict | None) -> bool:
@@ -673,11 +682,26 @@ def _etiqueta_modelo(modelo: str) -> str:
 def _obtener_registro_diario_producto(fecha: str, producto: str) -> dict | None:
     with get_connection() as conn:
         row = conn.execute("""
-            SELECT fecha, producto, producido, vendido, sobrante, observaciones
+            SELECT fecha, producto, producido, vendido, sobrante,
+                   sobrante_inicial, observaciones
             FROM registros_diarios
             WHERE fecha = ? AND producto = ?
         """, (fecha, producto)).fetchone()
     return dict(row) if row else None
+
+
+def _sobrante_dia_anterior(fecha: str, producto: str) -> int:
+    """Retorna el sobrante efectivo del dia anterior: sobrante_inicial + producido - vendido."""
+    fecha_anterior = (datetime.strptime(fecha, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+    with get_connection() as conn:
+        row = conn.execute("""
+            SELECT sobrante_inicial, sobrante
+            FROM registros_diarios
+            WHERE fecha = ? AND producto = ?
+        """, (fecha_anterior, producto)).fetchone()
+    if not row:
+        return 0
+    return max(int(row["sobrante_inicial"] or 0) + int(row["sobrante"] or 0), 0)
 
 
 def _combinar_observaciones(base: str = "", extra: str = "") -> str:
@@ -697,17 +721,24 @@ def _guardar_lote_produccion(fecha: str, producto: str, cantidad: int,
         return False
 
     previo = _obtener_registro_diario_producto(fecha, producto) or {}
+    es_nuevo = not previo
     producido_actual = int(previo.get("producido", 0) or 0)
     vendido_registro = int(previo.get("vendido", 0) or 0)
     vendido_real = int(obtener_vendido_dia_producto(fecha, producto) or 0)
     vendido_actual = max(vendido_registro, vendido_real)
     observaciones_finales = _combinar_observaciones(previo.get("observaciones", ""), observaciones)
+
+    # Solo calcular sobrante_inicial cuando se crea el registro del dia por primera vez
+    sobrante_ini = int(previo.get("sobrante_inicial", 0) or 0) if not es_nuevo \
+        else _sobrante_dia_anterior(fecha, producto)
+
     return guardar_registro(
         fecha,
         producto,
         producido_actual + cantidad_int,
         vendido_actual,
         observaciones_finales,
+        sobrante_inicial=sobrante_ini,
     )
 
 
@@ -1581,6 +1612,11 @@ def panadero_pronostico():
 @app.route("/panadero/produccion", methods=["GET", "POST"])
 @login_required
 def panadero_produccion():
+    rol_actual = _rol_usuario_actual()
+    if rol_actual not in ("panadero", "cajero"):
+        flash("No tienes permiso para registrar produccion", "error")
+        return redirect(url_for("index"))
+
     productos = obtener_productos_panaderia()
     producto_default = productos[0] if productos else ""
     if request.method == "POST":
@@ -1622,7 +1658,9 @@ def panadero_produccion():
                            producto_default=producto_default,
                            hoy=hoy,
                            registros_recientes=registros_recientes,
-                           layout="panadero", active_page="produccion")
+                           puede_ajustar_meta=(rol_actual == "panadero"),
+                           layout="cajero" if rol_actual == "cajero" else "panadero",
+                           active_page="produccion")
 
 
 @app.route("/panadero/ventas")
@@ -1989,6 +2027,9 @@ def api_pronostico_sugerencia():
 @app.route("/api/produccion/contexto")
 @login_required
 def api_contexto_produccion():
+    if not _usuario_puede_registrar_produccion():
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+
     producto = str(request.args.get("producto", "") or "").strip()
     fecha = request.args.get("fecha", datetime.now().strftime("%Y-%m-%d"))
     productos_panaderia = set(obtener_productos_panaderia())
@@ -2012,6 +2053,9 @@ def api_contexto_produccion():
 @app.route("/api/produccion/contexto-masivo")
 @login_required
 def api_contexto_produccion_masivo():
+    if not _usuario_puede_registrar_produccion():
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+
     fecha = request.args.get("fecha", datetime.now().strftime("%Y-%m-%d"))
     try:
         contexto = _construir_contexto_produccion_masivo(fecha)
@@ -2026,6 +2070,9 @@ def api_contexto_produccion_masivo():
 @app.route("/api/produccion/validar-insumos", methods=["POST"])
 @login_required
 def api_validar_insumos_produccion():
+    if not _usuario_puede_registrar_produccion():
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+
     data = request.get_json(silent=True) or {}
     try:
         evaluacion = _evaluar_insumos_lotes(data.get("lotes", []))
@@ -2038,6 +2085,9 @@ def api_validar_insumos_produccion():
 @app.route("/api/produccion/lotes-masivos", methods=["POST"])
 @login_required
 def api_guardar_lotes_masivos():
+    if not _usuario_puede_registrar_produccion():
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+
     data = request.get_json(silent=True) or {}
     fecha = str(data.get("fecha", "") or "").strip()
     turno = str(data.get("turno", "") or "").strip()
@@ -2486,6 +2536,14 @@ def api_venta():
         except (TypeError, ValueError):
             return jsonify({"ok": False, "error": "Monto recibido invalido"}), 400
 
+    raw_mp2 = data.get("metodo_pago_2")
+    raw_monto2 = data.get("monto_pago_2")
+    metodo_pago_2 = str(raw_mp2).strip().lower() if raw_mp2 else None
+    try:
+        monto_pago_2 = float(raw_monto2) if raw_monto2 not in (None, "", "null") else None
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Monto del segundo metodo invalido"}), 400
+
     items_venta = []
     try:
         for item in data["items"]:
@@ -2513,6 +2571,8 @@ def api_venta():
         metodo_pago=metodo_pago,
         monto_recibido=monto_recibido,
         referencia_tipo="pos",
+        metodo_pago_2=metodo_pago_2,
+        monto_pago_2=monto_pago_2,
     )
     if resultado.get("ok"):
         resultado["caja"] = obtener_resumen_caja_dia()
@@ -2594,12 +2654,26 @@ def api_cerrar_caja():
 
     notas_cierre = str(data.get("notas_cierre", "") or "").strip()
     codigo_verificacion = str(data.get("codigo_verificacion", "") or "").strip()
+
+    raw_tarjeta = data.get("monto_tarjeta_cierre")
+    raw_transferencia = data.get("monto_transferencia_cierre")
+    try:
+        monto_tarjeta_cierre = float(raw_tarjeta) if raw_tarjeta not in (None, "", "null") else None
+    except (TypeError, ValueError):
+        monto_tarjeta_cierre = None
+    try:
+        monto_transferencia_cierre = float(raw_transferencia) if raw_transferencia not in (None, "", "null") else None
+    except (TypeError, ValueError):
+        monto_transferencia_cierre = None
+
     usuario = session["usuario"]["nombre"] if "usuario" in session else ""
     resultado = cerrar_arqueo_caja(
         cerrado_por=usuario,
         monto_cierre=monto_cierre,
         notas_cierre=notas_cierre,
         codigo_verificacion=codigo_verificacion,
+        monto_tarjeta_cierre=monto_tarjeta_cierre,
+        monto_transferencia_cierre=monto_transferencia_cierre,
     )
     status = 200 if resultado.get("ok") else 400
     if resultado.get("ok"):
@@ -2612,25 +2686,6 @@ def api_cerrar_caja():
             valor_antes=str(resultado.get("efectivo_esperado", "")),
             valor_nuevo=str(monto_cierre),
         )
-        resultado["caja"] = obtener_resumen_caja_dia()
-        resultado["arqueos"] = obtener_historial_arqueos(6)
-    return jsonify(resultado), status
-
-
-@app.route("/api/caja/reabrir", methods=["POST"])
-@login_required
-def api_reabrir_caja():
-    data = request.get_json(silent=True) or {}
-    codigo_verificacion = str(data.get("codigo_verificacion", "") or "").strip()
-    motivo_reapertura = str(data.get("motivo_reapertura", "") or "").strip()
-    usuario = session["usuario"]["nombre"] if "usuario" in session else ""
-    resultado = reabrir_arqueo_caja(
-        reabierto_por=usuario,
-        codigo_verificacion=codigo_verificacion,
-        motivo_reapertura=motivo_reapertura,
-    )
-    status = 200 if resultado.get("ok") else 400
-    if resultado.get("ok"):
         resultado["caja"] = obtener_resumen_caja_dia()
         resultado["arqueos"] = obtener_historial_arqueos(6)
     return jsonify(resultado), status
@@ -3005,10 +3060,10 @@ def api_crear_pedido():
     if rol_actual != "mesero":
         return jsonify({"ok": False, "error": "Solo los meseros pueden crear nuevos pedidos de mesa"}), 403
 
-    pedido_id = crear_pedido(mesa_id, usuario_actual, items, notas)
-    if pedido_id:
-        return jsonify({"ok": True, "pedido_id": pedido_id, "accion": "creado"})
-    return jsonify({"ok": False, "error": "No se pudo crear el pedido"}), 500
+    resultado = crear_pedido(mesa_id, usuario_actual, items, notas)
+    if not resultado.get("ok"):
+        return jsonify(resultado), 500
+    return jsonify(resultado)
 
 
 @app.route("/api/pedido/<int:pedido_id>/estado", methods=["PUT"])
@@ -3045,11 +3100,20 @@ def api_cambiar_estado(pedido_id):
                 monto_recibido = float(monto_recibido)
             except (TypeError, ValueError):
                 return jsonify({"ok": False, "error": "Monto recibido invalido"}), 400
+        raw_mp2 = data.get("metodo_pago_2")
+        raw_monto2 = data.get("monto_pago_2")
+        metodo_pago_2 = str(raw_mp2).strip().lower() if raw_mp2 else None
+        try:
+            monto_pago_2 = float(raw_monto2) if raw_monto2 not in (None, "", "null") else None
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "Monto del segundo metodo invalido"}), 400
         resultado = pagar_pedido(
             pedido_id,
             registrado_por=usuario,
             metodo_pago=metodo_pago,
             monto_recibido=monto_recibido,
+            metodo_pago_2=metodo_pago_2,
+            monto_pago_2=monto_pago_2,
         )
         status = 200 if resultado.get("ok") else 400
         if resultado.get("ok"):
@@ -3971,6 +4035,89 @@ def _inicializar_base_de_datos_con_retry() -> None:
 
     if ultimo_error is not None:
         raise ultimo_error
+
+
+# ──────────────────────────────────────────────
+# Encargos
+# ──────────────────────────────────────────────
+
+@app.route("/cajero/encargos")
+@login_required
+def cajero_encargos():
+    if _rol_usuario_actual() not in ("cajero", "panadero"):
+        flash("No tienes permiso para ver encargos", "error")
+        return redirect(url_for("index"))
+    productos = obtener_productos_con_precio()
+    encargos = obtener_encargos(dias=60)
+    return render_template("cajero_encargos.html",
+                           productos=productos,
+                           encargos=encargos,
+                           layout="cajero", active_page="encargos")
+
+
+@app.route("/api/encargo", methods=["POST"])
+@login_required
+def api_crear_encargo():
+    if _rol_usuario_actual() not in ("cajero", "panadero"):
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    fecha_entrega = str(data.get("fecha_entrega", "") or "").strip()
+    cliente = str(data.get("cliente", "") or "").strip()
+    empresa = str(data.get("empresa", "") or "").strip()
+    notas = str(data.get("notas", "") or "").strip()
+    items = data.get("items", [])
+    usuario = session["usuario"]["nombre"] if "usuario" in session else ""
+    resultado = crear_encargo(fecha_entrega, cliente, items,
+                              empresa=empresa, notas=notas, registrado_por=usuario)
+    return jsonify(resultado), 200 if resultado.get("ok") else 400
+
+
+@app.route("/api/encargo/<int:encargo_id>", methods=["GET"])
+@login_required
+def api_obtener_encargo(encargo_id):
+    encargo = obtener_encargo(encargo_id)
+    if not encargo:
+        return jsonify({"ok": False, "error": "Encargo no encontrado"}), 404
+    return jsonify({"ok": True, "encargo": encargo})
+
+
+@app.route("/api/encargo/<int:encargo_id>/estado", methods=["PUT"])
+@login_required
+def api_estado_encargo(encargo_id):
+    if _rol_usuario_actual() not in ("cajero", "panadero"):
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    estado = str(data.get("estado", "") or "").strip()
+    usuario = session["usuario"]["nombre"] if "usuario" in session else ""
+    resultado = actualizar_estado_encargo(encargo_id, estado, usuario)
+    return jsonify(resultado), 200 if resultado.get("ok") else 400
+
+
+@app.route("/api/encargo/<int:encargo_id>", methods=["DELETE"])
+@login_required
+def api_eliminar_encargo(encargo_id):
+    if _rol_usuario_actual() not in ("cajero", "panadero"):
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    resultado = eliminar_encargo(encargo_id)
+    return jsonify(resultado), 200 if resultado.get("ok") else 400
+
+
+# ──────────────────────────────────────────────
+# Union de pedidos
+# ──────────────────────────────────────────────
+
+@app.route("/api/pedidos/unificar", methods=["POST"])
+@login_required
+def api_unificar_pedidos():
+    if _rol_usuario_actual() == "mesero":
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    pedido_ids = data.get("pedido_ids", [])
+    if not pedido_ids or len(pedido_ids) < 2:
+        return jsonify({"ok": False, "error": "Se necesitan al menos dos pedidos"}), 400
+    usuario = session["usuario"]["nombre"] if "usuario" in session else ""
+    resultado = unificar_pedidos(pedido_ids, unificado_por=usuario)
+    return jsonify(resultado), 200 if resultado.get("ok") else 400
 
 
 # Inicializar BD y scheduler al cargar el módulo (para Gunicorn)

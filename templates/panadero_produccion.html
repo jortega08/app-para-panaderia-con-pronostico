@@ -105,18 +105,22 @@
 
                     <div class="form-group">
                         <label for="metaOperativaInput">Meta diaria del producto</label>
-                        <input type="number" id="metaOperativaInput" class="form-input" min="0" placeholder="Meta del dia">
+                        <input type="number" id="metaOperativaInput" class="form-input" min="0" placeholder="Meta del dia" {% if not puede_ajustar_meta %}disabled{% endif %}>
                     </div>
                     <div class="form-group">
                         <label for="motivoAjuste">Motivo del ajuste</label>
-                        <input type="text" id="motivoAjuste" class="form-input" placeholder="Ej: voy a hornear por tandas mas pequenas hoy">
+                        <input type="text" id="motivoAjuste" class="form-input" placeholder="Ej: voy a hornear por tandas mas pequenas hoy" {% if not puede_ajustar_meta %}disabled{% endif %}>
                     </div>
                     <div class="production-inline-actions">
-                        <button type="button" class="btn btn-accent btn-sm" onclick="guardarMetaOperativa()">Guardar meta</button>
-                        <button type="button" class="btn btn-outline btn-sm" onclick="restaurarMetaSugerida()">Volver al sugerido</button>
+                        <button type="button" class="btn btn-accent btn-sm" onclick="guardarMetaOperativa()" {% if not puede_ajustar_meta %}disabled{% endif %}>Guardar meta</button>
+                        <button type="button" class="btn btn-outline btn-sm" onclick="restaurarMetaSugerida()" {% if not puede_ajustar_meta %}disabled{% endif %}>Volver al sugerido</button>
                     </div>
                     <div class="production-adjust-note">
+                        {% if puede_ajustar_meta %}
                         El ajuste cambia la meta del dia. Luego registras tus tandas normales contra esa meta.
+                        {% else %}
+                        Caja puede registrar tandas y seguir el contexto del dia, pero la meta operativa solo la ajusta Panaderia.
+                        {% endif %}
                     </div>
                 </div>
             </article>
@@ -320,27 +324,30 @@
                     <tr>
                         <th>Fecha</th>
                         <th>Producto</th>
-                        <th class="text-center">Producido</th>
+                        <th class="text-center">Sobrante anterior</th>
+                        <th class="text-center">Producido hoy</th>
                         <th class="text-center">Vendido real</th>
-                        <th class="text-center">Sobrante</th>
+                        <th class="text-center">Sobrante total</th>
                         <th class="text-center">Faltante</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% if registros_recientes %}
                         {% for r in registros_recientes[:40] %}
-                        <tr class="{% if r.faltante > 0 %}row-danger{% elif r.sobrante > 0 %}row-warning{% endif %}">
+                        {% set sobrante_total = (r.sobrante_inicial | default(0)) + (r.sobrante if r.sobrante > 0 else 0) %}
+                        <tr class="{% if r.faltante > 0 %}row-danger{% elif sobrante_total > 0 %}row-warning{% endif %}">
                             <td>{{ r.fecha }}</td>
                             <td>{{ r.producto }}</td>
+                            <td class="text-center">{{ r.sobrante_inicial | default(0) if r.sobrante_inicial | default(0) > 0 else '-' }}</td>
                             <td class="text-center">{{ r.producido }}</td>
                             <td class="text-center">{{ r.vendido }}</td>
-                            <td class="text-center">{{ r.sobrante if r.sobrante > 0 else 0 }}</td>
+                            <td class="text-center">{{ sobrante_total if sobrante_total > 0 else 0 }}</td>
                             <td class="text-center">{{ r.faltante if r.faltante > 0 else 0 }}</td>
                         </tr>
                         {% endfor %}
                     {% else %}
                         <tr>
-                            <td colspan="6" class="text-center text-muted">No hay registros recientes.</td>
+                            <td colspan="7" class="text-center text-muted">No hay registros recientes.</td>
                         </tr>
                     {% endif %}
                 </tbody>
@@ -351,6 +358,7 @@
 </div>
 
 <script>
+const CAN_EDIT_PRODUCTION_TARGET = {{ 'true' if puede_ajustar_meta else 'false' }};
 let productionContext = null;
 let productionQuickRowsData = [];
 let bypassProductionBatchSubmit = false;
@@ -545,6 +553,10 @@ function usarMitadRestante() {
 }
 
 async function guardarMetaOperativa(usarSugerido = false) {
+    if (!CAN_EDIT_PRODUCTION_TARGET) {
+        Toast.warning('Solo Panaderia puede ajustar la meta operativa.');
+        return;
+    }
     if (!productionContext) return;
     const metaInput = document.getElementById('metaOperativaInput');
     const motivoInput = document.getElementById('motivoAjuste');

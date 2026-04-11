@@ -372,10 +372,14 @@ def inicializar_base_de_datos() -> None:
                 efectivo_esperado  REAL DEFAULT NULL,
                 diferencia_cierre  REAL DEFAULT NULL,
                 notas_cierre       TEXT DEFAULT '',
-                reabierto_en       TEXT DEFAULT '',
-                reabierto_por      TEXT DEFAULT '',
-                motivo_reapertura  TEXT DEFAULT '',
-                reaperturas        INTEGER NOT NULL DEFAULT 0
+                reabierto_en              TEXT DEFAULT '',
+                reabierto_por             TEXT DEFAULT '',
+                motivo_reapertura         TEXT DEFAULT '',
+                reaperturas               INTEGER NOT NULL DEFAULT 0,
+                monto_tarjeta_cierre      REAL DEFAULT NULL,
+                monto_transferencia_cierre REAL DEFAULT NULL,
+                diferencia_tarjeta        REAL DEFAULT NULL,
+                diferencia_transferencia  REAL DEFAULT NULL
             )
         """)
 
@@ -397,14 +401,15 @@ def inicializar_base_de_datos() -> None:
         # Registros diarios de produccion (panadero)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS registros_diarios (
-                id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                fecha         TEXT NOT NULL,
-                dia_semana    TEXT NOT NULL,
-                producto      TEXT NOT NULL,
-                producido     INTEGER NOT NULL,
-                vendido       INTEGER NOT NULL,
-                sobrante      INTEGER GENERATED ALWAYS AS (producido - vendido) VIRTUAL,
-                observaciones TEXT DEFAULT '',
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                fecha             TEXT NOT NULL,
+                dia_semana        TEXT NOT NULL,
+                producto          TEXT NOT NULL,
+                producido         INTEGER NOT NULL,
+                vendido           INTEGER NOT NULL,
+                sobrante          INTEGER GENERATED ALWAYS AS (producido - vendido) VIRTUAL,
+                sobrante_inicial  INTEGER NOT NULL DEFAULT 0,
+                observaciones     TEXT DEFAULT '',
                 UNIQUE(fecha, producto)
             )
         """)
@@ -499,6 +504,36 @@ def inicializar_base_de_datos() -> None:
                 cantidad        INTEGER NOT NULL DEFAULT 1,
                 precio_extra    REAL NOT NULL DEFAULT 0.0,
                 FOREIGN KEY (pedido_item_id) REFERENCES pedido_items(id) ON DELETE CASCADE
+            )
+        """)
+
+        # Encargos (pre-pedidos con fecha de entrega)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS encargos (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                fecha_entrega  TEXT NOT NULL,
+                cliente        TEXT NOT NULL DEFAULT '',
+                empresa        TEXT DEFAULT '',
+                notas          TEXT DEFAULT '',
+                estado         TEXT NOT NULL DEFAULT 'pendiente'
+                               CHECK(estado IN ('pendiente','listo','entregado','cancelado')),
+                registrado_por TEXT NOT NULL DEFAULT '',
+                creado_en      TEXT NOT NULL,
+                total          REAL NOT NULL DEFAULT 0.0
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS encargo_items (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                encargo_id      INTEGER NOT NULL,
+                producto_id     INTEGER,
+                producto        TEXT NOT NULL,
+                cantidad        INTEGER NOT NULL DEFAULT 1,
+                precio_unitario REAL NOT NULL DEFAULT 0.0,
+                subtotal        REAL NOT NULL DEFAULT 0.0,
+                notas           TEXT DEFAULT '',
+                FOREIGN KEY (encargo_id) REFERENCES encargos(id) ON DELETE CASCADE
             )
         """)
 
@@ -1176,6 +1211,16 @@ def _migrar_ventas_pedidos_caja(conn):
     _ejecutar_migracion_tolerante(conn, "ALTER TABLE arqueos_caja ADD COLUMN reabierto_por TEXT DEFAULT ''")
     _ejecutar_migracion_tolerante(conn, "ALTER TABLE arqueos_caja ADD COLUMN motivo_reapertura TEXT DEFAULT ''")
     _ejecutar_migracion_tolerante(conn, "ALTER TABLE arqueos_caja ADD COLUMN reaperturas INTEGER NOT NULL DEFAULT 0")
+    _ejecutar_migracion_tolerante(conn, "ALTER TABLE arqueos_caja ADD COLUMN monto_tarjeta_cierre REAL DEFAULT NULL")
+    _ejecutar_migracion_tolerante(conn, "ALTER TABLE arqueos_caja ADD COLUMN monto_transferencia_cierre REAL DEFAULT NULL")
+    _ejecutar_migracion_tolerante(conn, "ALTER TABLE arqueos_caja ADD COLUMN diferencia_tarjeta REAL DEFAULT NULL")
+    _ejecutar_migracion_tolerante(conn, "ALTER TABLE arqueos_caja ADD COLUMN diferencia_transferencia REAL DEFAULT NULL")
+    _ejecutar_migracion_tolerante(conn, "ALTER TABLE registros_diarios ADD COLUMN sobrante_inicial INTEGER NOT NULL DEFAULT 0")
+    _ejecutar_migracion_tolerante(conn, "ALTER TABLE ventas ADD COLUMN metodo_pago_2 TEXT DEFAULT NULL")
+    _ejecutar_migracion_tolerante(conn, "ALTER TABLE ventas ADD COLUMN monto_pago_2 REAL DEFAULT NULL")
+    _ejecutar_migracion_tolerante(conn, "ALTER TABLE pedidos ADD COLUMN metodo_pago_2 TEXT DEFAULT NULL")
+    _ejecutar_migracion_tolerante(conn, "ALTER TABLE pedidos ADD COLUMN monto_pago_2 REAL DEFAULT NULL")
+    _ejecutar_migracion_tolerante(conn, "ALTER TABLE pedidos ADD COLUMN unificado_en INTEGER DEFAULT NULL")
 
 
 # ──────────────────────────────────────────────
@@ -1857,18 +1902,38 @@ def _registrar_historial_estado_pedido(conn, pedido_id: int, estado: str,
 
 
 def obtener_arqueo_caja_activo(fecha: str | None = None) -> dict | None:
-    fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
+    """Retorna el arqueo abierto más reciente.
+
+    Si se pasa `fecha` explícita, filtra por esa fecha (usado al cerrar un día
+    específico). Si no se pasa, busca cualquier arqueo abierto sin importar la
+    fecha — así funciona correctamente pasada la medianoche sin requerir
+    cierre y reapertura manual.
+    """
     with get_connection() as conn:
-        row = conn.execute("""
-            SELECT id, fecha, abierto_en, abierto_por, monto_apertura, estado, notas,
-                   cerrado_en, cerrado_por, monto_cierre, efectivo_esperado,
-                   diferencia_cierre, notas_cierre, reabierto_en, reabierto_por,
-                   motivo_reapertura, reaperturas
-            FROM arqueos_caja
-            WHERE fecha = ? AND estado = 'abierto'
-            ORDER BY abierto_en DESC
-            LIMIT 1
-        """, (fecha,)).fetchone()
+        if fecha:
+            row = conn.execute("""
+                SELECT id, fecha, abierto_en, abierto_por, monto_apertura, estado, notas,
+                       cerrado_en, cerrado_por, monto_cierre, efectivo_esperado,
+                       diferencia_cierre, notas_cierre, reabierto_en, reabierto_por,
+                       motivo_reapertura, reaperturas
+                FROM arqueos_caja
+                WHERE fecha = ? AND estado = 'abierto'
+                ORDER BY abierto_en DESC
+                LIMIT 1
+            """, (fecha,)).fetchone()
+        else:
+            # Sin filtro de fecha: encuentra el arqueo abierto más reciente
+            # independientemente del día en que se abrió.
+            row = conn.execute("""
+                SELECT id, fecha, abierto_en, abierto_por, monto_apertura, estado, notas,
+                       cerrado_en, cerrado_por, monto_cierre, efectivo_esperado,
+                       diferencia_cierre, notas_cierre, reabierto_en, reabierto_por,
+                       motivo_reapertura, reaperturas
+                FROM arqueos_caja
+                WHERE estado = 'abierto'
+                ORDER BY abierto_en DESC
+                LIMIT 1
+            """).fetchone()
     return dict(row) if row else None
 
 
@@ -1888,6 +1953,14 @@ def obtener_arqueo_caja_dia(fecha: str | None = None) -> dict | None:
             LIMIT 1
         """, (fecha,)).fetchone()
     return dict(row) if row else None
+
+
+def _limites_arqueo(arqueo: dict | None) -> tuple[str | None, str | None]:
+    if not arqueo:
+        return None, None
+    abierto_en = str(arqueo.get("abierto_en", "") or "").strip() or None
+    cerrado_en = str(arqueo.get("cerrado_en", "") or "").strip() or None
+    return abierto_en, cerrado_en
 
 
 def abrir_arqueo_caja(abierto_por: str, monto_apertura: float, notas: str = "",
@@ -1965,7 +2038,7 @@ def registrar_movimiento_caja(tipo: str, concepto: str, monto: float,
     if not str(concepto or "").strip():
         return {"ok": False, "error": "El concepto es obligatorio"}
 
-    arqueo = obtener_arqueo_caja_activo(fecha)
+    arqueo = obtener_arqueo_caja_activo()  # sin filtro de fecha
     if not arqueo:
         return {"ok": False, "error": "Debes tener una caja abierta para registrar movimientos"}
 
@@ -1996,6 +2069,8 @@ def registrar_movimiento_caja(tipo: str, concepto: str, monto: float,
 
 def cerrar_arqueo_caja(cerrado_por: str, monto_cierre: float,
                        notas_cierre: str = "", codigo_verificacion: str = "",
+                       monto_tarjeta_cierre: float | None = None,
+                       monto_transferencia_cierre: float | None = None,
                        fecha: str | None = None) -> dict:
     fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
     if float(monto_cierre or 0) < 0:
@@ -2013,10 +2088,20 @@ def cerrar_arqueo_caja(cerrado_por: str, monto_cierre: float,
     efectivo_esperado = float(resumen.get("efectivo_en_caja", 0) or 0)
     monto_cierre = round(float(monto_cierre), 2)
     diferencia = round(monto_cierre - efectivo_esperado, 2)
+
+    ventas_tarjeta = float(resumen.get("ventas_tarjeta", 0) or 0)
+    ventas_transferencia = float(resumen.get("ventas_transferencia", 0) or 0)
+
+    tarjeta_val = round(float(monto_tarjeta_cierre), 2) if monto_tarjeta_cierre is not None else None
+    transferencia_val = round(float(monto_transferencia_cierre), 2) if monto_transferencia_cierre is not None else None
+    dif_tarjeta = round(tarjeta_val - ventas_tarjeta, 2) if tarjeta_val is not None else None
+    dif_transferencia = round(transferencia_val - ventas_transferencia, 2) if transferencia_val is not None else None
+
     cerrado_en = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     try:
         with get_connection() as conn:
+            # Paso 1: cierre base (columnas que siempre existen)
             conn.execute("""
                 UPDATE arqueos_caja
                 SET estado = 'cerrado',
@@ -2037,6 +2122,25 @@ def cerrar_arqueo_caja(cerrado_por: str, monto_cierre: float,
                 arqueo["id"],
             ))
             conn.commit()
+
+            # Paso 2: columnas de reconciliacion (pueden no existir en DB antiguo)
+            _ejecutar_migracion_tolerante(conn, "ALTER TABLE arqueos_caja ADD COLUMN monto_tarjeta_cierre REAL DEFAULT NULL")
+            _ejecutar_migracion_tolerante(conn, "ALTER TABLE arqueos_caja ADD COLUMN monto_transferencia_cierre REAL DEFAULT NULL")
+            _ejecutar_migracion_tolerante(conn, "ALTER TABLE arqueos_caja ADD COLUMN diferencia_tarjeta REAL DEFAULT NULL")
+            _ejecutar_migracion_tolerante(conn, "ALTER TABLE arqueos_caja ADD COLUMN diferencia_transferencia REAL DEFAULT NULL")
+            try:
+                conn.execute("""
+                    UPDATE arqueos_caja
+                    SET monto_tarjeta_cierre = ?,
+                        monto_transferencia_cierre = ?,
+                        diferencia_tarjeta = ?,
+                        diferencia_transferencia = ?
+                    WHERE id = ?
+                """, (tarjeta_val, transferencia_val, dif_tarjeta, dif_transferencia, arqueo["id"]))
+                conn.commit()
+            except Exception:
+                pass  # Si las columnas aun no existen, ignorar
+
         arqueo_final = obtener_arqueo_caja_dia(fecha)
         return {
             "ok": True,
@@ -2044,58 +2148,53 @@ def cerrar_arqueo_caja(cerrado_por: str, monto_cierre: float,
             "efectivo_esperado": efectivo_esperado,
             "monto_cierre": monto_cierre,
             "diferencia": diferencia,
+            "ventas_tarjeta": ventas_tarjeta,
+            "ventas_transferencia": ventas_transferencia,
+            "monto_tarjeta_cierre": tarjeta_val,
+            "monto_transferencia_cierre": transferencia_val,
+            "diferencia_tarjeta": dif_tarjeta,
+            "diferencia_transferencia": dif_transferencia,
         }
     except Exception as e:
         logger.error(f"cerrar_arqueo_caja: {e}")
         return {"ok": False, "error": str(e)}
 
 
-def reabrir_arqueo_caja(reabierto_por: str, codigo_verificacion: str,
-                        motivo_reapertura: str, fecha: str | None = None) -> dict:
-    fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
-    arqueo = obtener_arqueo_caja_dia(fecha)
-    if not arqueo or arqueo.get("estado") != "cerrado":
-        return {"ok": False, "error": "No hay una caja cerrada para reabrir"}
-    if not str(motivo_reapertura or "").strip():
-        return {"ok": False, "error": "Debes registrar la novedad de reapertura"}
-
-    codigo_real = obtener_codigo_verificacion_caja()
-    if str(codigo_verificacion or "").strip() != codigo_real:
-        return {"ok": False, "error": "Codigo de verificacion incorrecto"}
-
-    reabierto_en = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    try:
-        with get_connection() as conn:
-            conn.execute("""
-                UPDATE arqueos_caja
-                SET estado = 'abierto',
-                    reabierto_en = ?,
-                    reabierto_por = ?,
-                    motivo_reapertura = ?,
-                    reaperturas = COALESCE(reaperturas, 0) + 1
-                WHERE id = ?
-            """, (
-                reabierto_en,
-                reabierto_por,
-                str(motivo_reapertura).strip(),
-                arqueo["id"],
-            ))
-            conn.commit()
-        return {"ok": True, "arqueo": obtener_arqueo_caja_dia(fecha)}
-    except Exception as e:
-        logger.error(f"reabrir_arqueo_caja: {e}")
-        return {"ok": False, "error": str(e)}
-
-
 def obtener_resumen_caja_dia(fecha: str | None = None) -> dict:
     fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
     arqueo = obtener_arqueo_caja_dia(fecha)
+    abierto_en, cerrado_en = _limites_arqueo(arqueo)
+
+    ventas_where = "1 = 0"
+    ventas_params: list[object] = []
+    if abierto_en:
+        ventas_where = "fecha = ? AND (fecha || ' ' || hora) >= ?"
+        ventas_params = [fecha, abierto_en]
+        if cerrado_en:
+            ventas_where += " AND (fecha || ' ' || hora) <= ?"
+            ventas_params.append(cerrado_en)
 
     with get_connection() as conn:
-        row = conn.execute("""
+        row = conn.execute(f"""
             SELECT
-                COALESCE(SUM(CASE WHEN metodo_pago = 'efectivo' THEN total_grupo ELSE 0 END), 0.0) AS ventas_efectivo,
-                COALESCE(SUM(CASE WHEN metodo_pago = 'transferencia' THEN total_grupo ELSE 0 END), 0.0) AS ventas_transferencia,
+                -- Efectivo: pago simple O parte efectivo en pago mixto (primario) O secundario
+                COALESCE(SUM(CASE
+                    WHEN metodo_pago = 'efectivo' AND metodo_pago_2 IS NULL THEN total_grupo
+                    WHEN metodo_pago = 'efectivo' AND metodo_pago_2 IS NOT NULL THEN monto_recibido_grupo - COALESCE(cambio_grupo, 0)
+                    WHEN metodo_pago_2 = 'efectivo' THEN monto_pago_2_grupo
+                    ELSE 0 END), 0.0) AS ventas_efectivo,
+                -- Transferencia
+                COALESCE(SUM(CASE
+                    WHEN metodo_pago = 'transferencia' AND metodo_pago_2 IS NULL THEN total_grupo
+                    WHEN metodo_pago = 'transferencia' AND metodo_pago_2 IS NOT NULL THEN monto_recibido_grupo
+                    WHEN metodo_pago_2 = 'transferencia' THEN monto_pago_2_grupo
+                    ELSE 0 END), 0.0) AS ventas_transferencia,
+                -- Tarjeta
+                COALESCE(SUM(CASE
+                    WHEN metodo_pago = 'tarjeta' AND metodo_pago_2 IS NULL THEN total_grupo
+                    WHEN metodo_pago = 'tarjeta' AND metodo_pago_2 IS NOT NULL THEN monto_recibido_grupo
+                    WHEN metodo_pago_2 = 'tarjeta' THEN monto_pago_2_grupo
+                    ELSE 0 END), 0.0) AS ventas_tarjeta,
                 COALESCE(SUM(CASE WHEN metodo_pago = 'efectivo' THEN monto_recibido_grupo ELSE 0 END), 0.0) AS efectivo_recibido,
                 COALESCE(SUM(cambio_grupo), 0.0) AS cambio_entregado,
                 COALESCE(SUM(total_grupo), 0.0) AS total_ventas,
@@ -2106,24 +2205,32 @@ def obtener_resumen_caja_dia(fecha: str | None = None) -> dict:
                     MAX(metodo_pago) AS metodo_pago,
                     MAX(monto_recibido) AS monto_recibido_grupo,
                     MAX(cambio) AS cambio_grupo,
-                    SUM(total) AS total_grupo
+                    SUM(total) AS total_grupo,
+                    MAX(metodo_pago_2) AS metodo_pago_2,
+                    MAX(monto_pago_2) AS monto_pago_2_grupo
                 FROM ventas
-                WHERE fecha = ?
+                WHERE {ventas_where}
                 GROUP BY COALESCE(NULLIF(venta_grupo, ''), 'legacy-' || id)
             ) base
-        """, (fecha,)).fetchone()
+        """, tuple(ventas_params)).fetchone()
 
-        movimientos = conn.execute("""
-            SELECT
-                COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0.0) AS ingresos,
-                COALESCE(SUM(CASE WHEN tipo = 'egreso' THEN monto ELSE 0 END), 0.0) AS egresos,
-                COUNT(*) AS total_movimientos
-            FROM movimientos_caja
-            WHERE fecha = ?
-        """, (fecha,)).fetchone()
+        if arqueo:
+            movimientos = conn.execute("""
+                SELECT
+                    COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0.0) AS ingresos,
+                    COALESCE(SUM(CASE WHEN tipo = 'egreso' THEN monto ELSE 0 END), 0.0) AS egresos,
+                    COUNT(*) AS total_movimientos
+                FROM movimientos_caja
+                WHERE arqueo_id = ?
+            """, (arqueo["id"],)).fetchone()
+        else:
+            movimientos = conn.execute("""
+                SELECT 0.0 AS ingresos, 0.0 AS egresos, 0 AS total_movimientos
+            """).fetchone()
 
     ventas_efectivo = float(row["ventas_efectivo"] or 0.0)
     ventas_transferencia = float(row["ventas_transferencia"] or 0.0)
+    ventas_tarjeta = float(row["ventas_tarjeta"] or 0.0)
     monto_apertura = float((arqueo or {}).get("monto_apertura", 0.0) or 0.0)
     ingresos = float(movimientos["ingresos"] or 0.0)
     egresos = float(movimientos["egresos"] or 0.0)
@@ -2137,6 +2244,7 @@ def obtener_resumen_caja_dia(fecha: str | None = None) -> dict:
         "monto_apertura": round(monto_apertura, 2),
         "ventas_efectivo": round(ventas_efectivo, 2),
         "ventas_transferencia": round(ventas_transferencia, 2),
+        "ventas_tarjeta": round(ventas_tarjeta, 2),
         "efectivo_recibido": round(float(row["efectivo_recibido"] or 0.0), 2),
         "cambio_entregado": round(float(row["cambio_entregado"] or 0.0), 2),
         "total_ventas": round(float(row["total_ventas"] or 0.0), 2),
@@ -2148,6 +2256,7 @@ def obtener_resumen_caja_dia(fecha: str | None = None) -> dict:
         "metodos_pago": [
             {"metodo": "Efectivo", "total": round(ventas_efectivo, 2)},
             {"metodo": "Transferencia", "total": round(ventas_transferencia, 2)},
+            {"metodo": "Tarjeta", "total": round(ventas_tarjeta, 2)},
         ],
         "cierre": {
             "monto_cierre": round(float((arqueo or {}).get("monto_cierre", 0.0) or 0.0), 2),
@@ -2160,6 +2269,12 @@ def obtener_resumen_caja_dia(fecha: str | None = None) -> dict:
             "reabierto_por": (arqueo or {}).get("reabierto_por", ""),
             "motivo_reapertura": (arqueo or {}).get("motivo_reapertura", ""),
             "reaperturas": int((arqueo or {}).get("reaperturas", 0) or 0),
+            "monto_tarjeta_cierre": (arqueo or {}).get("monto_tarjeta_cierre"),
+            "monto_transferencia_cierre": (arqueo or {}).get("monto_transferencia_cierre"),
+            "diferencia_tarjeta": (arqueo or {}).get("diferencia_tarjeta"),
+            "diferencia_transferencia": (arqueo or {}).get("diferencia_transferencia"),
+            "ventas_tarjeta_sistema": round(ventas_tarjeta, 2),
+            "ventas_transferencia_sistema": round(ventas_transferencia, 2),
         },
     }
 
@@ -2171,7 +2286,9 @@ def obtener_resumen_caja_dia(fecha: str | None = None) -> dict:
 def registrar_venta_lote(items: list[dict], registrado_por: str = "",
                          metodo_pago: str = "efectivo", monto_recibido: float | None = None,
                          referencia_tipo: str = "pos", referencia_id: int | None = None,
-                         fecha_hora: datetime | None = None) -> dict:
+                         fecha_hora: datetime | None = None,
+                         metodo_pago_2: str | None = None,
+                         monto_pago_2: float | None = None) -> dict:
     if not items:
         return {"ok": False, "error": "No hay items para registrar"}
 
@@ -2179,8 +2296,10 @@ def registrar_venta_lote(items: list[dict], registrado_por: str = "",
     fecha = (ahora - timedelta(hours=4)).strftime("%Y-%m-%d")
     hora = ahora.strftime("%H:%M:%S")
     metodo_pago = _metodo_pago_normalizado(metodo_pago)
+    metodo_pago_2 = _metodo_pago_normalizado(metodo_pago_2) if metodo_pago_2 else None
+    monto_pago_2 = round(float(monto_pago_2), 2) if monto_pago_2 is not None else None
 
-    arqueo = obtener_arqueo_caja_activo(fecha)
+    arqueo = obtener_arqueo_caja_activo()  # sin filtro de fecha: encuentra cualquier arqueo abierto
     if not arqueo:
         return {
             "ok": False,
@@ -2192,7 +2311,18 @@ def registrar_venta_lote(items: list[dict], registrado_por: str = "",
         for item in items
     ), 2)
 
-    if metodo_pago == "transferencia":
+    if metodo_pago_2 and monto_pago_2 is not None:
+        # Pago mixto: monto_recibido cubre la parte del metodo primario
+        monto_primario = round(total - monto_pago_2, 2)
+        if metodo_pago == "efectivo":
+            monto_recibido_final = float(monto_recibido if monto_recibido is not None else monto_primario)
+            if monto_recibido_final + 1e-9 < monto_primario:
+                return {"ok": False, "error": "El efectivo no alcanza para cubrir su parte del total"}
+            cambio = round(monto_recibido_final - monto_primario, 2)
+        else:
+            monto_recibido_final = monto_primario
+            cambio = 0.0
+    elif metodo_pago == "transferencia":
         monto_recibido_final = total
         cambio = 0.0
     else:
@@ -2222,9 +2352,9 @@ def registrar_venta_lote(items: list[dict], registrado_por: str = "",
                     INSERT INTO ventas (
                         fecha, hora, producto_id, producto, cantidad, precio_unitario, total,
                         registrado_por, venta_grupo, metodo_pago, monto_recibido,
-                        cambio, referencia_tipo, referencia_id
+                        cambio, referencia_tipo, referencia_id, metodo_pago_2, monto_pago_2
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     fecha,
                     hora,
@@ -2240,6 +2370,8 @@ def registrar_venta_lote(items: list[dict], registrado_por: str = "",
                     cambio,
                     referencia_tipo,
                     referencia_id,
+                    metodo_pago_2,
+                    monto_pago_2,
                 ))
             conn.commit()
         return {
@@ -2251,6 +2383,8 @@ def registrar_venta_lote(items: list[dict], registrado_por: str = "",
             "metodo_pago": metodo_pago,
             "monto_recibido": round(monto_recibido_final, 2),
             "cambio": cambio,
+            "metodo_pago_2": metodo_pago_2,
+            "monto_pago_2": monto_pago_2,
         }
     except Exception as e:
         logger.error(f"registrar_venta_lote: {e}")
@@ -2626,7 +2760,8 @@ def obtener_movimientos_caja_rango(
 
 def guardar_registro(fecha: str, producto: str,
                      producido: int, vendido: int,
-                     observaciones: str = "") -> bool:
+                     observaciones: str = "",
+                     sobrante_inicial: int = 0) -> bool:
     dia_semana = datetime.strptime(fecha, "%Y-%m-%d").strftime("%A")
     dias_es = {
         "Monday": "Lunes", "Tuesday": "Martes", "Wednesday": "Miercoles",
@@ -2646,13 +2781,14 @@ def guardar_registro(fecha: str, producto: str,
 
             conn.execute("""
                 INSERT INTO registros_diarios
-                    (fecha, dia_semana, producto, producido, vendido, observaciones)
-                VALUES (?, ?, ?, ?, ?, ?)
+                    (fecha, dia_semana, producto, producido, vendido, observaciones, sobrante_inicial)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(fecha, producto) DO UPDATE SET
                     producido     = excluded.producido,
                     vendido       = excluded.vendido,
                     observaciones = excluded.observaciones
-            """, (fecha, dia_semana, producto, producido, vendido, observaciones))
+            """, (fecha, dia_semana, producto, producido, vendido, observaciones,
+                  int(sobrante_inicial or 0)))
 
             if delta_producido != 0 and _es_producto_panaderia_conn(conn, producto):
                 consumo_producto = _consumo_producto(
@@ -2689,7 +2825,9 @@ def obtener_registros(
 
     query = f"""
         SELECT fecha, dia_semana, producto, producido, vendido,
-               sobrante, observaciones
+               sobrante, sobrante_inicial,
+               (sobrante_inicial + sobrante) AS sobrante_total,
+               observaciones
         FROM registros_diarios
         WHERE {' AND '.join(filtros)}
         ORDER BY fecha DESC, producto ASC
@@ -2885,10 +3023,11 @@ def unir_cuentas_mesa(mesa_id: int) -> dict:
             return {"ok": False, "error": "Mesa invalida."}
             
         with get_connection() as conn:
-            # 1. Obtener todos los pedidos activos de la mesa
+            fecha_hoy = (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
+            # 1. Obtener todos los pedidos activos de la mesa HOY
             pedidos = conn.execute(
-                "SELECT id, total FROM pedidos WHERE mesa_id = ? AND estado IN ('pendiente', 'en_preparacion', 'listo') ORDER BY id ASC",
-                (mesa_id,)
+                "SELECT id, total FROM pedidos WHERE mesa_id = ? AND fecha = ? AND estado IN ('pendiente', 'en_preparacion', 'listo') ORDER BY id ASC",
+                (mesa_id, fecha_hoy)
             ).fetchall()
             
             if len(pedidos) <= 1:
@@ -2939,7 +3078,7 @@ def _obtener_pedido_conn(conn, pedido_id: int) -> dict | None:
         SELECT p.id, p.mesa_id, m.numero as mesa_numero, m.nombre as mesa_nombre,
                p.mesero, p.estado, p.fecha, p.hora, p.hora_pagado, p.creado_en,
                p.pagado_en, p.pagado_por, p.metodo_pago, p.monto_recibido,
-               p.cambio, p.notas, p.total
+               p.cambio, p.notas, p.total, p.metodo_pago_2, p.monto_pago_2
         FROM pedidos p
         LEFT JOIN mesas m ON p.mesa_id = m.id
         WHERE p.id = ?
@@ -2982,7 +3121,9 @@ def _obtener_pedido_conn(conn, pedido_id: int) -> dict | None:
 def _cobrar_pedido_conn(conn, pedido: dict, registrado_por: str = "",
                         metodo_pago: str = "efectivo",
                         monto_recibido: float | None = None,
-                        detalle_historial: str | None = None) -> dict:
+                        detalle_historial: str | None = None,
+                        metodo_pago_2: str | None = None,
+                        monto_pago_2: float | None = None) -> dict:
     if not pedido:
         raise ValueError("Pedido no encontrado")
     if pedido["estado"] == "pagado":
@@ -2993,19 +3134,32 @@ def _cobrar_pedido_conn(conn, pedido: dict, registrado_por: str = "",
     hora_pagado = ahora.strftime("%H:%M:%S")
     pagado_en = ahora.strftime("%Y-%m-%d %H:%M:%S")
     metodo_pago = _metodo_pago_normalizado(metodo_pago)
+    metodo_pago_2 = _metodo_pago_normalizado(metodo_pago_2) if metodo_pago_2 else None
+    monto_pago_2 = round(float(monto_pago_2), 2) if monto_pago_2 is not None else None
 
     arqueo = conn.execute("""
         SELECT id
         FROM arqueos_caja
-        WHERE fecha = ? AND estado = 'abierto'
+        WHERE estado = 'abierto'
         ORDER BY abierto_en DESC
         LIMIT 1
-    """, (fecha_cobro,)).fetchone()
+    """).fetchone()
     if not arqueo:
         raise ValueError("Debes abrir el arqueo de caja antes de cobrar pedidos")
 
     total_pedido = round(float(pedido["total"] or 0), 2)
-    if metodo_pago == "transferencia":
+
+    if metodo_pago_2 and monto_pago_2 is not None:
+        monto_primario = round(total_pedido - monto_pago_2, 2)
+        if metodo_pago == "efectivo":
+            monto_recibido_final = float(monto_recibido if monto_recibido is not None else monto_primario)
+            if monto_recibido_final + 1e-9 < monto_primario:
+                raise ValueError("El efectivo no alcanza para cubrir su parte del pedido")
+            cambio = round(monto_recibido_final - monto_primario, 2)
+        else:
+            monto_recibido_final = monto_primario
+            cambio = 0.0
+    elif metodo_pago == "transferencia":
         monto_recibido_final = total_pedido
         cambio = 0.0
     else:
@@ -3023,9 +3177,9 @@ def _cobrar_pedido_conn(conn, pedido: dict, registrado_por: str = "",
             INSERT INTO ventas (
                 fecha, hora, producto_id, producto, cantidad, precio_unitario, total,
                 registrado_por, venta_grupo, metodo_pago, monto_recibido,
-                cambio, referencia_tipo, referencia_id
+                cambio, referencia_tipo, referencia_id, metodo_pago_2, monto_pago_2
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pedido', ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pedido', ?, ?, ?)
         """, (
             fecha_cobro,
             hora_pagado,
@@ -3040,6 +3194,8 @@ def _cobrar_pedido_conn(conn, pedido: dict, registrado_por: str = "",
             monto_recibido_final,
             cambio,
             pedido["id"],
+            metodo_pago_2,
+            monto_pago_2,
         ))
 
         consumo_producto = _consumo_producto(
@@ -3075,15 +3231,21 @@ def _cobrar_pedido_conn(conn, pedido: dict, registrado_por: str = "",
             pagado_por = ?,
             metodo_pago = ?,
             monto_recibido = ?,
-            cambio = ?
+            cambio = ?,
+            metodo_pago_2 = ?,
+            monto_pago_2 = ?
         WHERE id = ?
-    """, (hora_pagado, pagado_en, registrado_por, metodo_pago, monto_recibido_final, cambio, pedido["id"]))
+    """, (hora_pagado, pagado_en, registrado_por, metodo_pago, monto_recibido_final, cambio,
+          metodo_pago_2, monto_pago_2, pedido["id"]))
+    detalle_pago = metodo_pago
+    if metodo_pago_2:
+        detalle_pago += f" + {metodo_pago_2}"
     _registrar_historial_estado_pedido(
         conn,
         pedido["id"],
         "pagado",
         cambiado_por=registrado_por,
-        detalle=detalle_historial or f"Cobro registrado por {metodo_pago}",
+        detalle=detalle_historial or f"Cobro registrado por {detalle_pago}",
         cambiado_en=pagado_en,
     )
     return {
@@ -3095,26 +3257,57 @@ def _cobrar_pedido_conn(conn, pedido: dict, registrado_por: str = "",
         "metodo_pago": metodo_pago,
         "monto_recibido": round(monto_recibido_final, 2),
         "cambio": cambio,
+        "metodo_pago_2": metodo_pago_2,
+        "monto_pago_2": monto_pago_2,
         "total": total_pedido,
     }
 
 
 def crear_pedido(mesa_id: int, mesero: str, items: list[dict],
-                 notas: str = "") -> int | None:
-    """Crea un pedido con sus items y modificaciones. Retorna el id del pedido o None.
+                 notas: str = "") -> dict:
+    """Crea un pedido o agrega items a uno activo existente de la misma mesa.
 
-    Cada item puede tener:
-      - producto, cantidad, precio_unitario, notas
-      - modificaciones: lista de {tipo, descripcion, cantidad, precio_extra}
+    Retorna {"ok": True, "pedido_id": int, "accion": "creado"|"agregado"} o {"ok": False, "error": str}.
     """
     try:
         with get_connection() as conn:
+            fecha_hoy = (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
+            # Si ya hay un pedido activo para esta mesa HOY, agregar los items ahí
+            activo = conn.execute("""
+                SELECT id FROM pedidos
+                WHERE mesa_id = ? AND estado IN ('pendiente', 'en_preparacion', 'listo')
+                  AND unificado_en IS NULL
+                  AND fecha = ?
+                ORDER BY id ASC
+                LIMIT 1
+            """, (mesa_id, fecha_hoy)).fetchone()
+
+            if activo:
+                pedido_id = activo["id"]
+                ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                _insertar_items_pedido_conn(conn, pedido_id, items)
+                nuevo_total = conn.execute("""
+                    SELECT COALESCE(SUM(subtotal), 0) FROM pedido_items WHERE pedido_id = ?
+                """, (pedido_id,)).fetchone()[0]
+                conn.execute(
+                    "UPDATE pedidos SET total = ? WHERE id = ?",
+                    (round(float(nuevo_total), 2), pedido_id),
+                )
+                _registrar_historial_estado_pedido(
+                    conn, pedido_id, "listo",
+                    cambiado_por=mesero,
+                    detalle=f"Productos adicionales agregados por {mesero}",
+                    cambiado_en=ahora,
+                )
+                conn.commit()
+                return {"ok": True, "pedido_id": pedido_id, "accion": "agregado"}
+
             pedido_id = _crear_pedido_conn(conn, mesa_id, mesero, items, notas)
             conn.commit()
-        return pedido_id
+        return {"ok": True, "pedido_id": pedido_id, "accion": "creado"}
     except Exception as e:
         logger.error(f"crear_pedido: {e}")
-        return None
+        return {"ok": False, "error": str(e)}
 
 
 def _contar_actualizaciones_pedido_conn(conn, pedido_id: int) -> int:
@@ -3363,10 +3556,12 @@ def obtener_pedidos_con_detalle(fecha: str | None = None, estado: str | None = N
             SELECT p.id, p.mesa_id, m.numero as mesa_numero, m.nombre as mesa_nombre,
                    p.mesero, p.estado, p.fecha, p.hora, p.hora_pagado, p.creado_en,
                    p.pagado_en, p.pagado_por, p.metodo_pago, p.monto_recibido,
-                   p.cambio, p.notas, p.total
+                   p.cambio, p.notas, p.total, p.unificado_en,
+                   p.metodo_pago_2, p.monto_pago_2
             FROM pedidos p
             LEFT JOIN mesas m ON p.mesa_id = m.id
             WHERE p.fecha = ?
+              AND p.unificado_en IS NULL
         """
         params: list = [fecha]
         if estado:
@@ -3472,7 +3667,9 @@ def cambiar_estado_pedido(pedido_id: int, nuevo_estado: str,
 
 def pagar_pedido(pedido_id: int, registrado_por: str = "",
                  metodo_pago: str = "efectivo",
-                 monto_recibido: float | None = None) -> dict:
+                 monto_recibido: float | None = None,
+                 metodo_pago_2: str | None = None,
+                 monto_pago_2: float | None = None) -> dict:
     """Marca pedido como pagado, registra ventas y descuenta inventario."""
     try:
         with get_connection() as conn:
@@ -3483,6 +3680,8 @@ def pagar_pedido(pedido_id: int, registrado_por: str = "",
                 registrado_por=registrado_por,
                 metodo_pago=metodo_pago,
                 monto_recibido=monto_recibido,
+                metodo_pago_2=metodo_pago_2,
+                monto_pago_2=monto_pago_2,
             )
             conn.commit()
         return resultado
@@ -5092,3 +5291,238 @@ def exportar_productos_sistema() -> list[dict]:
             ORDER BY activo DESC, categoria ASC, nombre ASC, id ASC
         """).fetchall()
     return [dict(r) for r in rows]
+
+
+# ──────────────────────────────────────────────
+# Encargos (pre-pedidos con fecha de entrega)
+# ──────────────────────────────────────────────
+
+def crear_encargo(fecha_entrega: str, cliente: str, items: list[dict],
+                  empresa: str = "", notas: str = "",
+                  registrado_por: str = "") -> dict:
+    if not fecha_entrega or not cliente.strip():
+        return {"ok": False, "error": "Fecha de entrega y cliente son obligatorios"}
+    if not items:
+        return {"ok": False, "error": "Debe incluir al menos un producto"}
+
+    creado_en = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    total = round(sum(
+        float(it.get("precio_unitario", 0) or 0) * int(it.get("cantidad", 0) or 0)
+        for it in items
+    ), 2)
+
+    try:
+        with get_connection() as conn:
+            cur = conn.execute("""
+                INSERT INTO encargos (fecha_entrega, cliente, empresa, notas, registrado_por, creado_en, total)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (fecha_entrega, cliente.strip(), empresa.strip(), notas.strip(),
+                  registrado_por.strip(), creado_en, total))
+            encargo_id = cur.lastrowid
+
+            for it in items:
+                cantidad = int(it.get("cantidad", 0) or 0)
+                precio = float(it.get("precio_unitario", 0) or 0)
+                if cantidad <= 0:
+                    continue
+                conn.execute("""
+                    INSERT INTO encargo_items
+                        (encargo_id, producto_id, producto, cantidad, precio_unitario, subtotal, notas)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    encargo_id,
+                    int(it.get("producto_id", 0) or 0) or None,
+                    str(it.get("producto", "") or "").strip(),
+                    cantidad,
+                    precio,
+                    round(precio * cantidad, 2),
+                    str(it.get("notas", "") or "").strip(),
+                ))
+            conn.commit()
+        return {"ok": True, "encargo_id": encargo_id, "total": total}
+    except Exception as e:
+        logger.error(f"crear_encargo: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+def obtener_encargos(estado: str | None = None, fecha_entrega: str | None = None,
+                     dias: int = 30) -> list[dict]:
+    filtros = []
+    params: list = []
+    if estado:
+        filtros.append("e.estado = ?")
+        params.append(estado)
+    if fecha_entrega:
+        filtros.append("e.fecha_entrega = ?")
+        params.append(fecha_entrega)
+    else:
+        desde = (datetime.now() - timedelta(days=dias)).strftime("%Y-%m-%d")
+        filtros.append("e.fecha_entrega >= ?")
+        params.append(desde)
+
+    where = f"WHERE {' AND '.join(filtros)}" if filtros else ""
+    with get_connection() as conn:
+        encargos = conn.execute(f"""
+            SELECT e.id, e.fecha_entrega, e.cliente, e.empresa, e.notas,
+                   e.estado, e.registrado_por, e.creado_en, e.total
+            FROM encargos e
+            {where}
+            ORDER BY e.fecha_entrega ASC, e.creado_en DESC
+        """, tuple(params)).fetchall()
+
+        if not encargos:
+            return []
+
+        ids = [r["id"] for r in encargos]
+        placeholders = ",".join("?" * len(ids))
+        items = conn.execute(f"""
+            SELECT id, encargo_id, producto_id, producto, cantidad,
+                   precio_unitario, subtotal, notas
+            FROM encargo_items
+            WHERE encargo_id IN ({placeholders})
+            ORDER BY id ASC
+        """, ids).fetchall()
+
+    items_by_encargo: dict[int, list] = {}
+    for it in items:
+        items_by_encargo.setdefault(it["encargo_id"], []).append(dict(it))
+
+    result = []
+    for r in encargos:
+        d = dict(r)
+        d["items"] = items_by_encargo.get(r["id"], [])
+        result.append(d)
+    return result
+
+
+def obtener_encargo(encargo_id: int) -> dict | None:
+    with get_connection() as conn:
+        row = conn.execute("""
+            SELECT id, fecha_entrega, cliente, empresa, notas, estado,
+                   registrado_por, creado_en, total
+            FROM encargos WHERE id = ?
+        """, (encargo_id,)).fetchone()
+        if not row:
+            return None
+        items = conn.execute("""
+            SELECT id, encargo_id, producto_id, producto, cantidad,
+                   precio_unitario, subtotal, notas
+            FROM encargo_items WHERE encargo_id = ?
+            ORDER BY id ASC
+        """, (encargo_id,)).fetchall()
+    d = dict(row)
+    d["items"] = [dict(it) for it in items]
+    return d
+
+
+def actualizar_estado_encargo(encargo_id: int, estado: str,
+                               usuario: str = "") -> dict:
+    estados_validos = ("pendiente", "listo", "entregado", "cancelado")
+    if estado not in estados_validos:
+        return {"ok": False, "error": f"Estado invalido: {estado}"}
+    try:
+        with get_connection() as conn:
+            affected = conn.execute("""
+                UPDATE encargos SET estado = ? WHERE id = ?
+            """, (estado, encargo_id)).rowcount
+            conn.commit()
+        if affected == 0:
+            return {"ok": False, "error": "Encargo no encontrado"}
+        return {"ok": True}
+    except Exception as e:
+        logger.error(f"actualizar_estado_encargo: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+def eliminar_encargo(encargo_id: int) -> dict:
+    try:
+        with get_connection() as conn:
+            affected = conn.execute(
+                "DELETE FROM encargos WHERE id = ? AND estado IN ('pendiente','cancelado')",
+                (encargo_id,)
+            ).rowcount
+            conn.commit()
+        if affected == 0:
+            return {"ok": False, "error": "Solo se pueden eliminar encargos pendientes o cancelados"}
+        return {"ok": True}
+    except Exception as e:
+        logger.error(f"eliminar_encargo: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+# ──────────────────────────────────────────────
+# Unificacion de pedidos
+# ──────────────────────────────────────────────
+
+def unificar_pedidos(pedido_ids: list[int], unificado_por: str = "") -> dict:
+    """Fusiona varios pedidos activos en el primero de la lista.
+
+    - Mueve todos los items de los pedidos secundarios al pedido principal.
+    - Recalcula el total del pedido principal.
+    - Marca los secundarios con unificado_en = id_principal.
+    - Los pedidos deben estar en estado pendiente, en_preparacion o listo.
+    """
+    if len(pedido_ids) < 2:
+        return {"ok": False, "error": "Se necesitan al menos dos pedidos para unificar"}
+
+    pedido_ids = [int(p) for p in pedido_ids]
+    principal_id = pedido_ids[0]
+    secundarios = pedido_ids[1:]
+    estados_activos = ("pendiente", "en_preparacion", "listo")
+
+    try:
+        with get_connection() as conn:
+            # Validar que todos existen y están activos
+            placeholders = ",".join("?" * len(pedido_ids))
+            rows = conn.execute(f"""
+                SELECT id, estado, mesa_id, total, unificado_en
+                FROM pedidos WHERE id IN ({placeholders})
+            """, pedido_ids).fetchall()
+
+            if len(rows) != len(pedido_ids):
+                return {"ok": False, "error": "Uno o mas pedidos no existen"}
+
+            pedidos_map = {r["id"]: dict(r) for r in rows}
+            for pid, p in pedidos_map.items():
+                if p["estado"] not in estados_activos:
+                    return {"ok": False, "error": f"El pedido #{pid} ya fue pagado o cancelado y no se puede unificar"}
+                if p["unificado_en"] is not None:
+                    return {"ok": False, "error": f"El pedido #{pid} ya fue unificado anteriormente"}
+
+            # Mover items de secundarios al principal
+            ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            for sec_id in secundarios:
+                conn.execute("""
+                    UPDATE pedido_items SET pedido_id = ? WHERE pedido_id = ?
+                """, (principal_id, sec_id))
+                conn.execute("""
+                    UPDATE pedidos
+                    SET unificado_en = ?, estado = 'cancelado'
+                    WHERE id = ?
+                """, (principal_id, sec_id))
+                conn.execute("""
+                    INSERT INTO pedido_estado_historial
+                        (pedido_id, estado, cambiado_en, cambiado_por, detalle)
+                    VALUES (?, 'cancelado', ?, ?, ?)
+                """, (sec_id, ahora, unificado_por,
+                      f"Pedido unificado en #{principal_id} por {unificado_por}"))
+
+            # Recalcular total del pedido principal
+            nuevo_total = conn.execute("""
+                SELECT COALESCE(SUM(subtotal), 0) FROM pedido_items WHERE pedido_id = ?
+            """, (principal_id,)).fetchone()[0]
+            conn.execute("""
+                UPDATE pedidos SET total = ? WHERE id = ?
+            """, (round(float(nuevo_total), 2), principal_id))
+            conn.execute("""
+                INSERT INTO pedido_estado_historial
+                    (pedido_id, estado, cambiado_en, cambiado_por, detalle)
+                VALUES (?, ?, ?, ?, ?)
+            """, (principal_id, pedidos_map[principal_id]["estado"], ahora, unificado_por,
+                  f"Pedidos unificados: {', '.join(f'#{s}' for s in secundarios)}"))
+            conn.commit()
+
+        return {"ok": True, "pedido_principal_id": principal_id, "unificados": secundarios}
+    except Exception as e:
+        logger.error(f"unificar_pedidos: {e}")
+        return {"ok": False, "error": str(e)}

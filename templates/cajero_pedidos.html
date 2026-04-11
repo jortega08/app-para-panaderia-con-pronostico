@@ -110,9 +110,36 @@
                     <option value="todos">Todos</option>
                 </select>
             </div>
+            <button class="btn btn-outline btn-sm" onclick="abrirModalUnificar()">
+                <span class="material-symbols-outlined" style="font-size:16px;vertical-align:middle;">merge</span> Unir pedidos
+            </button>
             <button class="btn btn-outline btn-sm" onclick="location.reload()">Actualizar</button>
         </div>
     </div>
+
+<!-- Modal unificar pedidos -->
+<div id="modalUnificar" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.45);align-items:center;justify-content:center;" onclick="if(event.target===this)cerrarModalUnificar()">
+    <div style="background:var(--surface);border-radius:16px;width:min(520px,94vw);max-height:80vh;display:flex;flex-direction:column;overflow:hidden;">
+        <div style="padding:18px 20px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+            <strong style="font-size:16px;">Unir pedidos en uno</strong>
+            <button class="btn btn-outline btn-sm" onclick="cerrarModalUnificar()">Cerrar</button>
+        </div>
+        <div style="padding:16px 20px;overflow-y:auto;flex:1;">
+            <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">
+                Selecciona dos o mas pedidos activos para fusionarlos. Los ítems de los pedidos secundarios pasarán al primero seleccionado.
+            </p>
+            <div id="unificarAlerta" style="display:none;background:var(--color-warning-bg,#fff3cd);border-left:4px solid var(--color-warning,#e0a800);padding:.7rem 1rem;border-radius:6px;font-size:13px;margin-bottom:12px;"></div>
+            <div id="unificarLista" style="display:flex;flex-direction:column;gap:8px;">
+                <div class="text-muted text-center" style="padding:20px;">Cargando pedidos…</div>
+            </div>
+        </div>
+        <div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-end;align-items:center;">
+            <span id="unificarResumen" style="font-size:13px;color:var(--text-muted);"></span>
+            <button class="btn btn-outline" onclick="cerrarModalUnificar()">Cancelar</button>
+            <button class="btn btn-primary" id="btnConfirmarUnificar" onclick="confirmarUnificar()" disabled>Unir pedidos</button>
+        </div>
+    </div>
+</div>
 
     {% if caja and caja.arqueo_activo %}
     <div class="card caja-banner caja-banner-success" style="margin-bottom: 18px;">
@@ -260,12 +287,25 @@
             <div class="pedido-payment-summary">
                 <div class="pedido-section-title">Detalle del cobro</div>
                 <div class="pedido-meta-list">
-                    <div class="pedido-meta-row"><span>Metodo de pago</span><strong>{{ (p['metodo_pago'] or
-                            'pendiente')|capitalize }}</strong></div>
-                    <div class="pedido-meta-row"><span>Monto recibido</span><strong>${{
-                            '{:,.0f}'.format(p['monto_recibido'] or 0) }}</strong></div>
-                    <div class="pedido-meta-row"><span>Vueltas</span><strong>${{ '{:,.0f}'.format(p['cambio'] or 0)
-                            }}</strong></div>
+                    {% if p.get('metodo_pago_2') %}
+                    <div class="pedido-meta-row"><span>Metodo de pago</span><strong>{{ (p['metodo_pago'] or '')|capitalize }} + {{ p['metodo_pago_2']|capitalize }}</strong></div>
+                    <div class="pedido-meta-row">
+                        <span>{{ (p['metodo_pago'] or '')|capitalize }}</span>
+                        <strong>${{ '{:,.0f}'.format((p['total'] or 0) - (p['monto_pago_2'] or 0)) }}</strong>
+                    </div>
+                    {% if p['metodo_pago'] == 'efectivo' %}
+                    <div class="pedido-meta-row"><span>Recibido en efectivo</span><strong>${{ '{:,.0f}'.format(p['monto_recibido'] or 0) }}</strong></div>
+                    <div class="pedido-meta-row"><span>Vueltas</span><strong>${{ '{:,.0f}'.format(p['cambio'] or 0) }}</strong></div>
+                    {% endif %}
+                    <div class="pedido-meta-row">
+                        <span>{{ p['metodo_pago_2']|capitalize }}</span>
+                        <strong>${{ '{:,.0f}'.format(p['monto_pago_2'] or 0) }}</strong>
+                    </div>
+                    {% else %}
+                    <div class="pedido-meta-row"><span>Metodo de pago</span><strong>{{ (p['metodo_pago'] or 'pendiente')|capitalize }}</strong></div>
+                    <div class="pedido-meta-row"><span>Monto recibido</span><strong>${{ '{:,.0f}'.format(p['monto_recibido'] or 0) }}</strong></div>
+                    <div class="pedido-meta-row"><span>Vueltas</span><strong>${{ '{:,.0f}'.format(p['cambio'] or 0) }}</strong></div>
+                    {% endif %}
                     <div class="pedido-meta-row"><span>Cajero</span><strong>{{ p['pagado_por'] or '-' }}</strong></div>
                 </div>
             </div>
@@ -333,9 +373,14 @@
                     original.</div>
                 <div id="splitItemsList" style="display:grid; gap:10px; margin-top:12px;"></div>
             </div>
-            <div class="two-col-form">
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:14px;">
+                <input type="checkbox" id="mixtoCheck" onchange="toggleMixto()" style="width:auto; cursor:pointer; accent-color:var(--primary,#d4722a);">
+                <label for="mixtoCheck" style="margin:0; font-size:13px; cursor:pointer; color:var(--text-sec);">Pago mixto (dos métodos)</label>
+            </div>
+            <!-- Fila 1: Primer método + monto (el segundo div cambia entre normal y mixto) -->
+            <div class="two-col-form" style="margin-bottom:12px;">
                 <div>
-                    <label class="form-label" for="chargeMethod">Metodo de pago</label>
+                    <label class="form-label" for="chargeMethod"><span id="chargeMethodLabel">Metodo de pago</span></label>
                     <select id="chargeMethod" class="form-input" onchange="updateChargeSummary()">
                         <option value="efectivo">Efectivo</option>
                         <option value="transferencia">Transferencia</option>
@@ -343,16 +388,46 @@
                     </select>
                 </div>
                 <div>
-                    <label class="form-label" for="chargeReceived">Monto recibido</label>
-                    <input id="chargeReceived" type="number" min="0" step="1" class="form-input"
-                        oninput="updateChargeSummary()">
-                    <div class="form-help" id="chargeReceivedHelp">Ingresa el monto que entrega el cliente para calcular
-                        la vuelta.</div>
+                    <!-- Modo normal: monto recibido -->
+                    <div id="receivedNormal">
+                        <label class="form-label" for="chargeReceived"><span id="chargeReceivedLabel">Monto recibido</span></label>
+                        <input id="chargeReceived" type="number" min="0" step="1" class="form-input"
+                            oninput="updateChargeSummary()">
+                        <div class="form-help" id="chargeReceivedHelp">Ingresa el monto que entrega el cliente.</div>
+                    </div>
+                    <!-- Modo mixto: monto que paga con primer método -->
+                    <div id="receivedMixto" style="display:none;">
+                        <label class="form-label" for="chargeMontoM1"><span id="mixtoM1Label">Monto</span></label>
+                        <input id="chargeMontoM1" type="number" min="0" step="1" class="form-input"
+                            oninput="updateChargeSummary()" placeholder="0">
+                        <div class="form-help" id="mixtoM1Help">Cuánto paga con este método.</div>
+                    </div>
+                </div>
+            </div>
+            <!-- Fila 2 (solo mixto): Segundo método + monto auto-calculado -->
+            <div id="mixtoSection" style="display:none; margin-bottom:12px;">
+                <div class="two-col-form">
+                    <div>
+                        <label class="form-label" for="chargeMethod2">Segundo método</label>
+                        <select id="chargeMethod2" class="form-input" onchange="updateChargeSummary()">
+                            <option value="transferencia">Transferencia</option>
+                            <option value="tarjeta">Tarjeta</option>
+                            <option value="efectivo">Efectivo</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="form-label"><span id="mixtoMonto2Label">Monto a cobrar</span></label>
+                        <input id="mixtoMonto2Input" type="text" class="form-input" readonly
+                            style="background:rgba(212,114,42,.08); font-weight:700; color:var(--primary-dark,#8b4513);" value="$0">
+                        <div class="form-help" id="mixtoHelp" style="color:var(--primary-dark,#8b4513);"></div>
+                    </div>
                 </div>
             </div>
             <div class="payment-summary-box payment-summary-box-soft">
-                <div class="payment-summary-row"><span>Recibido</span><strong id="chargeReceivedText">$0</strong></div>
-                <div class="payment-summary-row"><span>Vueltas</span><strong id="chargeChangeText">$0</strong></div>
+                <div class="payment-summary-row"><span>Total a cobrar</span><strong id="chargeNowTotalSummary">$0</strong></div>
+                <div class="payment-summary-row" id="mixtoSummaryRow1" style="display:none;"></div>
+                <div class="payment-summary-row" id="mixtoSummaryRow2" style="display:none;"></div>
+                <div class="payment-summary-row" id="changeRow"><span>Vueltas</span><strong id="chargeChangeText">$0</strong></div>
             </div>
         </div>
         <div class="modal-footer">
@@ -462,6 +537,13 @@
         document.getElementById('splitSelectedTotal').textContent = money(0);
         document.getElementById('chargeMethod').value = 'efectivo';
         document.getElementById('chargeReceived').value = window.AppUI ? AppUI.suggestedCash(total) : String(Math.ceil(Number(total || 0)));
+        // Reset pago mixto
+        document.getElementById('mixtoCheck').checked = false;
+        document.getElementById('mixtoSection').style.display = 'none';
+        document.getElementById('receivedNormal').style.display = '';
+        document.getElementById('receivedMixto').style.display = 'none';
+        document.getElementById('chargeMontoM1').value = '';
+        document.getElementById('chargeMethod2').value = 'transferencia';
         document.getElementById('chargeModal').style.display = 'flex';
 
         try {
@@ -482,6 +564,19 @@
     function closeChargeModal() {
         document.getElementById('chargeModal').style.display = 'none';
         chargeContext = { pedidoId: null, total: 0, pedido: null, mode: 'full' };
+    }
+
+    function toggleMixto() {
+        const checked = document.getElementById('mixtoCheck').checked;
+        document.getElementById('mixtoSection').style.display = checked ? '' : 'none';
+        document.getElementById('receivedNormal').style.display = checked ? 'none' : '';
+        document.getElementById('receivedMixto').style.display = checked ? '' : 'none';
+        if (!checked) document.getElementById('chargeMontoM1').value = '';
+        updateChargeSummary();
+    }
+
+    function isMixto() {
+        return document.getElementById('mixtoCheck').checked;
     }
 
     function setChargeMode(mode) {
@@ -556,46 +651,120 @@
     }
 
     function updateChargeSummary() {
-        const metodo = document.getElementById('chargeMethod').value;
-        const input = document.getElementById('chargeReceived');
-        const helpText = document.getElementById('chargeReceivedHelp');
+        const metodo1 = document.getElementById('chargeMethod').value;
+        const metodo2 = document.getElementById('chargeMethod2').value;
+        const inputRecibido = document.getElementById('chargeReceived');
         const totalCobro = getChargeTotal();
+        const mixto = isMixto();
+
         document.getElementById('chargeNowTotal').textContent = money(totalCobro);
         document.getElementById('splitSelectedTotal').textContent = money(totalCobro);
+        const summaryTotal = document.getElementById('chargeNowTotalSummary');
+        if (summaryTotal) summaryTotal.textContent = money(totalCobro);
 
-        if (metodo === 'transferencia' || metodo === 'tarjeta') {
-            // Pago exacto: bloquear campo y poner el total
-            input.value = String(Math.ceil(totalCobro));
-            input.disabled = true;
-            if (helpText) helpText.textContent = metodo === 'tarjeta'
-                ? 'Con tarjeta se registra el total exacto, sin vuelta.'
-                : 'Con transferencia se registra el total exacto, sin vuelta.';
+        if (mixto) {
+            const monto1 = Math.max(Number(document.getElementById('chargeMontoM1').value || 0), 0);
+            const monto2 = Math.max(totalCobro - monto1, 0);
+
+            // Labels
+            document.getElementById('chargeMethodLabel').textContent = 'Primer método';
+            document.getElementById('mixtoM1Label').textContent = `Monto ${metodo1}`;
+            document.getElementById('mixtoMonto2Label').textContent = `A cobrar con ${metodo2}`;
+
+            // Readonly input del segundo método
+            document.getElementById('mixtoMonto2Input').value = money(monto2);
+
+            // Mensaje de ayuda
+            const mixtoHelp = document.getElementById('mixtoHelp');
+            if (metodo2 === metodo1) {
+                mixtoHelp.textContent = '⚠ El segundo método debe ser diferente al primero.';
+                mixtoHelp.style.color = 'var(--color-danger, #c0392b)';
+            } else if (monto1 > 0) {
+                const verbo = metodo2 === 'transferencia' ? 'transferir' : `pagar con ${metodo2}`;
+                mixtoHelp.textContent = `El cliente debe ${verbo} ${money(monto2)}.`;
+                mixtoHelp.style.color = 'var(--primary-dark, #8b4513)';
+            } else {
+                mixtoHelp.textContent = 'Ingresa cuánto paga con el primer método.';
+                mixtoHelp.style.color = 'var(--text-muted)';
+            }
+
+            // Filas del resumen
+            document.getElementById('mixtoSummaryRow1').style.display = '';
+            document.getElementById('mixtoSummaryRow2').style.display = '';
+            document.getElementById('mixtoSummaryRow1').innerHTML =
+                `<span>${metodo1[0].toUpperCase() + metodo1.slice(1)}</span><strong>${money(monto1)}</strong>`;
+            document.getElementById('mixtoSummaryRow2').innerHTML =
+                `<span>${metodo2[0].toUpperCase() + metodo2.slice(1)}</span><strong>${money(monto2)}</strong>`;
+
+            // En modo mixto no hay vuelta (cobro exacto por cada método)
+            document.getElementById('changeRow').style.display = 'none';
+
         } else {
-            input.disabled = false;
-            if (helpText) helpText.textContent = 'Ingresa el monto que entrega el cliente para calcular la vuelta.';
-        }
+            document.getElementById('chargeMethodLabel').textContent = 'Metodo de pago';
+            document.getElementById('mixtoSummaryRow1').style.display = 'none';
+            document.getElementById('mixtoSummaryRow2').style.display = 'none';
+            document.getElementById('changeRow').style.display = '';
 
-        const recibido = Number(input.value || 0);
-        const cambio = metodo === 'efectivo' ? Math.max(recibido - totalCobro, 0) : 0;
-        document.getElementById('chargeReceivedText').textContent = money(recibido);
-        document.getElementById('chargeChangeText').textContent = money(cambio);
+            const helpText = document.getElementById('chargeReceivedHelp');
+            if (metodo1 === 'transferencia' || metodo1 === 'tarjeta') {
+                inputRecibido.value = String(Math.ceil(totalCobro));
+                inputRecibido.disabled = true;
+                if (helpText) helpText.textContent = `Con ${metodo1} se registra el total exacto, sin vuelta.`;
+            } else {
+                inputRecibido.disabled = false;
+                if (helpText) helpText.textContent = 'Ingresa el monto que entrega el cliente para calcular la vuelta.';
+            }
+
+            const recibido = Number(inputRecibido.value || 0);
+            const cambio = metodo1 === 'efectivo' ? Math.max(recibido - totalCobro, 0) : 0;
+            document.getElementById('chargeChangeText').textContent = money(cambio);
+        }
     }
 
     async function confirmCharge() {
-        const metodo = document.getElementById('chargeMethod').value;
-        const recibido = Number(document.getElementById('chargeReceived').value || 0);
+        const metodo1 = document.getElementById('chargeMethod').value;
+        let recibido = Number(document.getElementById('chargeReceived').value || 0);
         const totalCobro = getChargeTotal();
+        const mixto = isMixto();
+        const metodo2 = document.getElementById('chargeMethod2').value;
+
+        let metodo_pago_2_val = null;
+        let monto_pago_2_val = null;
+
         if (chargeContext.mode === 'split' && totalCobro <= 0) {
             Toast.warning('Selecciona al menos una parte del pedido para dividir la cuenta.');
             return;
         }
-        if (metodo === 'efectivo' && recibido <= 0) {
-            Toast.warning('Ingresa el monto recibido del cliente.');
-            return;
-        }
-        if (metodo === 'efectivo' && recibido + 1e-9 < totalCobro) {
-            Toast.warning('El monto recibido (' + money(recibido) + ') no cubre el total (' + money(totalCobro) + '). Ingresa un valor mayor o igual.');
-            return;
+
+        if (mixto) {
+            const monto1 = Number(document.getElementById('chargeMontoM1').value || 0);
+            const monto2Calc = Math.max(totalCobro - monto1, 0);
+
+            if (metodo2 === metodo1) {
+                Toast.warning('El segundo método de pago debe ser diferente al primero.');
+                return;
+            }
+            if (monto1 <= 0) {
+                Toast.warning('Ingresa el monto que se paga con el primer método.');
+                return;
+            }
+            if (monto1 >= totalCobro + 0.01) {
+                Toast.warning('El primer método cubre el total completo. Desmarca "Pago mixto" si solo usas un método.');
+                return;
+            }
+            // En modo mixto todos los métodos son exactos (sin vuelta)
+            recibido = monto1;
+            metodo_pago_2_val = metodo2;
+            monto_pago_2_val = monto2Calc;
+        } else {
+            if (metodo1 === 'efectivo' && recibido <= 0) {
+                Toast.warning('Ingresa el monto recibido del cliente.');
+                return;
+            }
+            if (metodo1 === 'efectivo' && recibido + 1e-9 < totalCobro) {
+                Toast.warning('El monto recibido (' + money(recibido) + ') no cubre el total (' + money(totalCobro) + '). Ingresa un valor mayor o igual.');
+                return;
+            }
         }
 
         try {
@@ -606,19 +775,24 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         selecciones: getSplitSelections(),
-                        metodo_pago: metodo,
+                        metodo_pago: metodo1,
                         monto_recibido: recibido,
                     }),
                 });
             } else {
+                const payload = {
+                    estado: 'pagado',
+                    metodo_pago: metodo1,
+                    monto_recibido: recibido,
+                };
+                if (mixto) {
+                    payload.metodo_pago_2 = metodo_pago_2_val;
+                    payload.monto_pago_2 = monto_pago_2_val;
+                }
                 res = await fetch('/api/pedido/' + chargeContext.pedidoId + '/estado', {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        estado: 'pagado',
-                        metodo_pago: metodo,
-                        monto_recibido: recibido,
-                    }),
+                    body: JSON.stringify(payload),
                 });
             }
             const data = await res.json();
@@ -633,6 +807,133 @@
     }
 
     filtrarPedidos();
-    setTimeout(function () { location.reload(); }, 30000);
+    (function scheduleReload() {
+        setTimeout(function () {
+            const chargeModalAbierto = document.getElementById('chargeModal').style.display !== 'none';
+            const unificarModalAbierto = document.getElementById('modalUnificar').style.display !== 'none';
+            if (!chargeModalAbierto && !unificarModalAbierto) {
+                location.reload();
+            } else {
+                scheduleReload(); // hay modal abierto, esperar otros 30s y revisar de nuevo
+            }
+        }, 30000);
+    })();
+
+    // ── Unificar pedidos ──────────────────────────────────────────────────
+
+    const PEDIDOS_DATA = {{ pedidos | tojson }};
+    let seleccionUnificar = [];
+
+    function abrirModalUnificar() {
+        seleccionUnificar = [];
+        document.getElementById('modalUnificar').style.display = 'flex';
+        document.getElementById('unificarAlerta').style.display = 'none';
+        renderListaUnificar();
+    }
+
+    function cerrarModalUnificar() {
+        document.getElementById('modalUnificar').style.display = 'none';
+    }
+
+    function renderListaUnificar() {
+        const activos = PEDIDOS_DATA.filter(p =>
+            ['pendiente', 'en_preparacion', 'listo'].includes(p.estado)
+        );
+        const lista = document.getElementById('unificarLista');
+
+        if (!activos.length) {
+            lista.innerHTML = '<div class="text-muted text-center" style="padding:20px;">No hay pedidos activos para unificar.</div>';
+            return;
+        }
+
+        lista.innerHTML = activos.map(p => {
+            const mesa = p.mesa_nombre || `Mesa ${p.mesa_numero}` || 'Sin mesa';
+            const items = (p.items || []).map(it => `${it.producto} ×${it.cantidad}`).join(', ');
+            const checked = seleccionUnificar.includes(p.id);
+            const esPrimero = seleccionUnificar[0] === p.id;
+            return `
+            <label style="display:flex;align-items:flex-start;gap:12px;padding:10px 12px;border-radius:8px;border:1.5px solid ${checked ? 'var(--primary,#d4722a)' : 'var(--border)'};background:${checked ? 'rgba(212,114,42,.06)' : 'var(--surface)'};cursor:pointer;">
+                <input type="checkbox" style="margin-top:3px;accent-color:var(--primary,#d4722a);"
+                    ${checked ? 'checked' : ''}
+                    onchange="toggleSeleccionUnificar(${p.id}, this.checked)">
+                <div style="flex:1;min-width:0;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <strong>#${p.id} — ${mesa}</strong>
+                        <span style="font-size:12px;font-weight:700;">$${Number(p.total || 0).toLocaleString('es-CO',{maximumFractionDigits:0})}</span>
+                    </div>
+                    <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">${items || 'Sin ítems'}</div>
+                    ${esPrimero ? '<span style="font-size:11px;background:var(--primary,#d4722a);color:#fff;border-radius:4px;padding:1px 6px;margin-top:4px;display:inline-block;">Pedido principal</span>' : ''}
+                </div>
+            </label>`;
+        }).join('');
+
+        actualizarResumenUnificar();
+    }
+
+    function toggleSeleccionUnificar(id, checked) {
+        if (checked) {
+            if (!seleccionUnificar.includes(id)) seleccionUnificar.push(id);
+        } else {
+            seleccionUnificar = seleccionUnificar.filter(x => x !== id);
+        }
+        validarUnificar();
+        renderListaUnificar();
+    }
+
+    function validarUnificar() {
+        const alerta = document.getElementById('unificarAlerta');
+        const btn = document.getElementById('btnConfirmarUnificar');
+
+        if (seleccionUnificar.length < 2) {
+            alerta.style.display = 'none';
+            btn.disabled = true;
+            return;
+        }
+
+        // Verificar si son de mesas distintas
+        const pedidosSelec = PEDIDOS_DATA.filter(p => seleccionUnificar.includes(p.id));
+        const mesas = [...new Set(pedidosSelec.map(p => p.mesa_id).filter(Boolean))];
+        if (mesas.length > 1) {
+            alerta.textContent = '⚠ Los pedidos seleccionados son de mesas distintas. Puedes continuar pero verifica que sea intencional.';
+            alerta.style.display = '';
+        } else {
+            alerta.style.display = 'none';
+        }
+
+        btn.disabled = false;
+    }
+
+    function actualizarResumenUnificar() {
+        const n = seleccionUnificar.length;
+        const resumen = document.getElementById('unificarResumen');
+        resumen.textContent = n >= 2 ? `${n} pedidos seleccionados` : n === 1 ? '1 pedido (selecciona al menos uno más)' : '';
+    }
+
+    async function confirmarUnificar() {
+        if (seleccionUnificar.length < 2) return;
+        const pedidosSelec = PEDIDOS_DATA.filter(p => seleccionUnificar.includes(p.id));
+        const mesas = [...new Set(pedidosSelec.map(p => p.mesa_nombre || `Mesa ${p.mesa_numero}`))];
+        const desc = mesas.length > 1 ? `pedidos de ${mesas.join(' y ')}` : `pedidos de ${mesas[0] || 'sin mesa'}`;
+        const ok = await appConfirm(
+            `Se unirán los ${seleccionUnificar.length} ${desc}. Los ítems pasarán al pedido #${seleccionUnificar[0]}. ¿Continuar?`,
+            { title: 'Unir pedidos', type: 'warning' }
+        );
+        if (!ok) return;
+
+        try {
+            const res = await fetch('/api/pedidos/unificar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pedido_ids: seleccionUnificar }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.ok) throw new Error(data.error || 'No se pudo unificar');
+            Toast.success(`Pedidos unificados en #${data.pedido_principal_id} correctamente.`);
+            cerrarModalUnificar();
+            setTimeout(() => location.reload(), 800);
+        } catch (err) {
+            Toast.error(err.message || 'Error al unificar pedidos.');
+        }
+    }
 </script>
 {% endblock %}

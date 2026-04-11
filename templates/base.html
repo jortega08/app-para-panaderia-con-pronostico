@@ -171,6 +171,12 @@
                 <span class="material-symbols-outlined">assignment</span> Pedidos
                 <span class="nav-counter" id="pendingOrdersBadge" data-pending-orders-badge hidden>0</span>
             </a>
+            <a href="{{ url_for('cajero_encargos') }}" class="{% if active_page == 'encargos' %}active{% endif %}">
+                <span class="material-symbols-outlined">inventory_2</span> Encargos
+            </a>
+            <a href="{{ url_for('panadero_produccion') }}" class="{% if active_page == 'produccion' %}active{% endif %}">
+                <span class="material-symbols-outlined">bakery_dining</span> Produccion
+            </a>
             <a href="{{ url_for('cajero_ventas') }}" class="{% if active_page == 'ventas' %}active{% endif %}">
                 <span class="material-symbols-outlined">bar_chart</span> Ventas de Hoy
             </a>
@@ -261,6 +267,14 @@
             <span class="material-symbols-outlined">assignment</span>
             <span>Pedidos</span>
             <span class="mobile-bottom-badge" id="pendingOrdersBottomBadge" data-pending-orders-badge hidden>0</span>
+        </a>
+        <a href="{{ url_for('cajero_encargos') }}" class="mobile-bottom-link {% if active_page == 'encargos' %}active{% endif %}">
+            <span class="material-symbols-outlined">inventory_2</span>
+            <span>Encargos</span>
+        </a>
+        <a href="{{ url_for('panadero_produccion') }}" class="mobile-bottom-link {% if active_page == 'produccion' %}active{% endif %}">
+            <span class="material-symbols-outlined">bakery_dining</span>
+            <span>Produccion</span>
         </a>
         <a href="{{ url_for('cajero_ventas') }}" class="mobile-bottom-link {% if active_page == 'ventas' %}active{% endif %}">
             <span class="material-symbols-outlined">bar_chart</span>

@@ -8279,6 +8279,13 @@ body.mobile-cart-open .mobile-bottom-nav {
     margin-top: 4px;
 }
 
+.caja-kpi-grid .metric-value {
+    font-size: clamp(16px, 2.2vw, 22px);
+    line-height: 1.1;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+
 .cajero-ventas-page .caja-history-box,
 .cajero-ventas-page .caja-close-summary,
 .cajero-ventas-page .caja-close-box,

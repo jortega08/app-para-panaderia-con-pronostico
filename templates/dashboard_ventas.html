@@ -42,6 +42,10 @@
                         <div class="metric-value text-primary" id="metricEfectivo">$0</div>
                     </div>
                     <div class="metric-card sales-metric-card">
+                        <div class="metric-label">Tarjeta</div>
+                        <div class="metric-value text-accent" id="metricTarjeta">$0</div>
+                    </div>
+                    <div class="metric-card sales-metric-card">
                         <div class="metric-label">Transferencia</div>
                         <div class="metric-value text-warning" id="metricTransferencia">$0</div>
                     </div>
@@ -206,6 +210,7 @@ function updateMetrics(t, caja) {
     document.getElementById('metricDinero').textContent = money(t.dinero);
     document.getElementById('metricTrans').textContent = Number(t.transacciones || 0).toLocaleString('es-CO');
     document.getElementById('metricEfectivo').textContent = money((caja || {}).ventas_efectivo || 0);
+    document.getElementById('metricTarjeta').textContent = money((caja || {}).ventas_tarjeta || 0);
     document.getElementById('metricTransferencia').textContent = money((caja || {}).ventas_transferencia || 0);
 }
 
@@ -378,6 +383,9 @@ function renderCaja() {
     const caja = cajaActual || {};
     const arqueo = caja.arqueo || {};
     const cierre = caja.cierre || {};
+    const puedeAbrirNuevaCaja = ES_CAJERO && !caja.arqueo_activo;
+    const aperturaTitulo = caja.arqueo_cerrado ? 'Apertura de nuevo turno' : 'Apertura de Caja';
+    const botonApertura = caja.arqueo_cerrado ? 'Abrir nuevo turno' : 'Abrir Caja';
     const historial = (arqueosActuales || []).slice(0, 5).map(item => `
         <div class="caja-history-item">
             <strong>${item.fecha}</strong>
@@ -385,26 +393,32 @@ function renderCaja() {
             <span>${money(item.monto_apertura)}</span>
         </div>
     `).join('') || '<div class="text-muted">Sin historico reciente.</div>';
+    const formApertura = puedeAbrirNuevaCaja ? `
+        <div class="caja-close-box">
+            <div class="subsection-title">${aperturaTitulo}</div>
+            <div class="caja-form-grid">
+                <div>
+                    <label class="form-label" for="montoApertura">Monto inicial en caja</label>
+                    <input id="montoApertura" type="number" min="0" step="1" class="form-input" placeholder="100000">
+                    <div class="form-help">Cuenta billetes, monedas y base real con la que arranca este arqueo.</div>
+                </div>
+                <div>
+                    <label class="form-label" for="notasApertura">Notas</label>
+                    <input id="notasApertura" type="text" class="form-input" placeholder="Observaciones opcionales">
+                    <div class="form-help">Si vienes de un cierre previo, deja aqui el contexto del nuevo turno.</div>
+                </div>
+                <div class="caja-open-actions caja-form-actions">
+                    <button class="btn btn-success btn-lg" onclick="abrirCaja()">${botonApertura}</button>
+                </div>
+            </div>
+        </div>
+    ` : '';
 
     if (!caja.arqueo && ES_CAJERO) {
         container.innerHTML = `
             <div class="card caja-section-card">
-                <div class="card-header">Apertura de Caja</div>
-                <div class="card-body caja-open-grid">
-                    <div>
-                        <label class="form-label" for="montoApertura">Monto inicial en caja</label>
-                <input id="montoApertura" type="number" min="0" step="1" class="form-input" placeholder="100000">
-                        <div class="form-help">Incluye billetes, monedas y base inicial.</div>
-                    </div>
-                    <div>
-                        <label class="form-label" for="notasApertura">Notas</label>
-                        <input id="notasApertura" type="text" class="form-input" placeholder="Observaciones opcionales">
-                        <div class="form-help">Ejemplo: caja recibida del turno anterior.</div>
-                    </div>
-                    <div class="caja-open-actions">
-                        <button class="btn btn-success btn-lg" onclick="abrirCaja()">Abrir Caja</button>
-                    </div>
-                </div>
+                <div class="card-header">${aperturaTitulo}</div>
+                <div class="card-body">${formApertura}</div>
             </div>
         `;
         return;
@@ -453,11 +467,25 @@ function renderCaja() {
     const formCierre = ES_CAJERO && caja.arqueo_activo ? `
         <div class="caja-close-box">
             <div class="subsection-title">Cierre de Caja</div>
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:16px; padding:10px 12px; background:rgba(212,114,42,.07); border-radius:8px; border:1px solid rgba(212,114,42,.18);">
+                <input type="checkbox" id="soloEfectivoCierre" style="width:auto; cursor:pointer; accent-color:var(--primary,#d4722a);" onchange="toggleSoloEfectivo()">
+                <label for="soloEfectivoCierre" style="margin:0; font-size:13px; cursor:pointer; color:var(--text-sec);">Solo contar efectivo <span style="color:var(--text-muted); font-weight:400;">(omitir tarjeta y transferencia del cuadre)</span></label>
+            </div>
             <div class="caja-form-grid">
                 <div>
                     <label class="form-label" for="montoCierre">Efectivo contado al cierre</label>
-                <input id="montoCierre" type="number" min="0" step="1" class="form-input" placeholder="${Math.ceil(caja.efectivo_en_caja || 0)}">
-                    <div class="form-help">Efectivo esperado segun sistema: ${money(caja.efectivo_en_caja || 0)}</div>
+                    <input id="montoCierre" type="number" min="0" step="1" class="form-input" placeholder="${Math.ceil(caja.efectivo_en_caja || 0)}">
+                    <div class="form-help">Esperado segun sistema: ${money(caja.efectivo_en_caja || 0)}</div>
+                </div>
+                <div id="campoTarjetaCierre">
+                    <label class="form-label" for="montoTarjetaCierre">Pagos con tarjeta (segun datafono)</label>
+                    <input id="montoTarjetaCierre" type="number" min="0" step="1" class="form-input" placeholder="${Math.ceil(caja.ventas_tarjeta || 0)}">
+                    <div class="form-help">Sistema registra: ${money(caja.ventas_tarjeta || 0)}</div>
+                </div>
+                <div id="campoTransferenciaCierre">
+                    <label class="form-label" for="montoTransferenciaCierre">Transferencias recibidas</label>
+                    <input id="montoTransferenciaCierre" type="number" min="0" step="1" class="form-input" placeholder="${Math.ceil(caja.ventas_transferencia || 0)}">
+                    <div class="form-help">Sistema registra: ${money(caja.ventas_transferencia || 0)}</div>
                 </div>
                 <div>
                     <label class="form-label" for="notasCierre">Notas de cierre</label>
@@ -474,25 +502,10 @@ function renderCaja() {
         </div>
     ` : '';
 
-    const formReapertura = ES_CAJERO && !caja.arqueo_activo && cierre.cerrado_en ? `
-        <div class="caja-close-box caja-reopen-box">
-            <div class="subsection-title">Reabrir Caja</div>
-            <div class="caja-form-grid">
-                <div>
-                    <label class="form-label" for="codigoReapertura">Codigo de verificacion</label>
-                    <input id="codigoReapertura" type="password" class="form-input" placeholder="Codigo de caja">
-                </div>
-                <div>
-                    <label class="form-label" for="motivoReapertura">Novedad / motivo</label>
-                    <input id="motivoReapertura" type="text" class="form-input" placeholder="Explica por que se reabre la caja">
-                </div>
-                <div class="caja-form-actions">
-                    <button class="btn btn-accent" onclick="reabrirCaja()">Reabrir Caja</button>
-                </div>
-            </div>
-        </div>
-    ` : '';
-
+    const difEfectivo = cierre.diferencia || 0;
+    const difTarjeta = cierre.diferencia_tarjeta;
+    const difTransferencia = cierre.diferencia_transferencia;
+    const colorDif = v => v === null || v === undefined ? '' : (Math.abs(v) < 1 ? 'color:var(--color-success,#2e7d32)' : 'color:var(--color-danger,#c62828)');
     const cierreResumen = (caja.arqueo_cerrado || cierre.cerrado_en) ? `
         <div class="caja-close-summary">
             <div class="subsection-title">Cierre Registrado</div>
@@ -501,12 +514,16 @@ function renderCaja() {
                 <div class="pedido-meta-row"><span>Hora de cierre</span><strong>${cierre.cerrado_en || '-'}</strong></div>
                 <div class="pedido-meta-row"><span>Efectivo esperado</span><strong>${money(cierre.efectivo_esperado || 0)}</strong></div>
                 <div class="pedido-meta-row"><span>Efectivo contado</span><strong>${money(cierre.monto_cierre || 0)}</strong></div>
-                <div class="pedido-meta-row"><span>Diferencia</span><strong>${money(cierre.diferencia || 0)}</strong></div>
+                <div class="pedido-meta-row"><span>Diferencia efectivo</span><strong style="${colorDif(difEfectivo)}">${money(difEfectivo)}</strong></div>
+                ${cierre.monto_tarjeta_cierre !== null && cierre.monto_tarjeta_cierre !== undefined ? `
+                <div class="pedido-meta-row"><span>Tarjeta sistema</span><strong>${money(cierre.ventas_tarjeta_sistema || 0)}</strong></div>
+                <div class="pedido-meta-row"><span>Tarjeta datafono</span><strong>${money(cierre.monto_tarjeta_cierre)}</strong></div>
+                <div class="pedido-meta-row"><span>Diferencia tarjeta</span><strong style="${colorDif(difTarjeta)}">${money(difTarjeta || 0)}</strong></div>` : ''}
+                ${cierre.monto_transferencia_cierre !== null && cierre.monto_transferencia_cierre !== undefined ? `
+                <div class="pedido-meta-row"><span>Transferencia sistema</span><strong>${money(cierre.ventas_transferencia_sistema || 0)}</strong></div>
+                <div class="pedido-meta-row"><span>Transferencia recibida</span><strong>${money(cierre.monto_transferencia_cierre)}</strong></div>
+                <div class="pedido-meta-row"><span>Diferencia transferencia</span><strong style="${colorDif(difTransferencia)}">${money(difTransferencia || 0)}</strong></div>` : ''}
                 ${cierre.notas_cierre ? `<div class="pedido-meta-row"><span>Notas</span><strong>${cierre.notas_cierre}</strong></div>` : ''}
-                ${cierre.reabierto_en ? `<div class="pedido-meta-row"><span>Reabierta</span><strong>${cierre.reabierto_en}</strong></div>` : ''}
-                ${cierre.reabierto_por ? `<div class="pedido-meta-row"><span>Reabierta por</span><strong>${cierre.reabierto_por}</strong></div>` : ''}
-                ${cierre.motivo_reapertura ? `<div class="pedido-meta-row"><span>Novedad</span><strong>${cierre.motivo_reapertura}</strong></div>` : ''}
-                ${Number(cierre.reaperturas || 0) > 0 ? `<div class="pedido-meta-row"><span>Total reaperturas</span><strong>${Number(cierre.reaperturas || 0)}</strong></div>` : ''}
             </div>
         </div>
     ` : '';
@@ -527,14 +544,15 @@ function renderCaja() {
                 <div class="caja-kpi-grid">
                     <div class="metric-card"><div class="metric-label">Apertura</div><div class="metric-value">${money(caja.monto_apertura || 0)}</div></div>
                     <div class="metric-card"><div class="metric-label">Ventas en efectivo</div><div class="metric-value text-success">${money(caja.ventas_efectivo || 0)}</div></div>
-                    <div class="metric-card"><div class="metric-label">Transferencias</div><div class="metric-value text-accent">${money(caja.ventas_transferencia || 0)}</div></div>
+                    <div class="metric-card"><div class="metric-label">Ventas tarjeta</div><div class="metric-value text-accent">${money(caja.ventas_tarjeta || 0)}</div></div>
+                    <div class="metric-card"><div class="metric-label">Transferencias</div><div class="metric-value text-primary">${money(caja.ventas_transferencia || 0)}</div></div>
                     <div class="metric-card"><div class="metric-label">Ingresos manuales</div><div class="metric-value text-primary">${money(caja.ingresos_manuales || 0)}</div></div>
                     <div class="metric-card"><div class="metric-label">Egresos manuales</div><div class="metric-value text-warning">${money(caja.egresos_manuales || 0)}</div></div>
                     <div class="metric-card"><div class="metric-label">Efectivo esperado</div><div class="metric-value">${money(caja.efectivo_en_caja || 0)}</div></div>
                 </div>
                 ${formMovimiento}
                 ${formCierre}
-                ${formReapertura}
+                ${formApertura}
                 ${cierreResumen}
                 <div class="caja-history-box">
                     <div class="subsection-title">Aperturas recientes</div>
@@ -602,6 +620,14 @@ async function registrarMovimientoCaja() {
     }
 }
 
+function toggleSoloEfectivo() {
+    const soloEfectivo = document.getElementById('soloEfectivoCierre')?.checked;
+    const campoTarjeta = document.getElementById('campoTarjetaCierre');
+    const campoTransferencia = document.getElementById('campoTransferenciaCierre');
+    if (campoTarjeta) campoTarjeta.style.display = soloEfectivo ? 'none' : '';
+    if (campoTransferencia) campoTransferencia.style.display = soloEfectivo ? 'none' : '';
+}
+
 async function cerrarCaja() {
     const montoCierre = Number(document.getElementById('montoCierre')?.value || 0);
     const notasCierre = document.getElementById('notasCierre')?.value || '';
@@ -614,8 +640,12 @@ async function cerrarCaja() {
         Toast.warning('Ingresa el codigo de verificacion.');
         return;
     }
-    const confirmar = await appConfirm('Se cerrara la caja del dia. Deseas continuar?', { type: 'warning', title: 'Cerrar caja' });
+    const confirmar = await appConfirm('Se cerrara este turno de caja. Deseas continuar?', { type: 'warning', title: 'Cerrar caja' });
     if (!confirmar) return;
+
+    const soloEfectivo = document.getElementById('soloEfectivoCierre')?.checked;
+    const rawTarjeta = soloEfectivo ? null : document.getElementById('montoTarjetaCierre')?.value;
+    const rawTransferencia = soloEfectivo ? null : document.getElementById('montoTransferenciaCierre')?.value;
 
     try {
         const res = await fetch('/api/caja/cerrar', {
@@ -625,44 +655,17 @@ async function cerrarCaja() {
                 monto_cierre: montoCierre,
                 notas_cierre: notasCierre,
                 codigo_verificacion: codigoVerificacion,
+                monto_tarjeta_cierre: rawTarjeta !== '' && rawTarjeta != null ? Number(rawTarjeta) : null,
+                monto_transferencia_cierre: rawTransferencia !== '' && rawTransferencia != null ? Number(rawTransferencia) : null,
             }),
         });
         const data = await res.json();
         if (!res.ok || !data.ok) throw new Error(data.error || 'No se pudo cerrar la caja');
+        if (data.caja) { cajaActual = data.caja; renderCaja(); }
         Toast.success('Caja cerrada correctamente');
         loadData();
     } catch (err) {
         Toast.error(err.message || 'No se pudo cerrar la caja.');
-    }
-}
-
-async function reabrirCaja() {
-    const codigo = document.getElementById('codigoReapertura')?.value || '';
-    const motivo = document.getElementById('motivoReapertura')?.value || '';
-
-    if (!codigo.trim()) {
-        Toast.warning('Ingresa el codigo de verificacion.');
-        return;
-    }
-    if (!motivo.trim()) {
-        Toast.warning('Registra la novedad de reapertura.');
-        return;
-    }
-
-    try {
-        const res = await fetch('/api/caja/reabrir', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                codigo_verificacion: codigo,
-                motivo_reapertura: motivo,
-            }),
-        });
-        const data = await res.json();
-        if (!res.ok || !data.ok) throw new Error(data.error || 'No se pudo reabrir la caja');
-        loadData();
-    } catch (err) {
-        Toast.error(err.message || 'No se pudo reabrir la caja.');
     }
 }
 

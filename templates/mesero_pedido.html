@@ -851,7 +851,12 @@ async function enviarPedido() {
         const data = await res.json();
         if (data.ok) {
             closeMobileOrderPanel();
-            window.location.href = PEDIDO_RETURN_URL;
+            if (data.accion === 'agregado') {
+                Toast.success('Productos agregados al pedido existente de esta mesa.');
+                setTimeout(() => { window.location.href = PEDIDO_RETURN_URL; }, 900);
+            } else {
+                window.location.href = PEDIDO_RETURN_URL;
+            }
             return;
         }
         const detalle = (data.faltantes || [])

@@ -1066,12 +1066,36 @@
                     <select id="paymentMethod" class="form-input" onchange="updatePaymentSummary()">
                         <option value="efectivo">Efectivo</option>
                         <option value="transferencia">Transferencia</option>
+                        <option value="tarjeta">Tarjeta</option>
                     </select>
                 </div>
                 <div>
                     <label class="form-label" for="paymentReceived">Monto recibido</label>
                     <input id="paymentReceived" type="number" min="0" step="1" class="form-input" oninput="updatePaymentSummary()">
-                    <div class="form-help">En transferencia se toma el total exacto.</div>
+                    <div class="form-help" id="paymentReceivedHelp">En transferencia/tarjeta se toma el total exacto.</div>
+                </div>
+            </div>
+
+            <div style="margin: 0.5rem 0;">
+                <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-size:0.9rem;">
+                    <input type="checkbox" id="pagoMixtoToggle" onchange="togglePagoMixto()">
+                    <span>Pago mixto (dos metodos)</span>
+                </label>
+            </div>
+
+            <div id="pagoMixtoPanel" style="display:none;" class="two-col-form">
+                <div>
+                    <label class="form-label" for="paymentMethod2">Segundo metodo</label>
+                    <select id="paymentMethod2" class="form-input" onchange="updatePaymentSummary()">
+                        <option value="transferencia">Transferencia</option>
+                        <option value="tarjeta">Tarjeta</option>
+                        <option value="efectivo">Efectivo</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label" for="paymentAmount2">Monto en segundo metodo</label>
+                    <input id="paymentAmount2" type="number" min="0" step="1" class="form-input" oninput="updatePaymentSummary()">
+                    <div class="form-help">El resto se cobra por el primer metodo.</div>
                 </div>
             </div>
 
@@ -1080,13 +1104,17 @@
                     <span>Recibido</span>
                     <strong id="paymentReceivedText">$0</strong>
                 </div>
+                <div class="payment-summary-row" id="pagoMixtoSummaryRow" style="display:none;">
+                    <span id="pagoMixtoSummaryLabel">Segundo metodo</span>
+                    <strong id="pagoMixtoSummaryAmount">$0</strong>
+                </div>
                 <div class="payment-summary-row">
                     <span>Vueltas</span>
                     <strong id="paymentChangeText">$0</strong>
                 </div>
             </div>
             <div class="payment-keyline">
-                <span class="chip">Efectivo usa cambio automatico</span>
+                <span class="chip" id="paymentHelpChip">Efectivo usa cambio automatico</span>
             </div>
         </div>
         <div class="modal-footer">
@@ -1833,7 +1861,13 @@ function openPaymentModal(preferredMethod = 'efectivo') {
     }
 
     closeMobileCartPanel();
-    document.getElementById('paymentMethod').value = preferredMethod === 'transferencia' ? 'transferencia' : 'efectivo';
+    // Reset mixto state
+    document.getElementById('pagoMixtoToggle').checked = false;
+    document.getElementById('pagoMixtoPanel').style.display = 'none';
+    document.getElementById('paymentAmount2').value = '';
+
+    const validMethods = ['efectivo', 'transferencia', 'tarjeta'];
+    document.getElementById('paymentMethod').value = validMethods.includes(preferredMethod) ? preferredMethod : 'efectivo';
     document.getElementById('paymentReceived').value = window.AppUI ? AppUI.suggestedCash(getCartTotal()) : String(Math.ceil(getCartTotal()));
     updatePaymentSummary();
     document.getElementById('paymentModal').style.display = 'flex';
@@ -1844,40 +1878,99 @@ function closePaymentModal() {
     document.getElementById('paymentModal').style.display = 'none';
 }
 
+function togglePagoMixto() {
+    const mixto = document.getElementById('pagoMixtoToggle').checked;
+    document.getElementById('pagoMixtoPanel').style.display = mixto ? '' : 'none';
+    document.getElementById('pagoMixtoSummaryRow').style.display = mixto ? '' : 'none';
+    if (!mixto) document.getElementById('paymentAmount2').value = '';
+    updatePaymentSummary();
+}
+
 function updatePaymentSummary() {
     const total = getCartTotal();
     const metodo = document.getElementById('paymentMethod').value;
+    const mixto = document.getElementById('pagoMixtoToggle').checked;
     const receivedInput = document.getElementById('paymentReceived');
     const itemsCount = getCartCount();
 
-    if (metodo === 'transferencia') {
-        receivedInput.value = window.AppUI ? AppUI.suggestedCash(total) : String(Math.ceil(total));
-        receivedInput.disabled = true;
-    } else {
-        receivedInput.disabled = false;
-        if (!receivedInput.value) {
-            receivedInput.value = window.AppUI ? AppUI.suggestedCash(total) : String(Math.ceil(total));
-        }
-    }
+    const esExacto = metodo === 'transferencia' || metodo === 'tarjeta';
 
-    const recibido = Number(receivedInput.value || 0);
-    const cambio = metodo === 'efectivo' ? Math.max(recibido - total, 0) : 0;
+    if (mixto) {
+        const monto2 = Number(document.getElementById('paymentAmount2').value || 0);
+        const montoPrimario = Math.max(total - monto2, 0);
+        if (esExacto) {
+            receivedInput.value = String(Math.ceil(montoPrimario));
+            receivedInput.disabled = true;
+        } else {
+            receivedInput.disabled = false;
+            if (!receivedInput.value || Number(receivedInput.value) < montoPrimario) {
+                receivedInput.value = String(Math.ceil(montoPrimario));
+            }
+        }
+        const recibido = Number(receivedInput.value || 0);
+        const cambio = metodo === 'efectivo' ? Math.max(recibido - montoPrimario, 0) : 0;
+        const metodo2Label = document.getElementById('paymentMethod2')?.value || '';
+        document.getElementById('pagoMixtoSummaryLabel').textContent = metodo2Label.charAt(0).toUpperCase() + metodo2Label.slice(1);
+        document.getElementById('pagoMixtoSummaryAmount').textContent = money(monto2);
+        document.getElementById('paymentReceivedText').textContent = money(recibido);
+        document.getElementById('paymentChangeText').textContent = money(cambio);
+    } else {
+        if (esExacto) {
+            receivedInput.value = window.AppUI ? AppUI.suggestedCash(total) : String(Math.ceil(total));
+            receivedInput.disabled = true;
+        } else {
+            receivedInput.disabled = false;
+            if (!receivedInput.value) {
+                receivedInput.value = window.AppUI ? AppUI.suggestedCash(total) : String(Math.ceil(total));
+            }
+        }
+        const recibido = Number(receivedInput.value || 0);
+        const cambio = metodo === 'efectivo' ? Math.max(recibido - total, 0) : 0;
+        document.getElementById('paymentReceivedText').textContent = money(recibido);
+        document.getElementById('paymentChangeText').textContent = money(cambio);
+    }
 
     document.getElementById('paymentTotal').textContent = money(total);
     document.getElementById('paymentItems').textContent = window.AppUI ? AppUI.formatNumber(itemsCount, 0) : itemsCount;
-    document.getElementById('paymentReceivedText').textContent = money(recibido);
-    document.getElementById('paymentChangeText').textContent = money(cambio);
+    document.getElementById('paymentHelpChip').textContent = esExacto ? (metodo === 'tarjeta' ? 'Tarjeta: monto exacto' : 'Transferencia: monto exacto') : 'Efectivo: ingresa lo que entrega el cliente';
     updatePaymentActionLabels(metodo);
 }
 
 async function confirmPayment() {
     const metodo = document.getElementById('paymentMethod').value;
+    const mixto = document.getElementById('pagoMixtoToggle').checked;
     const total = getCartTotal();
     const montoRecibido = Number(document.getElementById('paymentReceived').value || 0);
 
-    if (metodo === 'efectivo' && montoRecibido + 1e-9 < total) {
-        Toast.warning('El monto recibido debe cubrir el total de la venta.');
-        return;
+    let metodo2 = null;
+    let monto2 = null;
+
+    if (mixto) {
+        metodo2 = document.getElementById('paymentMethod2')?.value || null;
+        monto2 = Number(document.getElementById('paymentAmount2').value || 0);
+
+        if (!monto2 || monto2 <= 0) {
+            Toast.warning('Ingresa el monto del segundo metodo de pago.');
+            return;
+        }
+        if (metodo2 === metodo) {
+            Toast.warning('Los dos metodos de pago no pueden ser iguales.');
+            return;
+        }
+        const montoPrimario = Math.max(total - monto2, 0);
+        if (Math.abs(monto2 + montoPrimario - total) > 1) {
+            Toast.warning('La suma de los dos montos no coincide con el total.');
+            return;
+        }
+        if (metodo === 'efectivo' && montoRecibido + 1e-9 < montoPrimario) {
+            Toast.warning('El efectivo no alcanza para cubrir su parte del total.');
+            return;
+        }
+    } else {
+        if (metodo === 'efectivo' && montoRecibido + 1e-9 < total) {
+            Toast.warning('El monto recibido debe cubrir el total de la venta.');
+            return;
+        }
     }
 
     await cargarStockDisponible();
@@ -1904,14 +1997,19 @@ async function confirmPayment() {
     }));
 
     try {
+        const body = {
+            items,
+            metodo_pago: metodo,
+            monto_recibido: montoRecibido,
+        };
+        if (mixto && metodo2 && monto2) {
+            body.metodo_pago_2 = metodo2;
+            body.monto_pago_2 = monto2;
+        }
         const res = await fetch('/api/venta', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                items,
-                metodo_pago: metodo,
-                monto_recibido: montoRecibido,
-            }),
+            body: JSON.stringify(body),
         });
         const data = await res.json();
         if (!res.ok || !data.ok) {

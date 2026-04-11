@@ -1,0 +1,307 @@
+{% extends "base.html" %}
+{% block title_extra %} - Encargos{% endblock %}
+{% block content %}
+<style>
+    .encargo-grid { display: flex; flex-direction: column; gap: 12px; }
+    .encargo-card { background: var(--surface); border-radius: 12px; border: 1px solid var(--border); overflow: hidden; }
+    .encargo-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; gap: 10px; cursor: pointer; }
+    .encargo-header-left { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+    .encargo-id { font-size: 11px; color: var(--text-muted); font-weight: 600; white-space: nowrap; }
+    .encargo-cliente { font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .encargo-empresa { font-size: 12px; color: var(--text-muted); }
+    .encargo-fecha { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+    .encargo-total { font-weight: 700; font-size: 15px; white-space: nowrap; }
+    .encargo-body { padding: 0 16px 16px; border-top: 1px solid var(--border); }
+    .encargo-items-list { margin: 12px 0 0; }
+    .encargo-item-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border-light, #f0f0f0); font-size: 14px; }
+    .encargo-item-row:last-child { border-bottom: none; }
+    .encargo-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+
+    .badge-pendiente  { background: var(--color-warning-bg, #fff3cd); color: var(--color-warning, #856404); }
+    .badge-listo      { background: var(--color-success-bg, #d1e7dd); color: var(--color-success, #0f5132); }
+    .badge-entregado  { background: var(--color-surface-2, #e9ecef); color: var(--text-muted); }
+    .badge-cancelado  { background: var(--color-danger-bg, #f8d7da); color: var(--color-danger, #842029); }
+
+    .encargo-form-card { background: var(--surface); border-radius: 12px; border: 1px solid var(--border); padding: 20px; margin-bottom: 20px; }
+    .encargo-form-title { font-size: 16px; font-weight: 700; margin-bottom: 16px; }
+    .encargo-product-row { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 8px; }
+    .encargo-product-row select, .encargo-product-row input { flex: 1; }
+    .encargo-product-row .qty-input { width: 80px; flex: none; }
+    .encargo-product-rows { margin: 12px 0; }
+
+    .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+    .filter-bar select, .filter-bar input { max-width: 180px; }
+</style>
+
+<!-- Formulario de nuevo encargo -->
+<div class="encargo-form-card" id="formNuevoEncargo" style="display:none;">
+    <div class="encargo-form-title">Nuevo Encargo</div>
+    <div class="two-col-form" style="gap:12px;">
+        <div>
+            <label class="form-label">Cliente *</label>
+            <input id="encCliente" type="text" class="form-input" placeholder="Nombre del cliente">
+        </div>
+        <div>
+            <label class="form-label">Empresa / Institucion</label>
+            <input id="encEmpresa" type="text" class="form-input" placeholder="Opcional">
+        </div>
+        <div>
+            <label class="form-label">Fecha de entrega *</label>
+            <input id="encFecha" type="date" class="form-input">
+        </div>
+        <div>
+            <label class="form-label">Notas</label>
+            <input id="encNotas" type="text" class="form-input" placeholder="Instrucciones especiales">
+        </div>
+    </div>
+
+    <div style="margin-top:14px;">
+        <label class="form-label">Productos</label>
+        <div class="encargo-product-rows" id="encProductRows">
+            <!-- rows added by JS -->
+        </div>
+        <button type="button" class="btn btn-outline" onclick="agregarFilaProducto()">+ Agregar producto</button>
+    </div>
+
+    <div style="margin-top:16px; display:flex; gap:10px; justify-content:flex-end; align-items:center;">
+        <span id="encTotalPreview" style="font-size:15px;font-weight:700;"></span>
+        <button class="btn btn-outline" onclick="cerrarFormEncargo()">Cancelar</button>
+        <button class="btn btn-success" onclick="guardarEncargo()">Guardar encargo</button>
+    </div>
+</div>
+
+<!-- Barra de filtros y accion -->
+<div class="filter-bar">
+    <button class="btn btn-primary" onclick="abrirFormEncargo()">+ Nuevo encargo</button>
+    <select id="filtroEstado" class="form-input" onchange="filtrarEncargos()">
+        <option value="">Todos los estados</option>
+        <option value="pendiente">Pendiente</option>
+        <option value="listo">Listo</option>
+        <option value="entregado">Entregado</option>
+        <option value="cancelado">Cancelado</option>
+    </select>
+    <input id="filtroBusqueda" type="text" class="form-input" placeholder="Buscar cliente..." oninput="filtrarEncargos()">
+</div>
+
+<!-- Lista de encargos -->
+<div class="encargo-grid" id="encargosGrid">
+{% if encargos %}
+    {% for enc in encargos %}
+    <div class="encargo-card" data-estado="{{ enc.estado }}" data-cliente="{{ enc.cliente | lower }}">
+        <div class="encargo-header" onclick="toggleEncargo({{ enc.id }})">
+            <div class="encargo-header-left">
+                <span class="encargo-id">#{{ enc.id }}</span>
+                <div>
+                    <div class="encargo-cliente">{{ enc.cliente }}</div>
+                    {% if enc.empresa %}<div class="encargo-empresa">{{ enc.empresa }}</div>{% endif %}
+                </div>
+                <span class="badge badge-{{ enc.estado }}">{{ enc.estado | capitalize }}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:14px;flex-shrink:0;">
+                <div style="text-align:right;">
+                    <div class="encargo-fecha">Entrega: <strong>{{ enc.fecha_entrega }}</strong></div>
+                    <div class="encargo-total">${{ enc.total | int | string | replace(',','') }}</div>
+                </div>
+                <span class="material-symbols-outlined" style="color:var(--text-muted);">expand_more</span>
+            </div>
+        </div>
+        <div class="encargo-body" id="encBody{{ enc.id }}" style="display:none;">
+            <div class="encargo-items-list">
+                {% for it in enc['items'] %}
+                <div class="encargo-item-row">
+                    <span>{{ it.producto }} × {{ it.cantidad }}</span>
+                    <span>${{ it.subtotal | int }}</span>
+                </div>
+                {% endfor %}
+            </div>
+            {% if enc.notas %}<div style="margin-top:8px;font-size:13px;color:var(--text-muted);">Notas: {{ enc.notas }}</div>{% endif %}
+            <div style="margin-top:6px;font-size:12px;color:var(--text-muted);">Registrado por {{ enc.registrado_por }} · {{ enc.creado_en[:16] }}</div>
+            <div class="encargo-actions">
+                {% if enc.estado == 'pendiente' %}
+                <button class="btn btn-success btn-sm" onclick="cambiarEstadoEncargo({{ enc.id }}, 'listo')">Marcar listo</button>
+                <button class="btn btn-accent btn-sm" onclick="cambiarEstadoEncargo({{ enc.id }}, 'cancelado')">Cancelar encargo</button>
+                {% elif enc.estado == 'listo' %}
+                <button class="btn btn-primary btn-sm" onclick="cambiarEstadoEncargo({{ enc.id }}, 'entregado')">Marcar entregado</button>
+                <button class="btn btn-outline btn-sm" onclick="cambiarEstadoEncargo({{ enc.id }}, 'pendiente')">Revertir a pendiente</button>
+                {% endif %}
+                {% if enc.estado in ('pendiente', 'cancelado') %}
+                <button class="btn btn-danger-outline btn-sm" onclick="eliminarEncargo({{ enc.id }})">Eliminar</button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+{% else %}
+    <div class="card"><div class="card-body text-center text-muted" style="padding:40px;">No hay encargos registrados aun.</div></div>
+{% endif %}
+</div>
+
+<script>
+const PRODUCTOS_ENCARGO = {{ productos | tojson }};
+
+function money(v) {
+    return '$' + Number(v || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 });
+}
+
+function toggleEncargo(id) {
+    const body = document.getElementById('encBody' + id);
+    if (body) body.style.display = body.style.display === 'none' ? '' : 'none';
+}
+
+function filtrarEncargos() {
+    const estado = document.getElementById('filtroEstado').value;
+    const busqueda = document.getElementById('filtroBusqueda').value.toLowerCase();
+    document.querySelectorAll('.encargo-card').forEach(card => {
+        const matchEstado = !estado || card.dataset.estado === estado;
+        const matchCliente = !busqueda || card.dataset.cliente.includes(busqueda);
+        card.style.display = matchEstado && matchCliente ? '' : 'none';
+    });
+}
+
+// ── Formulario nuevo encargo ──────────────────
+
+let filasProducto = [];
+
+function abrirFormEncargo() {
+    document.getElementById('formNuevoEncargo').style.display = '';
+    document.getElementById('encCliente').value = '';
+    document.getElementById('encEmpresa').value = '';
+    document.getElementById('encFecha').value = '';
+    document.getElementById('encNotas').value = '';
+    document.getElementById('encProductRows').innerHTML = '';
+    filasProducto = [];
+    agregarFilaProducto();
+    document.getElementById('encCliente').focus();
+}
+
+function cerrarFormEncargo() {
+    document.getElementById('formNuevoEncargo').style.display = 'none';
+}
+
+function agregarFilaProducto() {
+    const idx = filasProducto.length;
+    filasProducto.push({ producto_id: null, producto: '', cantidad: 1, precio_unitario: 0 });
+
+    const options = PRODUCTOS_ENCARGO
+        .filter(p => p.activo !== 0)
+        .map(p => `<option value="${p.id}" data-precio="${p.precio}" data-nombre="${p.nombre}">${p.nombre} — $${Number(p.precio).toLocaleString('es-CO', {maximumFractionDigits:0})}</option>`)
+        .join('');
+
+    const row = document.createElement('div');
+    row.className = 'encargo-product-row';
+    row.id = 'encRow' + idx;
+    row.innerHTML = `
+        <select class="form-input" onchange="onProductoChange(${idx}, this)">
+            <option value="">— Selecciona producto —</option>
+            ${options}
+        </select>
+        <input type="number" min="1" step="1" value="1" class="form-input qty-input"
+               oninput="onCantidadChange(${idx}, this)" placeholder="Cant.">
+        <button type="button" class="btn btn-danger-outline btn-sm" onclick="quitarFila(${idx})" style="flex:none;">✕</button>
+    `;
+    document.getElementById('encProductRows').appendChild(row);
+    recalcularTotal();
+}
+
+function quitarFila(idx) {
+    const row = document.getElementById('encRow' + idx);
+    if (row) row.remove();
+    filasProducto[idx] = null;
+    recalcularTotal();
+}
+
+function onProductoChange(idx, sel) {
+    const opt = sel.selectedOptions[0];
+    if (!opt || !opt.value) { filasProducto[idx] = null; recalcularTotal(); return; }
+    filasProducto[idx] = {
+        producto_id: parseInt(opt.value),
+        producto: opt.dataset.nombre,
+        precio_unitario: parseFloat(opt.dataset.precio || 0),
+        cantidad: parseInt(sel.closest('.encargo-product-row').querySelector('input').value || 1),
+    };
+    recalcularTotal();
+}
+
+function onCantidadChange(idx, input) {
+    if (filasProducto[idx]) {
+        filasProducto[idx].cantidad = parseInt(input.value || 1);
+        recalcularTotal();
+    }
+}
+
+function recalcularTotal() {
+    const total = filasProducto
+        .filter(Boolean)
+        .reduce((s, f) => s + (f.precio_unitario * f.cantidad), 0);
+    document.getElementById('encTotalPreview').textContent = total > 0 ? `Total: ${money(total)}` : '';
+}
+
+async function guardarEncargo() {
+    const cliente = document.getElementById('encCliente').value.trim();
+    const fecha = document.getElementById('encFecha').value;
+    if (!cliente) { Toast.warning('Ingresa el nombre del cliente.'); return; }
+    if (!fecha) { Toast.warning('Selecciona la fecha de entrega.'); return; }
+    const items = filasProducto.filter(Boolean).filter(f => f.producto_id && f.cantidad > 0);
+    if (!items.length) { Toast.warning('Agrega al menos un producto.'); return; }
+
+    try {
+        const res = await fetch('/api/encargo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                cliente,
+                empresa: document.getElementById('encEmpresa').value.trim(),
+                fecha_entrega: fecha,
+                notas: document.getElementById('encNotas').value.trim(),
+                items: items.map(f => ({
+                    producto_id: f.producto_id,
+                    producto: f.producto,
+                    cantidad: f.cantidad,
+                    precio_unitario: f.precio_unitario,
+                })),
+            }),
+        });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'No se pudo guardar');
+        Toast.success('Encargo registrado correctamente.');
+        cerrarFormEncargo();
+        setTimeout(() => location.reload(), 800);
+    } catch (err) {
+        Toast.error(err.message || 'Error al guardar el encargo.');
+    }
+}
+
+async function cambiarEstadoEncargo(id, estado) {
+    const etiquetas = { listo: 'marcar como listo', entregado: 'marcar como entregado', cancelado: 'cancelar', pendiente: 'revertir a pendiente' };
+    const ok = await appConfirm(`¿Deseas ${etiquetas[estado] || estado} este encargo?`, { title: 'Confirmar accion', type: 'warning' });
+    if (!ok) return;
+    try {
+        const res = await fetch(`/api/encargo/${id}/estado`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ estado }),
+        });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'Error');
+        Toast.success('Estado actualizado.');
+        setTimeout(() => location.reload(), 600);
+    } catch (err) {
+        Toast.error(err.message);
+    }
+}
+
+async function eliminarEncargo(id) {
+    const ok = await appConfirm('¿Eliminar este encargo? Esta accion no se puede deshacer.', { title: 'Eliminar encargo', type: 'danger' });
+    if (!ok) return;
+    try {
+        const res = await fetch(`/api/encargo/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'Error');
+        Toast.success('Encargo eliminado.');
+        setTimeout(() => location.reload(), 600);
+    } catch (err) {
+        Toast.error(err.message);
+    }
+}
+</script>
+{% endblock %}
