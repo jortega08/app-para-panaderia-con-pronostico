@@ -329,10 +329,14 @@
                 {% elif p['estado'] == 'en_preparacion' %}
                 <button class="btn btn-sm btn-success" onclick="cambiarEstado({{ p['id'] }}, 'listo')">Marcar listo para
                     cobrar</button>
+                <button class="btn btn-sm btn-danger-outline"
+                    onclick="cambiarEstado({{ p['id'] }}, 'cancelado')">Cancelar</button>
                 {% elif p['estado'] == 'listo' %}
                 <button class="btn btn-sm btn-success btn-lg"
                     onclick="openChargeModal({{ p['id'] }}, {{ p['total'] }})">Cobrar - ${{ '{:,.0f}'.format(p['total']
                     or 0) }}</button>
+                <button class="btn btn-sm btn-danger-outline"
+                    onclick="cambiarEstado({{ p['id'] }}, 'cancelado')">Cancelar</button>
                 {% endif %}
             </div>
         </div>

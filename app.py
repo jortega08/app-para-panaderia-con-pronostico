@@ -3077,6 +3077,11 @@ def api_cambiar_estado(pedido_id):
     pedido = obtener_pedido(pedido_id)
     if not pedido:
         return jsonify({"ok": False, "error": "Pedido no encontrado"}), 404
+    estado_actual = str(pedido.get("estado", "") or "").strip()
+    if estado_actual == nuevo_estado:
+        return jsonify({"ok": True, "pedido": pedido})
+    if estado_actual in ("pagado", "cancelado"):
+        return jsonify({"ok": False, "error": "Este pedido ya no admite cambios"}), 400
     if not _pedido_visible_para_usuario(pedido):
         return jsonify({"ok": False, "error": "No autorizado"}), 403
     if _rol_usuario_actual() == "mesero" and nuevo_estado != "cancelado":

@@ -58,10 +58,13 @@
             <div class="pedido-notas"><span class="material-symbols-outlined">edit_note</span> {{ p.notas }}</div>
             {% endif %}
             {% if p.estado not in ('pagado', 'cancelado') %}
-            <div style="margin-top: 14px;">
+            <div style="margin-top: 14px; display:flex; gap:8px; flex-wrap:wrap;">
                 <a class="btn btn-outline btn-sm" href="{{ url_for('mesero_pedido', mesa_id=p.mesa_id) }}">
                     Tomar pedido adicional
                 </a>
+                <button type="button" class="btn btn-danger-outline btn-sm" onclick="cancelarPedido({{ p.id }})">
+                    Cancelar pedido
+                </button>
             </div>
             {% endif %}
         </div>
@@ -71,6 +74,45 @@
 </div>
 
 <script>
+async function cancelarPedido(pedidoId) {
+    const confirmar = await appConfirm('Cancelar el pedido #' + pedidoId + '?', {
+        type: 'danger',
+        title: 'Cancelar pedido',
+        confirmText: 'Cancelar',
+    });
+    if (!confirmar) return;
+
+    const motivo = await appPrompt({
+        title: 'Motivo de cancelacion',
+        message: 'Este motivo quedara en el historial del pedido y llegara al admin en la notificacion.',
+        label: 'Motivo',
+        placeholder: 'Ej: cliente se retiro, error al tomar el pedido...',
+        confirmText: 'Guardar motivo',
+    });
+    if (motivo === null) return;
+
+    const motivoCancelacion = String(motivo || '').trim();
+    if (!motivoCancelacion) {
+        Toast.warning('Indica el motivo de la cancelacion para continuar.');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/pedido/' + pedidoId + '/estado', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ estado: 'cancelado', motivo_cancelacion: motivoCancelacion }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+            throw new Error(data.error || 'No se pudo cancelar el pedido');
+        }
+        location.reload();
+    } catch (err) {
+        Toast.error(err.message || 'No se pudo cancelar el pedido.');
+    }
+}
+
 // Auto-refresh cada 30 segundos
 setTimeout(function() { location.reload(); }, 30000);
 </script>

@@ -94,11 +94,29 @@ def _factor_fin_semana(nombre: str) -> float:
 
 
 def _construir_catalogo_panaderia() -> list[dict]:
-    productos = obtener_productos_con_precio(categoria="Panaderia")
-    productos = [p for p in productos if p.get("nombre")]
+    # Incluye inactivos: los productos de categoria Panaderia pueden estar
+    # desactivados del POS pero siguen siendo el catalogo de produccion.
+    # Tambien incluye Almojabana por ser producto de panaderia con pronostico.
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT id, nombre, precio, categoria
+            FROM productos
+            WHERE (categoria = 'Panaderia' OR nombre LIKE 'Almoj%')
+              AND nombre IS NOT NULL AND nombre != ''
+            GROUP BY nombre
+            ORDER BY nombre
+        """).fetchall()
+    # Deduplicar por nombre normalizado (ej. "Almojabana" vs "Almojábana")
+    vistos: set[str] = set()
+    productos: list[dict] = []
+    for r in rows:
+        clave = _normalizar(r["nombre"])
+        if clave not in vistos:
+            vistos.add(clave)
+            productos.append(dict(r))
     if not productos:
         raise RuntimeError(
-            "No hay productos activos en la categoria Panaderia. "
+            "No hay productos en la categoria Panaderia. "
             "Registra primero el catalogo real antes de ejecutar el seed."
         )
 
@@ -166,18 +184,31 @@ def _demanda_diaria(info: dict, fecha, dias: int, posicion_dia: int, rng: random
     return max(6, int(round(demanda)))
 
 
-def _producido_y_vendido(demanda: int, rng: random.Random) -> tuple[int, int]:
-    sesgo = rng.choices(
-        population=[0.94, 0.98, 1.02, 1.06, 1.10],
-        weights=[10, 26, 34, 20, 10],
-        k=1,
-    )[0]
-    producido = max(4, int(round(demanda * sesgo)))
+def _producido_y_vendido(demanda: int, rng: random.Random, progreso: float = 1.0) -> tuple[int, int]:
+    """
+    progreso = 0.0 → primer dia (mucho sobrante, alta sobreproduccion)
+    progreso = 1.0 → ultimo dia  (produccion ajustada, sobrante casi nulo)
 
-    if rng.random() < 0.10:
-        producido = max(4, producido - rng.randint(2, max(3, int(demanda * 0.08))))
+    Patron dramatico y visible en grafica:
+      - Sobreproduccion baja de ~1.50x a ~1.07x la demanda
+      - Eficiencia de venta sube de ~63% a ~97% de lo producido
+      - Sobrante efectivo: ~37% dia 1 → ~3% dia 30
+      - Ruido decrece para que la tendencia sea clara
+    """
+    # Cuanto mas se produce respecto a la demanda (cae marcadamente con el tiempo)
+    factor_sobre = 1.50 - (progreso * 0.43)   # 1.50 → 1.07
+    ruido_prod   = 0.08 - (progreso * 0.05)   # 0.08 → 0.03 (curva mas limpia al final)
+    factor_sobre *= rng.gauss(1.0, max(0.02, ruido_prod))
+    factor_sobre  = max(1.01, factor_sobre)
 
-    vendido = min(producido, max(1, int(round(demanda * rng.uniform(0.97, 1.02)))))
+    producido = max(4, int(round(demanda * factor_sobre)))
+
+    # Que fraccion de lo producido se vende (sube marcadamente con el tiempo)
+    eficiencia = 0.63 + (progreso * 0.34)     # 0.63 → 0.97
+    eficiencia *= rng.gauss(1.0, max(0.015, 0.04 - progreso * 0.025))
+    eficiencia  = max(0.50, min(1.0, eficiencia))
+
+    vendido = min(producido, max(1, int(round(producido * eficiencia))))
     return producido, vendido
 
 
@@ -291,7 +322,11 @@ def _limpiar_datos_demo(conn) -> None:
         conn.execute(f"DELETE FROM {tabla}")
 
 
-def generar_datos_demo(dias: int = 45, semilla: int = 42):
+META_DIARIA_MIN = 500_000
+META_DIARIA_MAX = 600_000
+
+
+def generar_datos_demo(dias: int = 30, semilla: int = 42):
     inicializar_base_de_datos()
     rng = random.Random(semilla)
     catalogo = _construir_catalogo_panaderia()
@@ -310,11 +345,28 @@ def generar_datos_demo(dias: int = 45, semilla: int = 42):
             fecha_str = fecha.strftime("%Y-%m-%d")
             posicion_dia = dias - offset
 
+            # progreso: 0.0 en el primer dia, 1.0 en el ultimo
+            progreso = posicion_dia / max(1, dias - 1)
+
+            # Generar demanda para todos los productos del dia
+            dia_productos = []
             for info in catalogo:
                 demanda = _demanda_diaria(info, fecha, dias, posicion_dia, rng)
-                producido, vendido = _producido_y_vendido(demanda, rng)
-                observaciones = _observacion_dia(fecha, vendido, producido)
+                producido, vendido = _producido_y_vendido(demanda, rng, progreso)
+                dia_productos.append((info, producido, vendido))
 
+            # Escalar para que el total del dia quede entre META_DIARIA_MIN y META_DIARIA_MAX
+            total_dia = sum(vendido * info["precio"] for info, _, vendido in dia_productos)
+            if total_dia > 0:
+                meta = rng.uniform(META_DIARIA_MIN, META_DIARIA_MAX)
+                factor = meta / total_dia
+                dia_productos = [
+                    (info, producido, max(1, int(round(vendido * factor))))
+                    for info, producido, vendido in dia_productos
+                ]
+
+            for info, producido, vendido in dia_productos:
+                observaciones = _observacion_dia(fecha, vendido, producido)
                 _insertar_registro_demo(
                     conn,
                     fecha_str=fecha_str,
@@ -339,6 +391,7 @@ def generar_datos_demo(dias: int = 45, semilla: int = 42):
     print("Datos de demostracion creados:")
     print(f"  {registros_creados} registros de produccion ({dias} dias)")
     print(f"  {ventas_creadas} ventas individuales")
+    print(f"  Rango diario aplicado: ${META_DIARIA_MIN:,} - ${META_DIARIA_MAX:,}")
     print("  Productos sembrados con precios reales:")
     for info in catalogo:
         print(
@@ -350,4 +403,4 @@ def generar_datos_demo(dias: int = 45, semilla: int = 42):
 
 
 if __name__ == "__main__":
-    generar_datos_demo(45)
+    generar_datos_demo(30)
