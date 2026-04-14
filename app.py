@@ -49,6 +49,7 @@ from data.database import (
     exportar_inventario_csv,
     exportar_productos_sistema,
     guardar_registro,
+    descartar_stock_produccion,
     obtener_registros,
     obtener_productos,
     obtener_productos_panaderia,
@@ -111,6 +112,7 @@ from data.database import (
     validar_items_contra_produccion_panaderia,
     validar_stock_pedido,
     obtener_stock_disponible_hoy,
+    obtener_stock_operativo_detalle,
     obtener_resumen_mesas,
     obtener_adicionales,
     agregar_adicional,
@@ -691,14 +693,15 @@ def _obtener_registro_diario_producto(fecha: str, producto: str) -> dict | None:
 
 
 def _sobrante_dia_anterior(fecha: str, producto: str) -> int:
-    """Retorna el sobrante efectivo del dia anterior: sobrante_inicial + producido - vendido."""
-    fecha_anterior = (datetime.strptime(fecha, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+    """Retorna el sobrante efectivo del ultimo registro previo disponible."""
     with get_connection() as conn:
         row = conn.execute("""
             SELECT sobrante_inicial, sobrante
             FROM registros_diarios
-            WHERE fecha = ? AND producto = ?
-        """, (fecha_anterior, producto)).fetchone()
+            WHERE fecha < ? AND producto = ?
+            ORDER BY fecha DESC, id DESC
+            LIMIT 1
+        """, (fecha, producto)).fetchone()
     if not row:
         return 0
     return max(int(row["sobrante_inicial"] or 0) + int(row["sobrante"] or 0), 0)
@@ -742,11 +745,29 @@ def _guardar_lote_produccion(fecha: str, producto: str, cantidad: int,
     )
 
 
-def _construir_contexto_produccion_producto(fecha: str, producto: str) -> dict:
+def _construir_contexto_produccion_producto(
+    fecha: str,
+    producto: str,
+    stock_detalle_map: dict[str, dict] | None = None,
+) -> dict:
     fecha_str = _parse_fecha_iso(fecha)
     registro = _obtener_registro_diario_producto(fecha_str, producto) or {}
-    vendido_real = int(obtener_vendido_dia_producto(fecha_str, producto) or registro.get("vendido", 0) or 0)
-    producido_actual = int(registro.get("producido", 0) or 0)
+    stock_detalle = (stock_detalle_map or obtener_stock_operativo_detalle(fecha_str)).get(producto, {})
+    producido_actual = int(stock_detalle.get("producido_hoy", registro.get("producido", 0)) or 0)
+    sobrante_inicial_actual = int(stock_detalle.get("sobrante_inicial_hoy", registro.get("sobrante_inicial", 0)) or 0)
+    vendido_actual = int(
+        stock_detalle.get(
+            "vendido_operativo_hoy",
+            obtener_vendido_dia_producto(fecha_str, producto) or registro.get("vendido", 0) or 0,
+        ) or 0
+    )
+    disponible_actual = int(
+        stock_detalle.get(
+            "disponible_bruto",
+            max(sobrante_inicial_actual + producido_actual - vendido_actual, 0),
+        ) or 0
+    )
+    stock_total = max(sobrante_inicial_actual + producido_actual, 0)
 
     resultado = calcular_pronostico(producto, fecha_objetivo=fecha_str)
     detalles = getattr(resultado, "detalles", {}) or {}
@@ -756,10 +777,18 @@ def _construir_contexto_produccion_producto(fecha: str, producto: str) -> dict:
     meta_operativa = int(ajuste.get("ajustado") or sugerido)
     restante_meta = max(meta_operativa - producido_actual, 0)
     cumplimiento_pct = round((producido_actual / meta_operativa) * 100, 1) if meta_operativa > 0 else 0.0
-    faltante_actual = max(vendido_real - producido_actual, 0)
-    sobrante_actual = max(producido_actual - vendido_real, 0)
+    faltante_actual = max(vendido_actual - stock_total, 0)
+    sobrante_actual = max(disponible_actual, 0)
 
     lotes = []
+    if sobrante_inicial_actual > 0:
+        lotes.append({
+            "producto": producto,
+            "cantidad": sobrante_inicial_actual,
+            "observaciones": "Sobrante arrastrado desde el ultimo registro disponible",
+            "registrado_en": f"{fecha_str} 00:00:00",
+            "registrado_por": "Sistema",
+        })
     if producido_actual > 0 or registro.get("observaciones"):
         lotes.append({
             "producto": producto,
@@ -791,8 +820,12 @@ def _construir_contexto_produccion_producto(fecha: str, producto: str) -> dict:
             "registrado_por": ajuste.get("registrado_por", "") if ajuste else "",
         },
         "avance": {
+            "sobrante_inicial_actual": sobrante_inicial_actual,
+            "stock_total": stock_total,
             "producido_actual": producido_actual,
-            "vendido_actual": vendido_real,
+            "vendido_actual": vendido_actual,
+            "disponible_actual": disponible_actual,
+            "comprometido_actual": int(stock_detalle.get("comprometido_hoy", 0) or 0),
             "restante_meta": restante_meta,
             "cumplimiento_pct": cumplimiento_pct,
             "faltante_actual": faltante_actual,
@@ -804,9 +837,10 @@ def _construir_contexto_produccion_producto(fecha: str, producto: str) -> dict:
 
 def _construir_contexto_produccion_masivo(fecha: str) -> dict:
     fecha_str = _parse_fecha_iso(fecha)
+    stock_detalle = obtener_stock_operativo_detalle(fecha_str)
     items = []
     for producto in obtener_productos_panaderia():
-        contexto = _construir_contexto_produccion_producto(fecha_str, producto)
+        contexto = _construir_contexto_produccion_producto(fecha_str, producto, stock_detalle_map=stock_detalle)
         sugerencia = contexto["sugerencia"]
         meta = contexto["meta"]
         avance = contexto["avance"]
@@ -817,7 +851,7 @@ def _construir_contexto_produccion_masivo(fecha: str) -> dict:
             "producido_actual": avance["producido_actual"],
             "vendido_actual": avance["vendido_actual"],
             "restante_meta": avance["restante_meta"],
-            "disponible_actual": max(avance["producido_actual"] - avance["vendido_actual"], 0),
+            "disponible_actual": avance["disponible_actual"],
             "faltante_actual": avance["faltante_actual"],
             "sobrante_actual": avance["sobrante_actual"],
             "modelo_label": sugerencia["modelo_label"],
@@ -1648,8 +1682,9 @@ def panadero_produccion():
     for registro in registros_recientes:
         producido = int(registro.get("producido", 0) or 0)
         vendido = int(registro.get("vendido", 0) or 0)
+        sobrante_inicial = int(registro.get("sobrante_inicial", 0) or 0)
         sobrante = int(registro.get("sobrante", 0) or 0)
-        registro["faltante"] = max(vendido - producido, 0)
+        registro["faltante"] = max(vendido - (sobrante_inicial + producido), 0)
         registro["sobrante"] = max(sobrante, 0)
         registro.setdefault("registrado_por", "")
         registro.setdefault("registrado_en", "")
@@ -2134,6 +2169,59 @@ def api_guardar_lotes_masivos():
         "guardados": guardados,
         "total_unidades": total_unidades,
     })
+
+
+@app.route("/api/produccion/descartar", methods=["POST"])
+@login_required
+def api_descartar_produccion():
+    if not _usuario_puede_registrar_produccion():
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+
+    data = request.get_json(silent=True) or {}
+    fecha = str(data.get("fecha", "") or "").strip()
+    producto = str(data.get("producto", "") or "").strip()
+    motivo = str(data.get("motivo", "") or "").strip()
+    tipo = str(data.get("tipo", "vencido") or "vencido").strip()
+    productos_panaderia = set(obtener_productos_panaderia())
+
+    try:
+        cantidad = int(data.get("cantidad", 0) or 0)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Cantidad invalida"}), 400
+
+    try:
+        fecha = _parse_fecha_iso(fecha)
+    except ValueError:
+        return jsonify({"ok": False, "error": "Fecha invalida"}), 400
+
+    if not producto:
+        return jsonify({"ok": False, "error": "Producto requerido"}), 400
+    if producto not in productos_panaderia:
+        return jsonify({"ok": False, "error": "Solo puedes descartar productos de Panaderia"}), 400
+    if cantidad <= 0:
+        return jsonify({"ok": False, "error": "La cantidad debe ser mayor a cero"}), 400
+    if not motivo:
+        return jsonify({"ok": False, "error": "Debes escribir el motivo del descarte"}), 400
+
+    resultado = descartar_stock_produccion(
+        fecha=fecha,
+        producto=producto,
+        cantidad=cantidad,
+        motivo=motivo,
+        registrado_por=_nombre_usuario_actual(),
+        tipo_merma=tipo,
+    )
+    status = 200 if resultado.get("ok") else 400
+    if resultado.get("ok"):
+        registrar_audit(
+            usuario=_nombre_usuario_actual(),
+            accion="descartar_produccion",
+            entidad="produccion",
+            entidad_id=f"{fecha}/{producto}",
+            detalle=f"Descarte de {cantidad} und de {producto}. Motivo: {motivo}",
+            valor_nuevo=f"fecha={fecha} | tipo={tipo}",
+        )
+    return jsonify(resultado), status
 
 
 @app.route("/api/inventario/proyeccion-insumos")
@@ -2704,15 +2792,19 @@ def api_vendido_dia():
 @app.route("/api/producto", methods=["POST"])
 @login_required
 def api_agregar_producto():
-    data = request.json
-    nombre = data.get("nombre", "").strip()
-    precio = float(data.get("precio", 0))
-    categoria = data.get("categoria", "Panaderia").strip() or "Panaderia"
+    data = request.get_json(silent=True) or {}
+    nombre = str(data.get("nombre", "") or "").strip()
+    categoria = str(data.get("categoria", "Panaderia") or "").strip() or "Panaderia"
     es_adicional = bool(data.get("es_adicional", False))
     if not nombre:
         return jsonify({"ok": False, "error": "Nombre vacio"}), 400
+    try:
+        precio = float(data.get("precio", 0) or 0)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Precio invalido"}), 400
     ok = agregar_producto(nombre, precio, categoria, es_adicional=es_adicional)
-    return jsonify({"ok": ok, "error": None if ok else "Ese producto ya existe"})
+    status = 200 if ok else 409
+    return jsonify({"ok": ok, "error": None if ok else "Ese producto ya existe en esa categoria"}), status
 
 
 @app.route("/api/producto/<int:producto_id>", methods=["PUT"])

@@ -1376,19 +1376,62 @@ def obtener_producto_por_id(producto_id: int) -> dict | None:
     return dict(row) if row else None
 
 
+def _obtener_producto_por_nombre_categoria_conn(conn, nombre: str, categoria: str) -> dict | None:
+    nombre = str(nombre or "").strip()
+    categoria = str(categoria or "").strip() or "Panaderia"
+    if not nombre:
+        return None
+    row = conn.execute("""
+        SELECT id, nombre, precio, categoria, menu, descripcion,
+               es_panaderia, es_adicional, activo
+        FROM productos
+        WHERE nombre = ? AND categoria = ?
+        ORDER BY activo DESC, id ASC
+        LIMIT 1
+    """, (nombre, categoria)).fetchone()
+    return dict(row) if row else None
+
+
 def agregar_producto(nombre: str, precio: float = 0.0, categoria: str = "Panaderia",
                      es_adicional: bool = False, menu: str = "",
                      descripcion: str = "", es_panaderia: bool | None = None) -> bool:
+    nombre = str(nombre or "").strip()
     categoria = str(categoria or "").strip() or "Panaderia"
     menu = str(menu or "").strip()
     descripcion = str(descripcion or "").strip()
     es_panaderia_final = es_categoria_panaderia(categoria) if es_panaderia is None else bool(es_panaderia)
+    if not nombre:
+        return False
     try:
         with get_connection() as conn:
             conn.execute(
                 "INSERT OR IGNORE INTO categorias_producto (nombre, activa) VALUES (?, 1)",
                 (categoria,)
             )
+            conn.execute(
+                "UPDATE categorias_producto SET activa = 1 WHERE nombre = ?",
+                (categoria,)
+            )
+
+            existente = _obtener_producto_por_nombre_categoria_conn(conn, nombre, categoria)
+            if existente:
+                if int(existente.get("activo", 0) or 0) == 1:
+                    return False
+                conn.execute("""
+                    UPDATE productos
+                    SET precio = ?, menu = ?, descripcion = ?, es_panaderia = ?, es_adicional = ?, activo = 1
+                    WHERE id = ?
+                """, (
+                    float(precio),
+                    menu,
+                    descripcion,
+                    1 if es_panaderia_final else 0,
+                    1 if es_adicional else 0,
+                    int(existente["id"]),
+                ))
+                conn.commit()
+                return True
+
             conn.execute(
                 """
                 INSERT INTO productos (nombre, precio, categoria, menu, descripcion, es_panaderia, es_adicional)
@@ -1406,7 +1449,7 @@ def agregar_producto(nombre: str, precio: float = 0.0, categoria: str = "Panader
             )
             conn.commit()
         return True
-    except sqlite3.IntegrityError:
+    except _INTEGRITY_ERRORS:
         return False
 
 
@@ -1703,7 +1746,7 @@ def actualizar_producto_completo(producto_id: int, nombre: str, precio: float,
             _renombrar_producto_referencias_conn(conn, nombre_anterior, nombre)
             conn.commit()
             return True
-    except sqlite3.IntegrityError:
+    except _INTEGRITY_ERRORS:
         return False
     except Exception:
         return False
@@ -2810,6 +2853,148 @@ def guardar_registro(fecha: str, producto: str,
     except Exception as e:
         logger.error(f"guardar_registro: {e}")
         return False
+
+
+def descartar_stock_produccion(
+    fecha: str,
+    producto: str,
+    cantidad: int,
+    motivo: str,
+    registrado_por: str = "",
+    tipo_merma: str = "vencido",
+) -> dict:
+    fecha = str(fecha or "").strip()
+    producto = str(producto or "").strip()
+    motivo = str(motivo or "").strip()
+    tipo_merma = str(tipo_merma or "vencido").strip().lower() or "vencido"
+
+    try:
+        cantidad_int = int(cantidad or 0)
+    except (TypeError, ValueError):
+        cantidad_int = 0
+
+    if not fecha:
+        return {"ok": False, "error": "Fecha requerida"}
+    if not producto:
+        return {"ok": False, "error": "Producto requerido"}
+    if cantidad_int <= 0:
+        return {"ok": False, "error": "La cantidad a descartar debe ser mayor a cero"}
+    if not motivo:
+        return {"ok": False, "error": "Debes indicar el motivo del descarte"}
+
+    dia_semana = datetime.strptime(fecha, "%Y-%m-%d").strftime("%A")
+    dias_es = {
+        "Monday": "Lunes", "Tuesday": "Martes", "Wednesday": "Miercoles",
+        "Thursday": "Jueves", "Friday": "Viernes",
+        "Saturday": "Sabado", "Sunday": "Domingo"
+    }
+    dia_semana = dias_es.get(dia_semana, dia_semana)
+
+    try:
+        with get_connection() as conn:
+            ventas_row = conn.execute("""
+                SELECT COALESCE(SUM(cantidad), 0) AS vendido_real
+                FROM ventas
+                WHERE fecha = ? AND producto = ?
+            """, (fecha, producto)).fetchone()
+            vendido_real = int(ventas_row["vendido_real"] or 0) if ventas_row else 0
+
+            comprometido = int(_pedidos_comprometidos_producto_conn(conn, fecha).get(producto, 0) or 0)
+
+            registro = conn.execute("""
+                SELECT fecha, dia_semana, producto, producido, vendido, sobrante_inicial, observaciones
+                FROM registros_diarios
+                WHERE fecha = ? AND producto = ?
+            """, (fecha, producto)).fetchone()
+
+            if registro:
+                producido_actual = int(registro["producido"] or 0)
+                vendido_actual = max(int(registro["vendido"] or 0), vendido_real)
+                sobrante_inicial_actual = int(registro["sobrante_inicial"] or 0)
+                observaciones_actuales = str(registro["observaciones"] or "").strip()
+            else:
+                previo = conn.execute("""
+                    SELECT fecha, producido, vendido, sobrante_inicial
+                    FROM registros_diarios
+                    WHERE fecha < ? AND producto = ?
+                    ORDER BY fecha DESC, id DESC
+                    LIMIT 1
+                """, (fecha, producto)).fetchone()
+                sobrante_inicial_actual = 0
+                if previo:
+                    sobrante_inicial_actual = max(
+                        int(previo["sobrante_inicial"] or 0)
+                        + int(previo["producido"] or 0)
+                        - int(previo["vendido"] or 0),
+                        0,
+                    )
+                producido_actual = 0
+                vendido_actual = vendido_real
+                observaciones_actuales = ""
+
+            stock_total = max(sobrante_inicial_actual + producido_actual - vendido_actual, 0)
+            disponible_libre = max(stock_total - comprometido, 0)
+            if cantidad_int > disponible_libre:
+                return {
+                    "ok": False,
+                    "error": (
+                        f"No puedes descartar {cantidad_int} unidad(es) de {producto}. "
+                        f"Solo hay {disponible_libre} libres para retirar."
+                    ),
+                }
+
+            desde_sobrante = min(cantidad_int, sobrante_inicial_actual)
+            restante = cantidad_int - desde_sobrante
+            nuevo_sobrante_inicial = sobrante_inicial_actual - desde_sobrante
+            nuevo_producido = producido_actual - restante
+
+            nota_descarte = f"Descarte {cantidad_int} und. Motivo: {motivo}"
+            observaciones_finales = _combinar_observaciones(observaciones_actuales, nota_descarte)
+
+            conn.execute("""
+                INSERT INTO registros_diarios
+                    (fecha, dia_semana, producto, producido, vendido, observaciones, sobrante_inicial)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(fecha, producto) DO UPDATE SET
+                    producido = excluded.producido,
+                    vendido = excluded.vendido,
+                    observaciones = excluded.observaciones,
+                    sobrante_inicial = excluded.sobrante_inicial
+            """, (
+                fecha,
+                dia_semana,
+                producto,
+                max(nuevo_producido, 0),
+                vendido_actual,
+                observaciones_finales,
+                max(nuevo_sobrante_inicial, 0),
+            ))
+
+            creado_en = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            conn.execute("""
+                INSERT INTO mermas (fecha, creado_en, producto, cantidad, tipo, registrado_por, notas)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                fecha,
+                creado_en,
+                producto,
+                float(cantidad_int),
+                tipo_merma if tipo_merma in {"sobrante", "vencido", "danado", "consumo_interno", "cortesia", "otro"} else "otro",
+                str(registrado_por or ""),
+                motivo,
+            ))
+            conn.commit()
+
+        return {
+            "ok": True,
+            "cantidad": cantidad_int,
+            "producto": producto,
+            "desde_sobrante_inicial": desde_sobrante,
+            "desde_produccion_hoy": restante,
+        }
+    except Exception as e:
+        logger.error(f"descartar_stock_produccion: {e}")
+        return {"ok": False, "error": str(e)}
 
 
 def obtener_registros(
@@ -4316,6 +4501,96 @@ def _pedidos_comprometidos_panaderia_conn(conn, fecha: str,
     return comprometidos
 
 
+def _pedidos_comprometidos_producto_conn(conn, fecha: str,
+                                         excluir_pedido_id: int | None = None) -> dict[str, int]:
+    query = """
+        SELECT pi.producto, COALESCE(SUM(pi.cantidad), 0) AS cantidad
+        FROM pedido_items pi
+        JOIN pedidos p ON p.id = pi.pedido_id
+        WHERE p.fecha = ?
+          AND p.estado IN ('pendiente', 'en_preparacion', 'listo')
+    """
+    params: list[object] = [fecha]
+    if excluir_pedido_id is not None:
+        query += " AND p.id != ?"
+        params.append(excluir_pedido_id)
+    query += "\n        GROUP BY pi.producto"
+
+    rows = conn.execute(query, tuple(params)).fetchall()
+    return {
+        str(row["producto"] or ""): int(row["cantidad"] or 0)
+        for row in rows
+        if str(row["producto"] or "").strip()
+    }
+
+
+def _stock_operativo_detalle_conn(conn, fecha: str,
+                                  excluir_pedido_id: int | None = None) -> dict[str, dict]:
+    registros = conn.execute("""
+        SELECT fecha, producto, producido, vendido, sobrante_inicial, observaciones, id
+        FROM registros_diarios
+        WHERE fecha <= ?
+        ORDER BY producto ASC, fecha DESC, id DESC
+    """, (fecha,)).fetchall()
+
+    detalle: dict[str, dict] = {}
+    for row in registros:
+        producto = str(row["producto"] or "").strip()
+        if not producto or producto in detalle:
+            continue
+
+        fecha_registro = str(row["fecha"] or "").strip()
+        producido = int(row["producido"] or 0)
+        vendido_manual = int(row["vendido"] or 0)
+        sobrante_inicial = int(row["sobrante_inicial"] or 0)
+        tiene_registro_hoy = fecha_registro == fecha
+        stock_base = max(sobrante_inicial + producido, 0) if tiene_registro_hoy else max(
+            sobrante_inicial + producido - vendido_manual,
+            0,
+        )
+
+        detalle[producto] = {
+            "producto": producto,
+            "fecha_registro": fecha_registro,
+            "tiene_registro_hoy": tiene_registro_hoy,
+            "sobrante_inicial_hoy": sobrante_inicial if tiene_registro_hoy else stock_base,
+            "producido_hoy": producido if tiene_registro_hoy else 0,
+            "vendido_manual_hoy": vendido_manual if tiene_registro_hoy else 0,
+            "stock_base": stock_base,
+            "observaciones": str(row["observaciones"] or "").strip(),
+        }
+
+    if not detalle:
+        return {}
+
+    ventas_rows = conn.execute("""
+        SELECT producto, COALESCE(SUM(cantidad), 0) AS vendido_real
+        FROM ventas
+        WHERE fecha = ?
+        GROUP BY producto
+    """, (fecha,)).fetchall()
+    ventas_totales = {
+        str(row["producto"] or ""): int(row["vendido_real"] or 0)
+        for row in ventas_rows
+        if str(row["producto"] or "").strip()
+    }
+    comprometidos = _pedidos_comprometidos_producto_conn(conn, fecha, excluir_pedido_id=excluir_pedido_id)
+
+    for producto, info in detalle.items():
+        ventas_reales = ventas_totales.get(producto, 0)
+        vendido_operativo = max(int(info["vendido_manual_hoy"] or 0), ventas_reales)
+        comprometido = int(comprometidos.get(producto, 0) or 0)
+        disponible_bruto = max(int(info["stock_base"] or 0) - vendido_operativo, 0)
+
+        info["ventas_reales_hoy"] = ventas_reales
+        info["vendido_operativo_hoy"] = vendido_operativo
+        info["comprometido_hoy"] = comprometido
+        info["disponible_bruto"] = disponible_bruto
+        info["disponible_libre"] = max(disponible_bruto - comprometido, 0)
+
+    return detalle
+
+
 def validar_items_contra_produccion_panaderia(items: list[dict], fecha: str | None = None,
                                               excluir_pedido_id: int | None = None) -> dict:
     fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
@@ -4325,24 +4600,17 @@ def validar_items_contra_produccion_panaderia(items: list[dict], fecha: str | No
         if not requeridos:
             return {"ok": True, "faltantes": [], "requeridos": {}, "fecha": fecha}
 
-        produccion_rows = conn.execute("""
-            SELECT rd.producto, SUM(rd.producido) as producido
-            FROM registros_diarios rd
-            JOIN productos p ON p.nombre = rd.producto
-            WHERE rd.fecha = ? AND p.es_panaderia = 1
-            GROUP BY rd.producto
-        """, (fecha,)).fetchall()
-        produccion = {row["producto"]: float(row["producido"] or 0) for row in produccion_rows}
-
+        stock_operativo = _stock_operativo_detalle_conn(conn, fecha, excluir_pedido_id=excluir_pedido_id)
         comprometidos = _pedidos_comprometidos_panaderia_conn(
             conn, fecha, excluir_pedido_id=excluir_pedido_id
         )
 
         faltantes = []
         for producto, requerido in requeridos.items():
-            producido = float(produccion.get(producto, 0) or 0)
+            detalle = stock_operativo.get(producto, {})
+            producido = float(detalle.get("stock_base", 0) or 0)
             comprometido = float(comprometidos.get(producto, 0) or 0)
-            disponible = max(producido - comprometido, 0.0)
+            disponible = max(float(detalle.get("disponible_bruto", 0) or 0) - comprometido, 0.0)
             if disponible + 1e-9 < requerido:
                 faltantes.append({
                     "producto": producto,
@@ -4380,56 +4648,28 @@ def obtener_stock_disponible_hoy(fecha: str | None = None) -> dict[str, int]:
     - ventas_reales_caja: suma de las ventas reales POS y mesero ya cobradas (tabla ventas)
     - comprometido_activos: pedidos en estado pendiente/en_preparacion/listo
 
-    Solo incluye productos con registro de producción para hoy.
+    Incluye también sobrante arrastrado desde el último registro disponible del producto.
     """
     fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
     with get_connection() as conn:
-        # 1. Producción y vendido manual del día
-        prod_rows = conn.execute(
-            "SELECT producto, SUM(producido) as producido, SUM(vendido) as vendido_manual "
-            "FROM registros_diarios WHERE fecha = ? GROUP BY producto",
-            (fecha,)
-        ).fetchall()
-        if not prod_rows:
-            return {}
+        detalle = _stock_operativo_detalle_conn(conn, fecha)
+    return {
+        producto: int(info.get("disponible_libre", 0) or 0)
+        for producto, info in detalle.items()
+    }
 
-        # 2. Ventas reales registradas en caja (POS) o pedidos ya pagados
-        ventas_rows = conn.execute(
-            "SELECT producto, SUM(cantidad) as vendido_real "
-            "FROM ventas WHERE fecha = ? GROUP BY producto",
-            (fecha,)
-        ).fetchall()
-        ventas_totales = { r["producto"]: int(r["vendido_real"] or 0) for r in ventas_rows }
 
-        # 3. Pedidos activos (aún no cobrados): pendiente, en_preparacion, listo
-        pedido_ids = [
-            row["id"] for row in conn.execute(
-                "SELECT id FROM pedidos WHERE fecha = ? AND estado IN ('pendiente', 'en_preparacion', 'listo')",
-                (fecha,)
-            ).fetchall()
-        ]
-        comprometidos: dict[str, int] = {}
-        for pid in pedido_ids:
-            for item in conn.execute(
-                "SELECT producto, cantidad FROM pedido_items WHERE pedido_id = ?", (pid,)
-            ).fetchall():
-                p = item["producto"]
-                comprometidos[p] = comprometidos.get(p, 0) + int(item["cantidad"] or 0)
-
-        # 4. Calcular disponible descontando tanto en curso como ya procesadas
-        disponibles: dict[str, int] = {}
-        for r in prod_rows:
-            producto = r["producto"]
-            producido = int(r["producido"] or 0)
-            vendido_manual = int(r["vendido_manual"] or 0)
-            ventas_reales = ventas_totales.get(producto, 0)
-            comprometido = comprometidos.get(producto, 0)
-            
-            # Tomamos el valor mayor entre lo reportado manual y lo real del cajero
-            total_descontado = max(vendido_manual, ventas_reales) + comprometido
-            disponibles[producto] = max(producido - total_descontado, 0)
-
-    return disponibles
+def obtener_stock_operativo_detalle(
+    fecha: str | None = None,
+    excluir_pedido_id: int | None = None,
+) -> dict[str, dict]:
+    fecha = fecha or (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
+    with get_connection() as conn:
+        detalle = _stock_operativo_detalle_conn(conn, fecha, excluir_pedido_id=excluir_pedido_id)
+    return {
+        producto: dict(info)
+        for producto, info in detalle.items()
+    }
 
 
 def validar_stock_pedido(items: list[dict], fecha: str | None = None,
@@ -4932,28 +5172,20 @@ def obtener_alertas_stock_productos(fecha: str | None = None) -> list[dict]:
             WHERE activo = 1 AND es_panaderia = 1
             GROUP BY nombre
         """).fetchall()
-
-        registros = conn.execute("""
-            SELECT producto, producido, vendido,
-                   COALESCE(producido - vendido, 0) as disponible
-            FROM registros_diarios
-            WHERE fecha = ?
-        """, (fecha,)).fetchall()
-
-    reg_por_prod = {r["producto"]: dict(r) for r in registros}
+        stock_operativo = _stock_operativo_detalle_conn(conn, fecha)
 
     resultado = []
     for p in productos:
         nombre = p["nombre"]
         stock_minimo = int(p["stock_minimo"] or 0)
-        reg = reg_por_prod.get(nombre)
+        reg = stock_operativo.get(nombre)
 
         if reg is None:
             # No hay registro del día = sin datos
             estado = "sin_datos"
             disponible = None
         else:
-            disponible = max(int(reg["disponible"] or 0), 0)
+            disponible = max(int(reg.get("disponible_libre", 0) or 0), 0)
             if disponible <= 0:
                 estado = "rojo"
             elif stock_minimo > 0 and disponible <= stock_minimo:

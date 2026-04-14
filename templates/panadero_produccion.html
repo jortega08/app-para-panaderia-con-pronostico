@@ -293,6 +293,17 @@
                             <div class="production-readonly-value" id="readonlyVendido">0 vendidos</div>
                         </div>
 
+                        <div class="production-readonly-box" style="margin-top:12px; gap:14px; align-items:center;">
+                            <div>
+                                <strong>Descartar sobrante</strong>
+                                <span id="discardProductionHint">Usa esta accion cuando el producto ya no sirva y deba salir del stock.</span>
+                            </div>
+                            <button type="button" class="btn btn-danger-outline btn-sm" id="discardProductionBtn"
+                                    onclick="descartarStockProduccion()" disabled>
+                                Descartar unidades
+                            </button>
+                        </div>
+
                         <button type="submit" class="btn btn-accent btn-lg btn-full">
                             Guardar tanda
                         </button>
@@ -437,13 +448,15 @@ function renderProductionContext(data) {
     const sugerencia = data.sugerencia || {};
     const meta = data.meta || {};
     const avance = data.avance || {};
-    const disponibleActual = Math.max(Number(avance.producido_actual || 0) - Number(avance.vendido_actual || 0), 0);
+    const disponibleActual = Math.max(Number(avance.disponible_actual || 0), 0);
+    const sobranteInicial = Math.max(Number(avance.sobrante_inicial_actual || 0), 0);
 
     actualizarHeroBasico();
     document.getElementById('productionModelPill').textContent = `Modelo: ${sugerencia.modelo_label || '--'}`;
     document.getElementById('productionHeroSummary').textContent =
         `La meta diaria de ${data.producto} se basa en el modelo ${sugerencia.modelo_label || 'sin modelo'} y la confianza ${sugerencia.confianza || 'sin dato'}. ` +
-        `Puedes registrar una tanda puntual abajo o usar la tabla rapida para guardar varias tandas al mismo tiempo.`;
+        `Puedes registrar una tanda puntual abajo o usar la tabla rapida para guardar varias tandas al mismo tiempo.` +
+        (sobranteInicial > 0 ? ` Hoy arrancas con ${number(sobranteInicial)} unidades arrastradas del ultimo registro.` : '');
 
     document.getElementById('statMetaOperativa').textContent = number(meta.operativa || 0);
     document.getElementById('statMetaOrigen').textContent = meta.origen === 'ajuste_manual'
@@ -465,9 +478,9 @@ function renderProductionContext(data) {
         ? `Faltan ${number(avance.faltante_actual)} para cubrir ventas`
         : `Sobrante operativo ${number(avance.sobrante_actual || 0)}`;
     document.getElementById('kpiDisponibleActual').textContent = number(disponibleActual);
-    document.getElementById('kpiDisponibleMeta').textContent = avance.restante_meta > 0
-        ? `Faltan ${number(avance.restante_meta)} para meta`
-        : 'Meta del dia cumplida';
+    document.getElementById('kpiDisponibleMeta').textContent = Number(avance.comprometido_actual || 0) > 0
+        ? `Reservado en pedidos: ${number(avance.comprometido_actual || 0)}`
+        : (avance.restante_meta > 0 ? `Faltan ${number(avance.restante_meta)} para meta` : 'Meta del dia cumplida');
 
     document.getElementById('productionProgressText').textContent =
         `Has producido ${number(avance.producido_actual || 0)} de ${number(meta.operativa || 0)} panes para esta meta diaria.`;
@@ -488,6 +501,10 @@ function renderProductionContext(data) {
     document.getElementById('productionBatchHint').textContent = avance.restante_meta > 0
         ? `Segun la meta actual, faltan ${number(avance.restante_meta)} panes por hornear.`
         : 'La meta actual ya fue cubierta; puedes registrar otra tanda si quieres reponer pan fresco.';
+    document.getElementById('discardProductionBtn').disabled = disponibleActual <= 0;
+    document.getElementById('discardProductionHint').textContent = disponibleActual > 0
+        ? `Hay ${number(disponibleActual)} unidades disponibles para retirar si el producto ya no esta apto.`
+        : 'No hay unidades libres para descartar en este momento.';
 
     renderLotes(data.lotes || []);
 }
@@ -509,6 +526,8 @@ function resetProductionContext(message = 'No se pudo cargar el contexto de prod
     document.getElementById('chipProductionTargetDay').textContent = 'Dia objetivo: --';
     document.getElementById('readonlyVendido').textContent = '0 vendidos';
     document.getElementById('productionBatchHint').textContent = 'Registra la tanda puntual, no toda la meta diaria.';
+    document.getElementById('discardProductionBtn').disabled = true;
+    document.getElementById('discardProductionHint').textContent = 'Usa esta accion cuando el producto ya no sirva y deba salir del stock.';
     document.getElementById('productionLotesList').innerHTML = '<div class="production-empty">Sin tandas cargadas.</div>';
     setProgress(0);
 }
@@ -593,6 +612,95 @@ async function guardarMetaOperativa(usarSugerido = false) {
 
 function restaurarMetaSugerida() {
     guardarMetaOperativa(true);
+}
+
+async function descartarStockProduccion() {
+    if (!productionContext) {
+        Toast.warning('Primero carga el contexto del producto que quieres ajustar.');
+        return;
+    }
+
+    const fecha = document.getElementById('fecha').value;
+    const producto = document.getElementById('producto').value;
+    const disponible = Math.max(Number(productionContext.avance?.disponible_actual || 0), 0);
+    if (disponible <= 0) {
+        Toast.info('No hay unidades disponibles para descartar en este momento.');
+        return;
+    }
+
+    const cantidadRaw = await appPrompt({
+        title: 'Descartar sobrante',
+        message: `${producto} tiene ${number(disponible)} unidades libres en la fecha seleccionada.`,
+        label: 'Cantidad a descartar',
+        inputType: 'number',
+        defaultValue: '1',
+        placeholder: 'Ej: 2',
+        confirmText: 'Siguiente',
+    });
+    if (cantidadRaw === null) return;
+
+    const cantidad = Math.floor(Number(cantidadRaw || 0));
+    if (!Number.isFinite(cantidad) || cantidad <= 0) {
+        Toast.warning('Escribe una cantidad valida.');
+        return;
+    }
+    if (cantidad > disponible) {
+        Toast.warning(`Solo hay ${number(disponible)} unidades libres para retirar.`);
+        return;
+    }
+
+    const motivoRaw = await appPrompt({
+        title: 'Motivo del descarte',
+        message: 'Este motivo quedara guardado en la merma y en la bitacora operativa.',
+        label: 'Motivo',
+        placeholder: 'Ej: producto vencido o en mal estado',
+        confirmText: 'Registrar descarte',
+    });
+    if (motivoRaw === null) return;
+
+    const motivo = `${motivoRaw || ''}`.trim();
+    if (!motivo) {
+        Toast.warning('Debes escribir el motivo del descarte.');
+        return;
+    }
+
+    const confirmado = await appConfirm(
+        `Se descartaran <strong>${number(cantidad)}</strong> unidad(es) de <strong>${escapeHtml(producto)}</strong>.<br><br>Motivo: ${escapeHtml(motivo)}`,
+        { type: 'danger', title: 'Confirmar descarte', confirmText: 'Descartar' }
+    );
+    if (!confirmado) return;
+
+    const button = document.getElementById('discardProductionBtn');
+    if (window.AppUI && typeof AppUI.setButtonLoading === 'function') {
+        AppUI.setButtonLoading(button, true, 'Descartando...');
+    }
+
+    try {
+        const res = await fetch('/api/produccion/descartar', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                fecha,
+                producto,
+                cantidad,
+                motivo,
+                tipo: 'vencido',
+            }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+            throw new Error(data.error || 'No se pudo registrar el descarte');
+        }
+
+        Toast.success(`Se descontaron ${number(cantidad)} unidades de ${producto}.`);
+        await Promise.all([cargarContextoProduccion(), cargarContextoProduccionMasivo()]);
+    } catch (error) {
+        Toast.error(error.message || 'No se pudo registrar el descarte.');
+    } finally {
+        if (window.AppUI && typeof AppUI.setButtonLoading === 'function') {
+            AppUI.setButtonLoading(button, false);
+        }
+    }
 }
 
 function getQuickRow(producto) {
