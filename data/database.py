@@ -88,6 +88,16 @@ def _ejecutar_migracion_tolerante(conn, sql: str, params=()) -> bool:
         return False
 
 
+def _combinar_observaciones(base: str = "", extra: str = "") -> str:
+    base_texto = str(base or "").strip()
+    extra_texto = str(extra or "").strip()
+    if not base_texto:
+        return extra_texto
+    if not extra_texto or extra_texto in base_texto:
+        return base_texto
+    return f"{base_texto} | {extra_texto}"
+
+
 def _schema_tabla_conn(conn, nombre_tabla: str) -> str:
     if DB_TYPE != "sqlite":
         return ""
