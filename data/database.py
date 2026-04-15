@@ -2850,8 +2850,15 @@ def guardar_registro(fecha: str, producto: str,
                 for insumo_id, datos in consumo_producto.items():
                     if delta_producido > 0:
                         conn.execute(
-                            "UPDATE insumos SET stock = MAX(0, stock - ?) WHERE id = ?",
-                            (datos["cantidad"], insumo_id)
+                            """
+                            UPDATE insumos
+                            SET stock = CASE
+                                WHEN stock - ? < 0 THEN 0
+                                ELSE stock - ?
+                            END
+                            WHERE id = ?
+                            """,
+                            (datos["cantidad"], datos["cantidad"], insumo_id)
                         )
                     else:
                         conn.execute(
@@ -3398,8 +3405,15 @@ def _cobrar_pedido_conn(conn, pedido: dict, registrado_por: str = "",
         )
         for insumo_id, datos in consumo_producto.items():
             conn.execute(
-                "UPDATE insumos SET stock = MAX(0, stock - ?) WHERE id = ?",
-                (datos["cantidad"], insumo_id)
+                """
+                UPDATE insumos
+                SET stock = CASE
+                    WHEN stock - ? < 0 THEN 0
+                    ELSE stock - ?
+                END
+                WHERE id = ?
+                """,
+                (datos["cantidad"], datos["cantidad"], insumo_id)
             )
 
         for mod in item.get("modificaciones", []):
@@ -3414,8 +3428,15 @@ def _cobrar_pedido_conn(conn, pedido: dict, registrado_por: str = "",
                 )
                 for insumo_id, datos in consumo_adicional.items():
                     conn.execute(
-                        "UPDATE insumos SET stock = MAX(0, stock - ?) WHERE id = ?",
-                        (datos["cantidad"], insumo_id)
+                        """
+                        UPDATE insumos
+                        SET stock = CASE
+                            WHEN stock - ? < 0 THEN 0
+                            ELSE stock - ?
+                        END
+                        WHERE id = ?
+                        """,
+                        (datos["cantidad"], datos["cantidad"], insumo_id)
                     )
 
     conn.execute("""

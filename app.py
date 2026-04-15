@@ -696,7 +696,7 @@ def _sobrante_dia_anterior(fecha: str, producto: str) -> int:
     """Retorna el sobrante efectivo del ultimo registro previo disponible."""
     with get_connection() as conn:
         row = conn.execute("""
-            SELECT sobrante_inicial, sobrante
+            SELECT sobrante_inicial, producido, vendido
             FROM registros_diarios
             WHERE fecha < ? AND producto = ?
             ORDER BY fecha DESC, id DESC
@@ -704,7 +704,12 @@ def _sobrante_dia_anterior(fecha: str, producto: str) -> int:
         """, (fecha, producto)).fetchone()
     if not row:
         return 0
-    return max(int(row["sobrante_inicial"] or 0) + int(row["sobrante"] or 0), 0)
+    return max(
+        int(row["sobrante_inicial"] or 0)
+        + int(row["producido"] or 0)
+        - int(row["vendido"] or 0),
+        0,
+    )
 
 
 def _combinar_observaciones(base: str = "", extra: str = "") -> str:
@@ -1671,6 +1676,13 @@ def panadero_produccion():
                 if ok:
                     flash(f"Registro guardado: {producto} - {fecha}", "success")
                 else:
+                    app.logger.error(
+                        "Error guardando tanda individual: producto=%s fecha=%s cantidad=%s usuario=%s",
+                        producto,
+                        fecha,
+                        cantidad_lote,
+                        _nombre_usuario_actual(),
+                    )
                     flash("No se pudo guardar", "error")
         except (ValueError, KeyError) as e:
             flash(f"Datos invalidos: {e}", "error")
@@ -2156,6 +2168,14 @@ def api_guardar_lotes_masivos():
         if producto not in productos_panaderia:
             return jsonify({"ok": False, "error": f"{producto} no pertenece a Panaderia"}), 400
         if not _guardar_lote_produccion(fecha, producto, cantidad, observaciones):
+            app.logger.error(
+                "Error guardando tanda masiva: producto=%s fecha=%s cantidad=%s turno=%s usuario=%s",
+                producto,
+                fecha,
+                cantidad,
+                turno,
+                _nombre_usuario_actual(),
+            )
             return jsonify({"ok": False, "error": f"No se pudo guardar la tanda para {producto}"}), 500
         guardados += 1
         total_unidades += cantidad
