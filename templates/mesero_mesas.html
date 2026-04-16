@@ -1,9 +1,101 @@
 {% extends "base.html" %}
 {% block title_extra %} - Mesas{% endblock %}
 {% block content %}
+<style>
+.mesa-qr-modal {
+    max-width: 820px;
+}
+.mesa-qr-choice-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 18px;
+}
+.mesa-qr-choice-btn {
+    display: grid;
+    gap: 4px;
+    text-align: left;
+    padding: 16px 18px;
+    border-radius: 18px;
+    border: 1px solid rgba(139, 85, 19, 0.12);
+    background: rgba(255, 255, 255, 0.94);
+    color: var(--text-sec);
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+.mesa-qr-choice-btn strong {
+    font-size: 15px;
+    color: var(--text);
+}
+.mesa-qr-choice-btn span {
+    font-size: 13px;
+    color: var(--text-muted);
+}
+.mesa-qr-choice-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 26px rgba(44, 24, 16, 0.08);
+}
+.mesa-qr-choice-btn.is-active {
+    border-color: rgba(193, 120, 23, 0.35);
+    background: rgba(193, 120, 23, 0.1);
+}
+.mesa-qr-preview {
+    display: grid;
+    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+    gap: 20px;
+    align-items: center;
+}
+.mesa-qr-frame {
+    display: grid;
+    place-items: center;
+    padding: 18px;
+    border-radius: 22px;
+    background: rgba(255, 249, 241, 0.92);
+    border: 1px solid rgba(193, 120, 23, 0.12);
+}
+.mesa-qr-frame img {
+    width: min(100%, 280px);
+    height: auto;
+    display: block;
+}
+.mesa-qr-copy {
+    display: grid;
+    gap: 12px;
+}
+.mesa-qr-copy h4 {
+    margin: 0;
+    font-size: 24px;
+    color: var(--text);
+}
+.mesa-qr-copy p {
+    margin: 0;
+    color: var(--text-sec);
+    line-height: 1.55;
+}
+.mesa-qr-link-text {
+    font-size: 12px;
+    color: var(--text-muted);
+    word-break: break-all;
+}
+@media (max-width: 720px) {
+    .mesa-qr-choice-row,
+    .mesa-qr-preview {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+
 <div class="page-container">
     <div class="page-header">
-        <h1 class="page-title"><span class="material-symbols-outlined">table_restaurant</span> Mesas</h1>
+        <div>
+            <h1 class="page-title"><span class="material-symbols-outlined">table_restaurant</span> Mesas</h1>
+            <p class="text-muted">Abre una mesa para tomar el pedido o muestra el QR del menu que necesite el cliente.</p>
+        </div>
+        <div class="page-header-right">
+            <button type="button" class="btn btn-outline" onclick="abrirModalMenuQr()">
+                <span class="material-symbols-outlined" style="font-size:18px;">qr_code_2</span>
+                Mostrar QR del menu
+            </button>
+        </div>
     </div>
 
     <div class="mesas-grid">
@@ -30,14 +122,111 @@
         {% endfor %}
     </div>
 
-    <!-- Top 3 productos del día -->
     <div id="top3Banner" style="display:none;margin-top:16px;background:var(--color-surface);border:1px solid var(--color-border);border-radius:8px;padding:10px 14px">
-      <div style="font-size:.75rem;font-weight:600;opacity:.6;margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">🔥 Más pedidos hoy</div>
+      <div style="font-size:.75rem;font-weight:600;opacity:.6;margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">Mas pedidos hoy</div>
       <div id="top3Lista" style="display:flex;gap:12px;flex-wrap:wrap"></div>
     </div>
 </div>
 
+<div class="modal-overlay" id="menuQrModal" style="display:none;" onclick="handleMenuQrOverlay(event)">
+    <div class="modal-card mesa-qr-modal">
+        <div class="modal-header">
+            <h3>QR del menu</h3>
+            <button type="button" class="modal-close" onclick="cerrarModalMenuQr()" aria-label="Cerrar">
+                &times;
+            </button>
+        </div>
+        <div class="modal-body">
+            <div class="mesa-qr-choice-row">
+                {% for option in menu_qr_options %}
+                <button type="button"
+                        class="mesa-qr-choice-btn{% if loop.first %} is-active{% endif %}"
+                        data-menu-qr-btn="{{ option.id }}"
+                        onclick="seleccionarMenuQr('{{ option.id }}')">
+                    <strong>{{ option.label }}</strong>
+                    <span>{{ option.subtitle }}</span>
+                </button>
+                {% endfor %}
+            </div>
+
+            <div class="mesa-qr-preview">
+                <div class="mesa-qr-frame">
+                    <img id="menuQrImage" alt="QR del menu" src="" loading="lazy">
+                </div>
+                <div class="mesa-qr-copy">
+                    <h4 id="menuQrTitle">Menu</h4>
+                    <p id="menuQrSubtitle">Selecciona el menu que quieres mostrar.</p>
+                    <p>Escanealo desde el celular del cliente o abre el enlace directo si prefieren verlo sin QR.</p>
+                    <a id="menuQrLink" class="btn btn-accent" href="#" target="_blank" rel="noopener noreferrer">
+                        Abrir menu
+                    </a>
+                    <div class="mesa-qr-link-text" id="menuQrLinkText"></div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-outline" onclick="cerrarModalMenuQr()">Cerrar</button>
+        </div>
+    </div>
+</div>
+
 <script>
+const MENU_QR_OPTIONS = {{ menu_qr_options | tojson }};
+
+function getMenuQrOption(menuId) {
+    return (MENU_QR_OPTIONS || []).find(option => option.id === menuId) || MENU_QR_OPTIONS[0] || null;
+}
+
+function buildMenuQrSrc(url) {
+    return 'https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=16&data=' + encodeURIComponent(url);
+}
+
+function seleccionarMenuQr(menuId) {
+    const option = getMenuQrOption(menuId);
+    if (!option) return;
+
+    document.querySelectorAll('[data-menu-qr-btn]').forEach((button) => {
+        button.classList.toggle('is-active', button.dataset.menuQrBtn === option.id);
+    });
+
+    const image = document.getElementById('menuQrImage');
+    const title = document.getElementById('menuQrTitle');
+    const subtitle = document.getElementById('menuQrSubtitle');
+    const link = document.getElementById('menuQrLink');
+    const linkText = document.getElementById('menuQrLinkText');
+
+    if (image) {
+        image.src = buildMenuQrSrc(option.url);
+        image.alt = 'QR de ' + option.label;
+    }
+    if (title) title.textContent = option.label;
+    if (subtitle) subtitle.textContent = option.subtitle;
+    if (link) link.href = option.url;
+    if (linkText) linkText.textContent = option.url;
+}
+
+function abrirModalMenuQr(menuId) {
+    if (!MENU_QR_OPTIONS || !MENU_QR_OPTIONS.length) {
+        Toast.warning('No hay menus configurados para mostrar en QR.');
+        return;
+    }
+    const modal = document.getElementById('menuQrModal');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    seleccionarMenuQr(menuId || MENU_QR_OPTIONS[0].id);
+}
+
+function cerrarModalMenuQr() {
+    const modal = document.getElementById('menuQrModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function handleMenuQrOverlay(event) {
+    if (event.target.id === 'menuQrModal') {
+        cerrarModalMenuQr();
+    }
+}
+
 async function cargarTop3() {
     try {
         const r = await fetch('/api/top-productos?limite=3');
@@ -46,14 +235,21 @@ async function cargarTop3() {
         const top = d.top || [];
         if (top.length === 0) return;
         document.getElementById('top3Banner').style.display = 'block';
-        document.getElementById('top3Lista').innerHTML = top.map((t,i) => `
+        document.getElementById('top3Lista').innerHTML = top.map((t, i) => `
             <span style="font-size:.85rem;background:var(--color-bg);border-radius:6px;padding:4px 10px;border:1px solid var(--color-border)">
-                <strong>#${i+1}</strong> ${t.producto} <span style="opacity:.6">(${t.unidades})</span>
+                <strong>#${i + 1}</strong> ${t.producto} <span style="opacity:.6">(${t.unidades})</span>
             </span>
         `).join('');
-    } catch(e) {}
+    } catch (e) {}
 }
+
 cargarTop3();
 setInterval(cargarTop3, 120000);
+
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+        cerrarModalMenuQr();
+    }
+});
 </script>
 {% endblock %}

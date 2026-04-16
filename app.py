@@ -1585,6 +1585,7 @@ def cajero_editar_pedido(pedido_id):
         pedido_page_copy="Ajusta el pedido antes de cobrarlo. Cada cambio exige un motivo y queda notificado al admin.",
         pedido_submit_label="Guardar ajuste",
         pedido_return_url=url_for("cajero_pedidos"),
+        pedido_return_label="Salir a pedidos",
         layout="cajero",
         active_page="pedidos",
     )
@@ -1596,8 +1597,23 @@ def cajero_editar_pedido(pedido_id):
 @login_required
 def mesero_mesas():
     mesas = obtener_resumen_mesas()
+    menu_qr_options = [
+        {
+            "id": "manana",
+            "label": "Menu de manana",
+            "subtitle": "Desayunos",
+            "url": "https://panaderiarichs.my.canva.site/men-desayunos-panader-a-rich-s",
+        },
+        {
+            "id": "tardes",
+            "label": "Menu de tardes",
+            "subtitle": "Panaderia y onces",
+            "url": "https://panaderiarichs.my.canva.site/men-de-tardes-panader-a-rich-s",
+        },
+    ]
     return render_template("mesero_mesas.html",
                            mesas=mesas,
+                           menu_qr_options=menu_qr_options,
                            layout="mesero", active_page="mesas")
 
 
@@ -1625,6 +1641,7 @@ def mesero_pedido(mesa_id):
                            pedido_page_copy="Toca productos para crear un nuevo pedido para esta mesa. Si ya existe uno y hay algo adicional, envialo como un pedido nuevo.",
                            pedido_submit_label="Enviar pedido",
                            pedido_return_url=url_for("mesero_mesas"),
+                           pedido_return_label="Salir a mesas",
                            layout="mesero", active_page="mesas")
 
 
@@ -2834,13 +2851,17 @@ def api_agregar_producto():
     nombre = str(data.get("nombre", "") or "").strip()
     categoria = str(data.get("categoria", "Panaderia") or "").strip() or "Panaderia"
     es_adicional = bool(data.get("es_adicional", False))
+    raw_es_panaderia = data.get("es_panaderia")
+    es_panaderia = None if raw_es_panaderia in (None, "") else str(raw_es_panaderia).strip().lower() in {
+        "1", "true", "si", "sí", "yes", "on"
+    }
     if not nombre:
         return jsonify({"ok": False, "error": "Nombre vacio"}), 400
     try:
         precio = float(data.get("precio", 0) or 0)
     except (TypeError, ValueError):
         return jsonify({"ok": False, "error": "Precio invalido"}), 400
-    ok = agregar_producto(nombre, precio, categoria, es_adicional=es_adicional)
+    ok = agregar_producto(nombre, precio, categoria, es_adicional=es_adicional, es_panaderia=es_panaderia)
     status = 200 if ok else 409
     return jsonify({"ok": ok, "error": None if ok else "Ese producto ya existe en esa categoria"}), status
 
@@ -2852,6 +2873,10 @@ def api_actualizar_producto_completo(producto_id):
     nombre = str(data.get("nombre", "") or "").strip()
     categoria = str(data.get("categoria", "Panaderia") or "").strip() or "Panaderia"
     es_adicional = bool(data.get("es_adicional", False))
+    raw_es_panaderia = data.get("es_panaderia")
+    es_panaderia = None if raw_es_panaderia in (None, "") else str(raw_es_panaderia).strip().lower() in {
+        "1", "true", "si", "sí", "yes", "on"
+    }
 
     try:
         precio = float(data.get("precio", 0) or 0)
@@ -2861,7 +2886,14 @@ def api_actualizar_producto_completo(producto_id):
     if not nombre:
         return jsonify({"ok": False, "error": "Nombre vacio"}), 400
 
-    ok = actualizar_producto_completo(producto_id, nombre, precio, categoria, es_adicional)
+    ok = actualizar_producto_completo(
+        producto_id,
+        nombre,
+        precio,
+        categoria,
+        es_adicional,
+        es_panaderia=es_panaderia,
+    )
     return jsonify({"ok": ok, "error": None if ok else "No se pudo actualizar el producto"})
 
 
@@ -4176,18 +4208,63 @@ def _inicializar_base_de_datos_con_retry() -> None:
 # Encargos
 # ──────────────────────────────────────────────
 
+def _render_encargos_view(*, layout: str, active_page: str,
+                          puede_crear_encargos: bool,
+                          puede_cambiar_estado_encargo: bool,
+                          puede_eliminar_encargo: bool,
+                          titulo: str,
+                          descripcion: str):
+    productos = obtener_productos_con_precio()
+    encargos = obtener_encargos(dias=60)
+    return render_template(
+        "cajero_encargos.html",
+        productos=productos,
+        encargos=encargos,
+        layout=layout,
+        active_page=active_page,
+        puede_crear_encargos=puede_crear_encargos,
+        puede_cambiar_estado_encargo=puede_cambiar_estado_encargo,
+        puede_eliminar_encargo=puede_eliminar_encargo,
+        encargo_view_title=titulo,
+        encargo_view_description=descripcion,
+    )
+
+
 @app.route("/cajero/encargos")
 @login_required
 def cajero_encargos():
-    if _rol_usuario_actual() not in ("cajero", "panadero"):
+    rol_actual = _rol_usuario_actual()
+    if rol_actual == "panadero":
+        return redirect(url_for("panadero_encargos"))
+    if rol_actual != "cajero":
         flash("No tienes permiso para ver encargos", "error")
         return redirect(url_for("index"))
-    productos = obtener_productos_con_precio()
-    encargos = obtener_encargos(dias=60)
-    return render_template("cajero_encargos.html",
-                           productos=productos,
-                           encargos=encargos,
-                           layout="cajero", active_page="encargos")
+    return _render_encargos_view(
+        layout="cajero",
+        active_page="encargos",
+        puede_crear_encargos=True,
+        puede_cambiar_estado_encargo=True,
+        puede_eliminar_encargo=True,
+        titulo="Encargos",
+        descripcion="Registra, filtra y da seguimiento a los encargos que salen desde caja.",
+    )
+
+
+@app.route("/panadero/encargos")
+@login_required
+def panadero_encargos():
+    if _rol_usuario_actual() != "panadero":
+        flash("No tienes permiso para ver encargos", "error")
+        return redirect(url_for("index"))
+    return _render_encargos_view(
+        layout="panadero",
+        active_page="encargos",
+        puede_crear_encargos=False,
+        puede_cambiar_estado_encargo=False,
+        puede_eliminar_encargo=False,
+        titulo="Encargos de Caja",
+        descripcion="Consulta los encargos registrados por caja para organizar la produccion y las entregas.",
+    )
 
 
 @app.route("/api/encargo", methods=["POST"])

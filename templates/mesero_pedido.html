@@ -7,6 +7,27 @@
 .mobile-order-close {
     display: none;
 }
+.pedido-page-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+.pedido-page-head-copy {
+    min-width: 0;
+    flex: 1;
+}
+.pedido-page-head-copy .page-title {
+    margin-bottom: 4px;
+}
+.pedido-exit-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+}
 .mobile-order-fab {
     position: fixed;
     right: 12px;
@@ -143,6 +164,10 @@
     }
 }
 @media (max-width: 520px) {
+    .pedido-exit-btn {
+        width: 100%;
+        justify-content: center;
+    }
     .mobile-order-fab {
         bottom: calc(84px + env(safe-area-inset-bottom));
         padding: 11px 14px;
@@ -171,8 +196,16 @@
 </style>
 <div class="pos-layout">
     <div class="pos-products">
-        <h2 class="page-title">{{ pedido_page_title or ('Mesa ' ~ mesa.numero ~ ' - ' ~ mesa.nombre) }}</h2>
-        <p class="text-muted" style="margin-bottom: 16px;">{{ pedido_page_copy or 'Toca un producto para agregarlo al pedido.' }}</p>
+        <div class="pedido-page-head">
+            <div class="pedido-page-head-copy">
+                <h2 class="page-title">{{ pedido_page_title or ('Mesa ' ~ mesa.numero ~ ' - ' ~ mesa.nombre) }}</h2>
+                <p class="text-muted" style="margin-bottom: 0;">{{ pedido_page_copy or 'Toca un producto para agregarlo al pedido.' }}</p>
+            </div>
+            <a href="{{ pedido_return_url }}" class="btn btn-outline pedido-exit-btn">
+                <span class="material-symbols-outlined" style="font-size:18px;">arrow_back</span>
+                {{ pedido_return_label or 'Salir del pedido' }}
+            </a>
+        </div>
         {% if pedido_editable %}
         <div class="chip chip-filter-active" style="display:inline-flex; margin-bottom:16px;">
             Editando pedido #{{ pedido_editable.id }}{% if editor_role == 'cajero' %} · requiere motivo al guardar{% endif %}
@@ -249,7 +282,7 @@
             <span class="cart-total-value" id="cartTotal">$0</span>
             </div>
             <div class="cart-actions">
-                <a href="{{ pedido_return_url }}" class="btn btn-outline">Volver</a>
+                <a href="{{ pedido_return_url }}" class="btn btn-outline">{{ pedido_return_label or 'Salir del pedido' }}</a>
                 <button class="btn btn-success btn-lg" id="submitPedidoBtn" onclick="enviarPedido()">
                     {{ pedido_submit_label or ('Guardar cambios' if pedido_editable else 'Enviar pedido') }}
                 </button>

@@ -105,6 +105,9 @@
                 <a href="{{ url_for('panadero_produccion') }}" class="{% if active_page == 'produccion' %}active{% endif %}">
                     <span class="material-symbols-outlined">add_notes</span> Produccion
                 </a>
+                <a href="{{ url_for('panadero_encargos') }}" class="{% if active_page == 'encargos' %}active{% endif %}">
+                    <span class="material-symbols-outlined">event_note</span> Encargos
+                </a>
                 <a href="{{ url_for('panadero_ventas') }}" class="{% if active_page == 'ventas' %}active{% endif %}">
                     <span class="material-symbols-outlined">paid</span> Ventas de Hoy
                 </a>
@@ -230,6 +233,10 @@
                 <a href="{{ url_for('panadero_inventario') }}" class="panadero-quickdock-link">
                     <span class="material-symbols-outlined">inventory</span>
                     Insumos
+                </a>
+                <a href="{{ url_for('panadero_encargos') }}" class="panadero-quickdock-link">
+                    <span class="material-symbols-outlined">event_note</span>
+                    Encargos
                 </a>
             </aside>
         </div>

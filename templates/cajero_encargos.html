@@ -33,6 +33,17 @@
     .filter-bar select, .filter-bar input { max-width: 180px; }
 </style>
 
+<div class="page-header" style="margin-bottom:18px;">
+    <div>
+        <h2 class="page-title">
+            <span class="material-symbols-outlined">event_note</span>
+            {{ encargo_view_title | default('Encargos') }}
+        </h2>
+        <p class="text-muted">{{ encargo_view_description | default('Consulta y gestiona los encargos registrados en el sistema.') }}</p>
+    </div>
+</div>
+
+{% if puede_crear_encargos %}
 <!-- Formulario de nuevo encargo -->
 <div class="encargo-form-card" id="formNuevoEncargo" style="display:none;">
     <div class="encargo-form-title">Nuevo Encargo</div>
@@ -69,10 +80,13 @@
         <button class="btn btn-success" onclick="guardarEncargo()">Guardar encargo</button>
     </div>
 </div>
+{% endif %}
 
 <!-- Barra de filtros y accion -->
 <div class="filter-bar">
+    {% if puede_crear_encargos %}
     <button class="btn btn-primary" onclick="abrirFormEncargo()">+ Nuevo encargo</button>
+    {% endif %}
     <select id="filtroEstado" class="form-input" onchange="filtrarEncargos()">
         <option value="">Todos los estados</option>
         <option value="pendiente">Pendiente</option>
@@ -116,18 +130,20 @@
             </div>
             {% if enc.notas %}<div style="margin-top:8px;font-size:13px;color:var(--text-muted);">Notas: {{ enc.notas }}</div>{% endif %}
             <div style="margin-top:6px;font-size:12px;color:var(--text-muted);">Registrado por {{ enc.registrado_por }} · {{ enc.creado_en[:16] }}</div>
+            {% if puede_cambiar_estado_encargo or puede_eliminar_encargo %}
             <div class="encargo-actions">
-                {% if enc.estado == 'pendiente' %}
+                {% if puede_cambiar_estado_encargo and enc.estado == 'pendiente' %}
                 <button class="btn btn-success btn-sm" onclick="cambiarEstadoEncargo({{ enc.id }}, 'listo')">Marcar listo</button>
                 <button class="btn btn-accent btn-sm" onclick="cambiarEstadoEncargo({{ enc.id }}, 'cancelado')">Cancelar encargo</button>
-                {% elif enc.estado == 'listo' %}
+                {% elif puede_cambiar_estado_encargo and enc.estado == 'listo' %}
                 <button class="btn btn-primary btn-sm" onclick="cambiarEstadoEncargo({{ enc.id }}, 'entregado')">Marcar entregado</button>
                 <button class="btn btn-outline btn-sm" onclick="cambiarEstadoEncargo({{ enc.id }}, 'pendiente')">Revertir a pendiente</button>
                 {% endif %}
-                {% if enc.estado in ('pendiente', 'cancelado') %}
+                {% if puede_eliminar_encargo and enc.estado in ('pendiente', 'cancelado') %}
                 <button class="btn btn-danger-outline btn-sm" onclick="eliminarEncargo({{ enc.id }})">Eliminar</button>
                 {% endif %}
             </div>
+            {% endif %}
         </div>
     </div>
     {% endfor %}

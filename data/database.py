@@ -1719,10 +1719,11 @@ def _renombrar_producto_referencias_conn(conn, nombre_anterior: str, nuevo_nombr
 
 
 def actualizar_producto_completo(producto_id: int, nombre: str, precio: float,
-                                 categoria: str, es_adicional: bool) -> bool:
+                                 categoria: str, es_adicional: bool,
+                                 es_panaderia: bool | None = None) -> bool:
     nombre = str(nombre or "").strip()
     categoria = str(categoria or "").strip() or "Panaderia"
-    es_panaderia = es_categoria_panaderia(categoria)
+    es_panaderia_final = es_categoria_panaderia(categoria) if es_panaderia is None else bool(es_panaderia)
     if producto_id <= 0 or not nombre:
         return False
 
@@ -1748,7 +1749,7 @@ def actualizar_producto_completo(producto_id: int, nombre: str, precio: float,
                 nombre,
                 float(precio),
                 categoria,
-                1 if es_panaderia else 0,
+                1 if es_panaderia_final else 0,
                 1 if es_adicional else 0,
                 producto_id,
             ))

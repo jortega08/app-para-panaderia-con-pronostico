@@ -372,7 +372,15 @@ select {
 
 .page-container.pos-page,
 .page-container.cajero-pedidos-page,
-.page-container.cajero-ventas-page {
+.page-container.cajero-ventas-page{
+    max-width: none;
+}
+
+body.mesero-layout .page-container{
+    max-width: none;
+}
+
+body.cajero-layout .page-container.production-page {
     max-width: none;
 }
 
