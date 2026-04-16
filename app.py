@@ -150,6 +150,8 @@ from logic.pronostico import (
     calcular_pronostico,
     calcular_eficiencia,
     analizar_tendencia,
+    obtener_historial_pronostico,
+    obtener_resumen_pronostico_por_dia_semana,
     TIPO_DIA,
 )
 
@@ -1630,8 +1632,24 @@ def mesero_pedido(mesa_id):
 @login_required
 def mesero_pedidos():
     pedidos = obtener_pedidos_con_detalle(mesero=_nombre_usuario_actual())
+    mesas_index: dict[int, dict] = {}
+    for pedido in pedidos:
+        mesa_numero = pedido.get("mesa_numero")
+        if mesa_numero in (None, ""):
+            continue
+        try:
+            key = int(mesa_numero)
+        except (TypeError, ValueError):
+            continue
+        entry = mesas_index.setdefault(key, {
+            "numero": key,
+            "total": 0,
+        })
+        entry["total"] += 1
+    mesas_filtro = [mesas_index[key] for key in sorted(mesas_index)]
     return render_template("mesero_pedidos.html",
                            pedidos=pedidos,
+                           mesas_filtro=mesas_filtro,
                            layout="mesero", active_page="pedidos")
 
 
@@ -1917,7 +1935,7 @@ def api_pronostico_dashboard():
                 "mensaje": "Error al calcular el pronóstico para este día.",
             })
 
-    historial = list(reversed(obtener_registros(producto, dias=dias)))
+    historial = list(reversed(obtener_historial_pronostico(producto, dias=dias)))
     serie_ventas_producto = obtener_serie_ventas_diarias(dias=dias, producto=producto)
     ranking_productos = obtener_resumen_productos_rango(dias=dias)
 
@@ -1945,7 +1963,7 @@ def api_pronostico_dashboard():
     }
 
     # Resumen por día de semana (ya usado abajo para prediccion_semanal y matriz)
-    resumen_dia = obtener_resumen_por_dia_semana(producto)
+    resumen_dia = obtener_resumen_pronostico_por_dia_semana(producto, dias=dias)
     prediccion_semanal = {
         dia: resumen_dia.get(dia, {}).get("promedio", 0)
         for dia in ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]

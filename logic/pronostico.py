@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import math
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, date, timedelta
 from typing import Optional
 
 from data.database import (
     obtener_registros,
-    obtener_resumen_por_dia_semana,
-    contar_registros,
+    obtener_serie_ventas_diarias,
     obtener_factor_dia_especial,
     obtener_ajuste_pronostico,
 )
@@ -73,6 +73,135 @@ class ResultadoPronostico:
 
 # ── Función principal ─────────────────────────────────────────────────────────
 
+def _nombre_dia_semana_es(fecha: str) -> str:
+    dia_obj = datetime.strptime(fecha, "%Y-%m-%d").strftime("%A")
+    dias_es = {
+        "Monday": "Lunes",
+        "Tuesday": "Martes",
+        "Wednesday": "Miercoles",
+        "Thursday": "Jueves",
+        "Friday": "Viernes",
+        "Saturday": "Sabado",
+        "Sunday": "Domingo",
+    }
+    return dias_es.get(dia_obj, dia_obj)
+
+
+def obtener_historial_pronostico(
+    producto: str,
+    dias: int | None = 30,
+    fecha_inicio: str | None = None,
+    fecha_fin: str | None = None,
+) -> list[dict]:
+    dias_consulta = max(int(dias or 3650), 1)
+    registros_base = obtener_registros(
+        producto,
+        dias=dias_consulta,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+    )
+    ventas_base = obtener_serie_ventas_diarias(
+        dias=dias_consulta,
+        producto=producto,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+    )
+
+    historial_por_fecha: dict[str, dict] = {}
+
+    for registro in registros_base:
+        fecha = str(registro.get("fecha", "") or "").strip()
+        if not fecha:
+            continue
+
+        producido = int(registro.get("producido", 0) or 0)
+        vendido_manual = int(registro.get("vendido", 0) or 0)
+        sobrante_inicial = int(registro.get("sobrante_inicial", 0) or 0)
+        sobrante_operativo = max(sobrante_inicial + producido - vendido_manual, 0)
+
+        historial_por_fecha[fecha] = {
+            "fecha": fecha,
+            "dia_semana": str(registro.get("dia_semana", "") or "").strip() or _nombre_dia_semana_es(fecha),
+            "producto": producto,
+            "producido": producido,
+            "vendido": vendido_manual,
+            "vendido_manual": vendido_manual,
+            "vendido_real": vendido_manual,
+            "sobrante_inicial": sobrante_inicial,
+            "sobrante": sobrante_operativo,
+            "sobrante_total": sobrante_operativo,
+            "observaciones": str(registro.get("observaciones", "") or "").strip(),
+        }
+
+    for venta in ventas_base:
+        fecha = str(venta.get("fecha", "") or "").strip()
+        if not fecha:
+            continue
+
+        vendido_real = int(venta.get("panes", 0) or 0)
+        registro = historial_por_fecha.get(fecha)
+        if registro is None:
+            historial_por_fecha[fecha] = {
+                "fecha": fecha,
+                "dia_semana": _nombre_dia_semana_es(fecha),
+                "producto": producto,
+                "producido": 0,
+                "vendido": vendido_real,
+                "vendido_manual": 0,
+                "vendido_real": vendido_real,
+                "sobrante_inicial": 0,
+                "sobrante": 0,
+                "sobrante_total": 0,
+                "observaciones": "Ventas reales sin registro diario de produccion",
+            }
+            continue
+
+        registro["vendido_real"] = vendido_real
+        registro["vendido"] = max(int(registro.get("vendido_manual", 0) or 0), vendido_real)
+        registro["sobrante"] = max(
+            int(registro.get("sobrante_inicial", 0) or 0)
+            + int(registro.get("producido", 0) or 0)
+            - int(registro["vendido"] or 0),
+            0,
+        )
+        registro["sobrante_total"] = registro["sobrante"]
+
+    return sorted(
+        historial_por_fecha.values(),
+        key=lambda item: str(item.get("fecha", "") or ""),
+        reverse=True,
+    )
+
+
+def obtener_resumen_pronostico_por_dia_semana(
+    producto: str,
+    dias: int | None = 90,
+    fecha_inicio: str | None = None,
+    fecha_fin: str | None = None,
+) -> dict:
+    historial = obtener_historial_pronostico(
+        producto,
+        dias=dias,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+    )
+    agrupado: dict[str, list[int]] = defaultdict(list)
+    for registro in historial:
+        dia = str(registro.get("dia_semana", "") or "").strip()
+        if not dia:
+            continue
+        agrupado[dia].append(int(registro.get("vendido", 0) or 0))
+
+    return {
+        dia: {
+            "promedio": round(sum(valores) / len(valores), 1) if valores else 0.0,
+            "muestras": len(valores),
+            "registros": len(valores),
+        }
+        for dia, valores in agrupado.items()
+    }
+
+
 def calcular_pronostico(
     producto: str,
     fecha_objetivo: Optional[str] = None,
@@ -99,7 +228,7 @@ def calcular_pronostico(
     if fecha_objetivo is None:
         fecha_objetivo = datetime.now().strftime("%Y-%m-%d")
 
-    dias_disponibles = contar_registros(producto)
+    dias_disponibles = len(obtener_historial_pronostico(producto, dias=None))
 
     # ── Verificar ajuste manual del panadero ─────────────────────────────────
     ajuste_manual = obtener_ajuste_pronostico(fecha_objetivo, producto)
@@ -142,7 +271,7 @@ def calcular_pronostico(
 
 def _modelo_inicial(producto: str, dias: int, buffer: float, fecha: str) -> ResultadoPronostico:
     """Pocos datos (<7 días). Estimación base con ajuste por tendencia."""
-    registros = obtener_registros(producto, dias=30)
+    registros = obtener_historial_pronostico(producto, dias=30)
     registros_limpios = _filtrar_outliers(registros)
 
     if registros_limpios:
@@ -177,7 +306,7 @@ def _modelo_inicial(producto: str, dias: int, buffer: float, fecha: str) -> Resu
 
 def _modelo_promedio_semanal(producto: str, dias: int, buffer: float, fecha: str) -> ResultadoPronostico:
     """7-29 días de datos. Promedio reciente ajustado por sobrante y tendencia."""
-    registros_recientes = obtener_registros(producto, dias=DIAS_PROMEDIO_MOVIL)
+    registros_recientes = obtener_historial_pronostico(producto, dias=DIAS_PROMEDIO_MOVIL)
     registros_limpios = _filtrar_outliers(registros_recientes)
 
     if not registros_limpios:
@@ -240,9 +369,9 @@ def _modelo_mixto(
     Separa por tipo de día (laboral/viernes/fin_semana).
     Excluye outliers.
     """
-    resumen_dia = obtener_resumen_por_dia_semana(producto)
-    registros_90 = obtener_registros(producto, dias=90)
-    registros_recientes = obtener_registros(producto, dias=DIAS_PROMEDIO_MOVIL)
+    resumen_dia = obtener_resumen_pronostico_por_dia_semana(producto, dias=90)
+    registros_90 = obtener_historial_pronostico(producto, dias=90)
+    registros_recientes = obtener_historial_pronostico(producto, dias=DIAS_PROMEDIO_MOVIL)
 
     def _conteo_resumen(dia_nombre: str) -> int:
         base = resumen_dia.get(dia_nombre, {})
@@ -281,7 +410,7 @@ def _modelo_mixto(
         promedio_reciente = promedio_dia
 
     # ── Base 3: Tendencia de las últimas 2 semanas (20%) ─────────────────
-    registros_14 = obtener_registros(producto, dias=14)
+    registros_14 = obtener_historial_pronostico(producto, dias=14)
     tendencia = analizar_tendencia(registros_14)
     factor_tendencia = AJUSTE_TENDENCIA.get(tendencia, 1.0)
 
@@ -473,9 +602,9 @@ def _valor_base_inicial(producto: str) -> float:
     if nombre in VALORES_BASE_PRODUCTO:
         return float(VALORES_BASE_PRODUCTO[nombre])
 
-    registros_generales = obtener_registros(None, dias=30)
-    if registros_generales:
-        promedio_general = sum(r["vendido"] for r in registros_generales) / len(registros_generales)
+    registros_producto = obtener_historial_pronostico(producto, dias=30)
+    if registros_producto:
+        promedio_general = sum(r["vendido"] for r in registros_producto) / len(registros_producto)
         return round(promedio_general, 1)
 
     return 30.0

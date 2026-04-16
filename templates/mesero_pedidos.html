@@ -1,6 +1,68 @@
 {% extends "base.html" %}
 {% block title_extra %} - Mis Pedidos{% endblock %}
 {% block content %}
+<style>
+    .mesa-filter-card {
+        margin-bottom: 18px;
+    }
+
+    .mesa-filter-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+
+    .mesa-filter-head strong {
+        font-size: 15px;
+        color: var(--text);
+    }
+
+    .mesa-filter-head span {
+        font-size: 12px;
+        color: var(--text-muted);
+    }
+
+    .mesa-filter-strip {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .mesa-filter-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid rgba(139, 85, 19, 0.12);
+        background: rgba(255, 255, 255, 0.9);
+        color: var(--text-sec);
+        border-radius: 999px;
+        padding: 9px 14px;
+        font-size: 13px;
+        font-weight: 700;
+    }
+
+    .mesa-filter-btn.is-active,
+    .mesa-filter-btn:hover {
+        background: rgba(212, 114, 42, 0.12);
+        border-color: rgba(212, 114, 42, 0.28);
+        color: var(--primary-dark);
+    }
+
+    .mesa-filter-count {
+        min-width: 20px;
+        height: 20px;
+        padding: 0 6px;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(193, 120, 23, 0.12);
+        color: var(--primary-dark);
+        font-size: 11px;
+    }
+</style>
 <div class="page-container">
     <div class="page-header">
         <h1 class="page-title"><span class="material-symbols-outlined">assignment</span> Mis Pedidos de Hoy</h1>
@@ -17,9 +79,34 @@
         </div>
     </div>
     {% else %}
-    <div class="pedidos-list">
+    {% if mesas_filtro %}
+    <div class="card mesa-filter-card">
+        <div class="card-body">
+            <div class="mesa-filter-head">
+                <div>
+                    <strong>Filtrar por mesa</strong>
+                    <span>Enfoca la lista en una sola mesa para revisar sus pedidos más rápido.</span>
+                </div>
+            </div>
+            <div class="mesa-filter-strip">
+                <button type="button" class="mesa-filter-btn is-active" data-mesa-filter-btn="todas"
+                    onclick="setMesaFilter('todas')">
+                    Todas
+                </button>
+                {% for mesa in mesas_filtro %}
+                <button type="button" class="mesa-filter-btn" data-mesa-filter-btn="{{ mesa.numero }}"
+                    onclick="setMesaFilter('{{ mesa.numero }}')">
+                    Mesa {{ mesa.numero }}
+                    <span class="mesa-filter-count">{{ mesa.total }}</span>
+                </button>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    <div class="pedidos-list" id="pedidosList">
         {% for p in pedidos %}
-        <div class="pedido-card pedido-estado-{{ p.estado }}">
+        <div class="pedido-card pedido-estado-{{ p.estado }}" data-mesa="{{ p.mesa_numero or '' }}">
             <div class="pedido-header">
                 <div class="pedido-info">
                     <span class="pedido-mesa"><span class="material-symbols-outlined">table_restaurant</span> Mesa {{ p.mesa_numero or '?' }}</span>
@@ -70,10 +157,38 @@
         </div>
         {% endfor %}
     </div>
+    <div class="card" id="pedidosEmptyState" hidden>
+        <div class="card-body" style="text-align: center; padding: 32px;">
+            <p class="text-muted">No hay pedidos para la mesa seleccionada.</p>
+        </div>
+    </div>
     {% endif %}
 </div>
 
 <script>
+let mesaFiltroActual = 'todas';
+
+function setMesaFilter(mesaNumero) {
+    mesaFiltroActual = String(mesaNumero || 'todas');
+    document.querySelectorAll('[data-mesa-filter-btn]').forEach((btn) => {
+        btn.classList.toggle('is-active', btn.dataset.mesaFilterBtn === mesaFiltroActual);
+    });
+    filtrarPedidosPorMesa();
+}
+
+function filtrarPedidosPorMesa() {
+    let visibles = 0;
+    document.querySelectorAll('.pedido-card').forEach((card) => {
+        const coincideMesa = mesaFiltroActual === 'todas' || String(card.dataset.mesa || '') === mesaFiltroActual;
+        card.style.display = coincideMesa ? '' : 'none';
+        if (coincideMesa) visibles += 1;
+    });
+    const emptyState = document.getElementById('pedidosEmptyState');
+    if (emptyState) {
+        emptyState.hidden = visibles > 0;
+    }
+}
+
 async function cancelarPedido(pedidoId) {
     const confirmar = await appConfirm('Cancelar el pedido #' + pedidoId + '?', {
         type: 'danger',
@@ -112,6 +227,8 @@ async function cancelarPedido(pedidoId) {
         Toast.error(err.message || 'No se pudo cancelar el pedido.');
     }
 }
+
+filtrarPedidosPorMesa();
 
 // Auto-refresh cada 30 segundos
 setTimeout(function() { location.reload(); }, 30000);
