@@ -149,6 +149,10 @@ class _PGCursor:
         self.lastrowid = None
         self.rowcount = 0
 
+    @property
+    def description(self):
+        return self._cur.description
+
     def execute(self, sql: str, params=()) -> "_PGCursor":
         pg_sql = _translate_sql_for_pg(sql)
         if not pg_sql.strip():
