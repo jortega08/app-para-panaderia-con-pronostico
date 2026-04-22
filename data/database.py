@@ -616,7 +616,10 @@ def _asegurar_venta_item_modificaciones_schema_conn(conn) -> set[str]:
         return _columnas_tabla_conn(conn, "venta_item_modificaciones")
 
     if "venta_item_id" not in columnas and "venta_id" in columnas:
-        row_count = int(conn.execute("SELECT COUNT(*) FROM venta_item_modificaciones").fetchone()[0] or 0)
+        row_count_row = conn.execute(
+            "SELECT COUNT(*) AS total FROM venta_item_modificaciones"
+        ).fetchone()
+        row_count = int((row_count_row["total"] if row_count_row else 0) or 0)
         if row_count == 0 and DB_TYPE == "sqlite":
             conn.execute("ALTER TABLE venta_item_modificaciones RENAME TO venta_item_modificaciones_legacy")
             conn.execute("""
@@ -4865,11 +4868,12 @@ def registrar_pago_encargo(encargo_id: int, metodo: str, monto: float,
                   notas.strip(), registrado_por.strip(), registrado_en))
 
             pagado_total = conn.execute(
-                "SELECT COALESCE(SUM(monto), 0) FROM encargo_pagos WHERE encargo_id=?",
+                "SELECT COALESCE(SUM(monto), 0) AS total_pagado FROM encargo_pagos WHERE encargo_id=?",
                 (encargo_id,)
-            ).fetchone()[0]
+            ).fetchone()
+            pagado_total = float((pagado_total["total_pagado"] if pagado_total else 0) or 0)
 
-            nuevo_anticipo = round(float(pagado_total), 2)
+            nuevo_anticipo = round(pagado_total, 2)
             nuevo_saldo = round(max(float(encargo["total"]) - nuevo_anticipo, 0), 2)
             nuevo_estado = encargo["estado"]
             if nuevo_anticipo >= float(encargo["total"]):
@@ -5158,10 +5162,11 @@ def eliminar_categoria_producto(nombre: str) -> dict:
     panaderia_id, _ = _tenant_scope()
     try:
         with get_connection() as conn:
-            count = conn.execute(
-                "SELECT COUNT(*) FROM productos WHERE categoria = ? AND activo = 1 AND panaderia_id = ?",
+            count_row = conn.execute(
+                "SELECT COUNT(*) AS total FROM productos WHERE categoria = ? AND activo = 1 AND panaderia_id = ?",
                 (nombre, panaderia_id),
-            ).fetchone()[0]
+            ).fetchone()
+            count = int((count_row["total"] if count_row else 0) or 0)
             if count > 0:
                 return {"ok": False, "error": f"No se puede eliminar porque hay {count} productos usandola."}
             conn.execute(
@@ -5965,14 +5970,15 @@ def actualizar_plan_suscripcion(
 def verificar_limite_sedes(panaderia_id: int) -> dict:
     """Retorna cuántas sedes hay y el máximo permitido."""
     with get_connection() as conn:
-        actual = conn.execute(
-            "SELECT COUNT(*) FROM sedes WHERE panaderia_id = ? AND activa = 1",
+        actual_row = conn.execute(
+            "SELECT COUNT(*) AS total FROM sedes WHERE panaderia_id = ? AND activa = 1",
             (panaderia_id,),
-        ).fetchone()[0]
+        ).fetchone()
         sub = conn.execute(
             "SELECT max_sedes FROM tenant_subscriptions WHERE panaderia_id = ?",
             (panaderia_id,),
         ).fetchone()
+    actual = int((actual_row["total"] if actual_row else 0) or 0)
     maximo = int(sub["max_sedes"]) if sub else PLAN_LIMITS["free"]["max_sedes"]
     return {"actual": actual, "maximo": maximo, "puede_agregar": actual < maximo}
 
@@ -5980,14 +5986,15 @@ def verificar_limite_sedes(panaderia_id: int) -> dict:
 def verificar_limite_usuarios(panaderia_id: int) -> dict:
     """Retorna cuántos usuarios activos hay y el máximo permitido."""
     with get_connection() as conn:
-        actual = conn.execute(
-            "SELECT COUNT(*) FROM usuarios WHERE panaderia_id = ? AND activo = 1",
+        actual_row = conn.execute(
+            "SELECT COUNT(*) AS total FROM usuarios WHERE panaderia_id = ? AND activo = 1",
             (panaderia_id,),
-        ).fetchone()[0]
+        ).fetchone()
         sub = conn.execute(
             "SELECT max_usuarios FROM tenant_subscriptions WHERE panaderia_id = ?",
             (panaderia_id,),
         ).fetchone()
+    actual = int((actual_row["total"] if actual_row else 0) or 0)
     maximo = int(sub["max_usuarios"]) if sub else PLAN_LIMITS["free"]["max_usuarios"]
     return {"actual": actual, "maximo": maximo, "puede_agregar": actual < maximo}
 
@@ -5995,14 +6002,15 @@ def verificar_limite_usuarios(panaderia_id: int) -> dict:
 def verificar_limite_productos(panaderia_id: int) -> dict:
     """Retorna cuántos productos activos hay y el máximo permitido."""
     with get_connection() as conn:
-        actual = conn.execute(
-            "SELECT COUNT(*) FROM productos WHERE panaderia_id = ? AND activo = 1",
+        actual_row = conn.execute(
+            "SELECT COUNT(*) AS total FROM productos WHERE panaderia_id = ? AND activo = 1",
             (panaderia_id,),
-        ).fetchone()[0]
+        ).fetchone()
         sub = conn.execute(
             "SELECT max_productos FROM tenant_subscriptions WHERE panaderia_id = ?",
             (panaderia_id,),
         ).fetchone()
+    actual = int((actual_row["total"] if actual_row else 0) or 0)
     maximo = int(sub["max_productos"]) if sub else PLAN_LIMITS["free"]["max_productos"]
     return {"actual": actual, "maximo": maximo, "puede_agregar": actual < maximo}
 
@@ -6285,10 +6293,11 @@ def obtener_configuracion_login_operativo(panaderia_id: int | None = None) -> di
     with get_connection() as conn:
         tenant = obtener_panaderia_principal_conn(conn)
         tenant_id = int(panaderia_id or tenant["id"])
-        sedes_activas = int(conn.execute(
-            "SELECT COUNT(*) FROM sedes WHERE panaderia_id = ? AND activa = 1",
+        sedes_activas_row = conn.execute(
+            "SELECT COUNT(*) AS total FROM sedes WHERE panaderia_id = ? AND activa = 1",
             (tenant_id,),
-        ).fetchone()[0] or 0)
+        ).fetchone()
+        sedes_activas = int((sedes_activas_row["total"] if sedes_activas_row else 0) or 0)
     return {
         "panaderia_id": tenant_id,
         "sedes_activas": sedes_activas,
@@ -11098,12 +11107,13 @@ def crear_pedido(mesa_id: int, mesero: str, items: list[dict],
                 pedido_id = activo["id"]
                 ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 _insertar_items_pedido_conn(conn, pedido_id, items)
-                nuevo_total = conn.execute("""
-                    SELECT COALESCE(SUM(subtotal), 0) FROM pedido_items WHERE pedido_id = ?
-                """, (pedido_id,)).fetchone()[0]
+                nuevo_total_row = conn.execute("""
+                    SELECT COALESCE(SUM(subtotal), 0) AS total FROM pedido_items WHERE pedido_id = ?
+                """, (pedido_id,)).fetchone()
+                nuevo_total = float((nuevo_total_row["total"] if nuevo_total_row else 0) or 0)
                 conn.execute(
                     "UPDATE pedidos SET total = ? WHERE id = ?",
-                    (round(float(nuevo_total), 2), pedido_id),
+                    (round(nuevo_total, 2), pedido_id),
                 )
                 _registrar_historial_estado_pedido(
                     conn, pedido_id, "listo",
@@ -13913,12 +13923,13 @@ def unificar_pedidos(pedido_ids: list[int], unificado_por: str = "") -> dict:
                       f"Pedido unificado en #{principal_id} por {unificado_por}"))
 
             # Recalcular total del pedido principal
-            nuevo_total = conn.execute("""
-                SELECT COALESCE(SUM(subtotal), 0) FROM pedido_items WHERE pedido_id = ?
-            """, (principal_id,)).fetchone()[0]
+            nuevo_total_row = conn.execute("""
+                SELECT COALESCE(SUM(subtotal), 0) AS total FROM pedido_items WHERE pedido_id = ?
+            """, (principal_id,)).fetchone()
+            nuevo_total = float((nuevo_total_row["total"] if nuevo_total_row else 0) or 0)
             conn.execute("""
                 UPDATE pedidos SET total = ? WHERE id = ?
-            """, (round(float(nuevo_total), 2), principal_id))
+            """, (round(nuevo_total, 2), principal_id))
             conn.execute("""
                 INSERT INTO pedido_estado_historial
                     (pedido_id, estado, cambiado_en, cambiado_por, detalle)

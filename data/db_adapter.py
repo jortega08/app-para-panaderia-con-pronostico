@@ -137,9 +137,14 @@ def _translate_sql_for_pg(sql: str) -> str:
 
 
 class _PGRow(dict):
+    def __init__(self, cols, values):
+        self._values = tuple(values or ())
+        pairs = [(str(col), self._values[idx]) for idx, col in enumerate(cols or ()) if idx < len(self._values)]
+        super().__init__(pairs)
+
     def __getitem__(self, key):
         if isinstance(key, int):
-            return list(self.values())[key]
+            return self._values[key]
         return super().__getitem__(key)
 
 
@@ -183,7 +188,7 @@ class _PGCursor:
             return None
         if self._cur.description:
             cols = [desc[0] for desc in self._cur.description]
-            return _PGRow(zip(cols, row))
+            return _PGRow(cols, row)
         return row
 
     def fetchall(self):
@@ -192,7 +197,7 @@ class _PGCursor:
             return []
         if self._cur.description:
             cols = [desc[0] for desc in self._cur.description]
-            return [_PGRow(zip(cols, row)) for row in rows]
+            return [_PGRow(cols, row) for row in rows]
         return rows
 
     def __iter__(self):
