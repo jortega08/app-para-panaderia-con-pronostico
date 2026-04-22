@@ -461,6 +461,83 @@ def _columnas_tabla_conn(conn, nombre_tabla: str) -> set[str]:
     return {str(desc[0]) for desc in (cursor.description or []) if desc and desc[0]}
 
 
+def _tabla_existe_conn(conn, nombre_tabla: str) -> bool:
+    return bool(_columnas_tabla_conn(conn, nombre_tabla))
+
+
+def _quote_ident_pg(identifier: str) -> str:
+    return '"' + str(identifier or "").replace('"', '""') + '"'
+
+
+def _reparar_foreign_keys_usuarios_legacy_postgres(conn) -> list[str]:
+    """Reapunta FKs que queden enlazadas a usuarios_legacy despues de renombrar usuarios."""
+    if DB_TYPE != "postgresql":
+        return []
+    if not _tabla_existe_conn(conn, "usuarios") or not _tabla_existe_conn(conn, "usuarios_legacy"):
+        return []
+
+    rows = conn.execute(
+        """
+        SELECT
+            con.conname AS constraint_name,
+            conrel.relname AS source_table,
+            string_agg(src_att.attname, ',' ORDER BY src_key.ordinality) AS source_columns,
+            string_agg(tgt_att.attname, ',' ORDER BY src_key.ordinality) AS target_columns,
+            con.confdeltype AS delete_action
+        FROM pg_constraint con
+        JOIN pg_class conrel ON conrel.oid = con.conrelid
+        JOIN pg_class confrel ON confrel.oid = con.confrelid
+        JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS src_key(attnum, ordinality) ON TRUE
+        JOIN LATERAL unnest(con.confkey) WITH ORDINALITY AS tgt_key(attnum, ordinality)
+          ON tgt_key.ordinality = src_key.ordinality
+        JOIN pg_attribute src_att ON src_att.attrelid = con.conrelid AND src_att.attnum = src_key.attnum
+        JOIN pg_attribute tgt_att ON tgt_att.attrelid = con.confrelid AND tgt_att.attnum = tgt_key.attnum
+        WHERE con.contype = 'f'
+          AND confrel.relname = 'usuarios_legacy'
+        GROUP BY con.conname, conrel.relname, con.confdeltype
+        ORDER BY conrel.relname, con.conname
+        """
+    ).fetchall()
+
+    delete_actions = {
+        "a": "",
+        "r": " ON DELETE RESTRICT",
+        "c": " ON DELETE CASCADE",
+        "n": " ON DELETE SET NULL",
+        "d": " ON DELETE SET DEFAULT",
+    }
+    reparadas: list[str] = []
+
+    for row in rows:
+        source_table = str(row.get("source_table", "") or "").strip()
+        constraint_name = str(row.get("constraint_name", "") or "").strip()
+        source_columns = [col.strip() for col in str(row.get("source_columns", "") or "").split(",") if col.strip()]
+        target_columns = [col.strip() for col in str(row.get("target_columns", "") or "").split(",") if col.strip()]
+        if not source_table or not constraint_name or not source_columns or not target_columns:
+            continue
+
+        table_sql = _quote_ident_pg(source_table)
+        constraint_sql = _quote_ident_pg(constraint_name)
+        source_cols_sql = ", ".join(_quote_ident_pg(col) for col in source_columns)
+        target_cols_sql = ", ".join(_quote_ident_pg(col) for col in target_columns)
+        delete_clause = delete_actions.get(str(row.get("delete_action", "") or "").strip(), "")
+
+        conn.execute(f"ALTER TABLE {table_sql} DROP CONSTRAINT IF EXISTS {constraint_sql}")
+        conn.execute(
+            f"ALTER TABLE {table_sql} ADD CONSTRAINT {constraint_sql} "
+            f"FOREIGN KEY ({source_cols_sql}) REFERENCES {_quote_ident_pg('usuarios')} ({target_cols_sql}){delete_clause}"
+        )
+        reparadas.append(f"{source_table}.{constraint_name}")
+
+    if reparadas:
+        logger.warning(
+            "Se reasignaron FKs desde usuarios_legacy hacia usuarios: %s",
+            ", ".join(reparadas),
+        )
+
+    return reparadas
+
+
 def _asegurar_surtido_tipo_productos_conn(conn) -> None:
     columnas = _columnas_tabla_conn(conn, "productos")
     if "surtido_tipo" in columnas:
@@ -932,23 +1009,6 @@ def inicializar_base_de_datos() -> None:
         """)
 
         conn.execute("""
-            CREATE TABLE IF NOT EXISTS tenant_memberships (
-                id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                usuario_id   INTEGER NOT NULL,
-                panaderia_id INTEGER NOT NULL,
-                sede_id      INTEGER NOT NULL,
-                rol          TEXT NOT NULL,
-                activa       INTEGER NOT NULL DEFAULT 1,
-                invited_by   INTEGER,
-                created_at   TEXT NOT NULL,
-                UNIQUE(usuario_id, panaderia_id, sede_id),
-                FOREIGN KEY (usuario_id)   REFERENCES usuarios(id)   ON DELETE CASCADE,
-                FOREIGN KEY (panaderia_id) REFERENCES panaderias(id),
-                FOREIGN KEY (sede_id)      REFERENCES sedes(id)
-            )
-        """)
-
-        conn.execute("""
             CREATE TABLE IF NOT EXISTS tenant_subscriptions (
                 id                INTEGER PRIMARY KEY AUTOINCREMENT,
                 panaderia_id      INTEGER NOT NULL UNIQUE,
@@ -1048,6 +1108,23 @@ def inicializar_base_de_datos() -> None:
                 last_login_at TEXT NOT NULL DEFAULT '',
                 panaderia_id INTEGER,
                 sede_id INTEGER
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tenant_memberships (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                usuario_id   INTEGER NOT NULL,
+                panaderia_id INTEGER NOT NULL,
+                sede_id      INTEGER NOT NULL,
+                rol          TEXT NOT NULL,
+                activa       INTEGER NOT NULL DEFAULT 1,
+                invited_by   INTEGER,
+                created_at   TEXT NOT NULL,
+                UNIQUE(usuario_id, panaderia_id, sede_id),
+                FOREIGN KEY (usuario_id)   REFERENCES usuarios(id)   ON DELETE CASCADE,
+                FOREIGN KEY (panaderia_id) REFERENCES panaderias(id),
+                FOREIGN KEY (sede_id)      REFERENCES sedes(id)
             )
         """)
 
@@ -1843,6 +1920,8 @@ def _migrar_usuarios(conn):
         "sede_id",
     ]
     if schema and all(token in schema for token in required_tokens):
+        _reparar_foreign_keys_usuarios_legacy_postgres(conn)
+        _ejecutar_migracion_tolerante(conn, "DROP TABLE IF EXISTS usuarios_legacy")
         _normalizar_pines_usuarios(conn)
         return
 
@@ -1910,6 +1989,7 @@ def _migrar_usuarios(conn):
                 row.get("sede_id"),
             )
         )
+    _reparar_foreign_keys_usuarios_legacy_postgres(conn)
     conn.execute("DROP TABLE IF EXISTS usuarios_legacy")
     _normalizar_pines_usuarios(conn)
 
