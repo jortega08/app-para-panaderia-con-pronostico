@@ -469,6 +469,135 @@ def _quote_ident_pg(identifier: str) -> str:
     return '"' + str(identifier or "").replace('"', '""') + '"'
 
 
+def _constraints_unicas_pg_conn(conn, nombre_tabla: str) -> dict[str, tuple[str, ...]]:
+    if DB_TYPE != "postgresql":
+        return {}
+    rows = conn.execute(
+        """
+        SELECT
+            con.conname AS constraint_name,
+            string_agg(att.attname, ',' ORDER BY key.ordinality) AS columns
+        FROM pg_constraint con
+        JOIN pg_class rel ON rel.oid = con.conrelid
+        JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS key(attnum, ordinality) ON TRUE
+        JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = key.attnum
+        WHERE con.contype = 'u'
+          AND rel.relname = ?
+        GROUP BY con.conname
+        ORDER BY con.conname
+        """,
+        (nombre_tabla,),
+    ).fetchall()
+    constraints: dict[str, tuple[str, ...]] = {}
+    for row in rows:
+        constraint_name = str(row.get("constraint_name", "") or "").strip()
+        columns = tuple(
+            col.strip()
+            for col in str(row.get("columns", "") or "").split(",")
+            if col.strip()
+        )
+        if constraint_name and columns:
+            constraints[constraint_name] = columns
+    return constraints
+
+
+def _constraint_pg_existe_conn(conn, nombre_tabla: str, constraint_name: str) -> bool:
+    if DB_TYPE != "postgresql":
+        return False
+    row = conn.execute(
+        """
+        SELECT 1 AS existe
+        FROM pg_constraint con
+        JOIN pg_class rel ON rel.oid = con.conrelid
+        WHERE rel.relname = ?
+          AND con.conname = ?
+        LIMIT 1
+        """,
+        (nombre_tabla, constraint_name),
+    ).fetchone()
+    return bool(row)
+
+
+def _reemplazar_unique_legacy_pg_conn(
+    conn,
+    nombre_tabla: str,
+    columnas_legacy: tuple[str, ...],
+    nueva_constraint: str,
+    nuevas_columnas: tuple[str, ...],
+) -> None:
+    if DB_TYPE != "postgresql" or not _tabla_existe_conn(conn, nombre_tabla):
+        return
+
+    legacy = tuple(columnas_legacy)
+    target = tuple(nuevas_columnas)
+    table_sql = _quote_ident_pg(nombre_tabla)
+
+    for constraint_name, columns in _constraints_unicas_pg_conn(conn, nombre_tabla).items():
+        if columns == legacy:
+            _ejecutar_migracion_tolerante(
+                conn,
+                f"ALTER TABLE {table_sql} DROP CONSTRAINT IF EXISTS {_quote_ident_pg(constraint_name)}",
+            )
+
+    if target in _constraints_unicas_pg_conn(conn, nombre_tabla).values():
+        return
+
+    columns_sql = ", ".join(_quote_ident_pg(col) for col in target)
+    if not _ejecutar_migracion_tolerante(
+        conn,
+        f"ALTER TABLE {table_sql} ADD CONSTRAINT {_quote_ident_pg(nueva_constraint)} UNIQUE ({columns_sql})",
+    ):
+        logger.warning(
+            "No se pudo asegurar UNIQUE %s(%s).",
+            nombre_tabla,
+            ", ".join(target),
+        )
+        return
+    logger.info(
+        "migracion: UNIQUE %s(%s)",
+        nombre_tabla,
+        ", ".join(target),
+    )
+
+
+def _asegurar_fk_panaderia_pg_conn(conn, nombre_tabla: str, constraint_name: str) -> None:
+    if DB_TYPE != "postgresql" or not _tabla_existe_conn(conn, nombre_tabla):
+        return
+    if "panaderia_id" not in _columnas_tabla_conn(conn, nombre_tabla):
+        return
+    if _constraint_pg_existe_conn(conn, nombre_tabla, constraint_name):
+        return
+
+    table_sql = _quote_ident_pg(nombre_tabla)
+    panaderias_sql = _quote_ident_pg("panaderias")
+    row = conn.execute(
+        f"""
+        SELECT COUNT(*) AS total
+        FROM {table_sql} t
+        LEFT JOIN {panaderias_sql} p ON p.id = t.panaderia_id
+        WHERE t.panaderia_id IS NOT NULL AND p.id IS NULL
+        """
+    ).fetchone()
+    total_huerfanas = int(row["total"] or 0) if row else 0
+    if total_huerfanas:
+        logger.warning(
+            "Se omite FK %s.%s: hay %s filas con panaderia_id sin correspondencia en panaderias.",
+            nombre_tabla,
+            constraint_name,
+            total_huerfanas,
+        )
+        return
+
+    if not _ejecutar_migracion_tolerante(
+        conn,
+        f"ALTER TABLE {table_sql} "
+        f"ADD CONSTRAINT {_quote_ident_pg(constraint_name)} "
+        f"FOREIGN KEY ({_quote_ident_pg('panaderia_id')}) "
+        f"REFERENCES {panaderias_sql} ({_quote_ident_pg('id')})",
+    ):
+        logger.warning("No se pudo asegurar FK panaderia_id en %s.", nombre_tabla)
+
+
 def _reparar_foreign_keys_usuarios_legacy_postgres(conn) -> list[str]:
     """Reapunta FKs que queden enlazadas a usuarios_legacy despues de renombrar usuarios."""
     if DB_TYPE != "postgresql":
@@ -1414,15 +1543,17 @@ def inicializar_base_de_datos() -> None:
                 insumo_id   INTEGER NOT NULL,
                 cantidad    REAL NOT NULL DEFAULT 1.0,
                 unidad_receta TEXT NOT NULL DEFAULT 'unidad',
-                UNIQUE(producto, insumo_id),
-                FOREIGN KEY (insumo_id) REFERENCES insumos(id)
+                panaderia_id INTEGER,
+                UNIQUE(producto, insumo_id, panaderia_id),
+                FOREIGN KEY (insumo_id) REFERENCES insumos(id),
+                FOREIGN KEY (panaderia_id) REFERENCES panaderias(id)
             )
         """)
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS receta_fichas (
                 id                      INTEGER PRIMARY KEY AUTOINCREMENT,
-                producto                TEXT UNIQUE NOT NULL,
+                producto                TEXT NOT NULL,
                 rendimiento_texto       TEXT DEFAULT '',
                 tiempo_preparacion_min  REAL NOT NULL DEFAULT 0.0,
                 tiempo_amasado_min      REAL NOT NULL DEFAULT 0.0,
@@ -1430,7 +1561,10 @@ def inicializar_base_de_datos() -> None:
                 tiempo_horneado_min     REAL NOT NULL DEFAULT 0.0,
                 temperatura_horneado    REAL NOT NULL DEFAULT 0.0,
                 pasos                   TEXT DEFAULT '',
-                observaciones           TEXT DEFAULT ''
+                observaciones           TEXT DEFAULT '',
+                panaderia_id            INTEGER,
+                UNIQUE(producto, panaderia_id),
+                FOREIGN KEY (panaderia_id) REFERENCES panaderias(id)
             )
         """)
 
@@ -1440,7 +1574,9 @@ def inicializar_base_de_datos() -> None:
                 producto            TEXT NOT NULL,
                 componente_producto TEXT NOT NULL,
                 cantidad            REAL NOT NULL DEFAULT 1.0,
-                UNIQUE(producto, componente_producto)
+                panaderia_id        INTEGER,
+                UNIQUE(producto, componente_producto, panaderia_id),
+                FOREIGN KEY (panaderia_id) REFERENCES panaderias(id)
             )
         """)
 
@@ -2300,8 +2436,77 @@ def _migrar_plataforma_base(conn) -> None:
     )
 
 
+def _resolver_panaderia_legacy_recetas_conn(conn) -> int | None:
+    if not _tabla_existe_conn(conn, "panaderias"):
+        return None
+
+    rows = conn.execute("SELECT id FROM panaderias ORDER BY id ASC").fetchall()
+    if len(rows) == 1:
+        return int(rows[0]["id"] or 0) or None
+    if rows:
+        return None
+
+    try:
+        tenant = obtener_panaderia_principal_conn(conn)
+    except Exception:
+        return None
+    return int(tenant.get("id") or 0) or None
+
+
+def _alinear_tablas_recetas_conn(conn) -> None:
+    tenant_id = _resolver_panaderia_legacy_recetas_conn(conn)
+    tablas = (
+        ("recetas", "idx_recetas_tenant"),
+        ("receta_fichas", "idx_receta_fichas_tenant"),
+        ("producto_componentes", "idx_prod_comp_tenant"),
+    )
+
+    for nombre_tabla, index_name in tablas:
+        if not _tabla_existe_conn(conn, nombre_tabla):
+            continue
+        _ejecutar_migracion_tolerante(conn, f"ALTER TABLE {nombre_tabla} ADD COLUMN panaderia_id INTEGER")
+        if tenant_id is not None:
+            conn.execute(
+                f"UPDATE {nombre_tabla} SET panaderia_id = COALESCE(panaderia_id, ?)",
+                (tenant_id,),
+            )
+        _ejecutar_migracion_tolerante(
+            conn,
+            f"CREATE INDEX IF NOT EXISTS {index_name} ON {nombre_tabla}(panaderia_id)",
+        )
+
+    if DB_TYPE != "postgresql":
+        return
+
+    _reemplazar_unique_legacy_pg_conn(
+        conn,
+        "recetas",
+        ("producto", "insumo_id"),
+        "uq_recetas_producto_insumo_panaderia",
+        ("producto", "insumo_id", "panaderia_id"),
+    )
+    _reemplazar_unique_legacy_pg_conn(
+        conn,
+        "receta_fichas",
+        ("producto",),
+        "uq_receta_fichas_producto_panaderia",
+        ("producto", "panaderia_id"),
+    )
+    _reemplazar_unique_legacy_pg_conn(
+        conn,
+        "producto_componentes",
+        ("producto", "componente_producto"),
+        "uq_prod_comp_producto_componente_panaderia",
+        ("producto", "componente_producto", "panaderia_id"),
+    )
+    _asegurar_fk_panaderia_pg_conn(conn, "recetas", "fk_recetas_panaderia")
+    _asegurar_fk_panaderia_pg_conn(conn, "receta_fichas", "fk_receta_fichas_panaderia")
+    _asegurar_fk_panaderia_pg_conn(conn, "producto_componentes", "fk_prod_comp_panaderia")
+
+
 def _migrar_recetas(conn):
-    """Agrega soporte para unidades de receta y ficha tecnica por producto."""
+    """Alinea tablas de recetas con multitenancy y soporte de unidades por producto."""
+    _alinear_tablas_recetas_conn(conn)
     _ejecutar_migracion_tolerante(conn, "ALTER TABLE recetas ADD COLUMN unidad_receta TEXT")
 
     rows = conn.execute("""
