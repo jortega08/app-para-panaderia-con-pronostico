@@ -1,0 +1,20 @@
+{% if pagination %}
+<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:16px;">
+    <div class="text-muted" style="font-size:13px;">
+        Pagina {{ pagination.page }} de {{ pagination.total_pages }}
+        · Mostrando {{ pagination.items_count }} de {{ pagination.total_items }} registro{{ '' if pagination.total_items == 1 else 's' }}
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+        {% if pagination_links and pagination_links.prev %}
+        <a class="btn btn-outline btn-sm" href="{{ pagination_links.prev }}">Anterior</a>
+        {% else %}
+        <span class="btn btn-outline btn-sm" style="opacity:.45;pointer-events:none;">Anterior</span>
+        {% endif %}
+        {% if pagination_links and pagination_links.next %}
+        <a class="btn btn-outline btn-sm" href="{{ pagination_links.next }}">Siguiente</a>
+        {% else %}
+        <span class="btn btn-outline btn-sm" style="opacity:.45;pointer-events:none;">Siguiente</span>
+        {% endif %}
+    </div>
+</div>
+{% endif %}

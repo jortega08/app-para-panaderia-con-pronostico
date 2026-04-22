@@ -36,3 +36,6 @@ runtime/
 Thumbs.db
 .idea/
 .vscode/
+
+.codex-python-deps
+.gitignore

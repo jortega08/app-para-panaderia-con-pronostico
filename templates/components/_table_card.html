@@ -1,0 +1,11 @@
+<article class="card history-table-card">
+    <div class="card-header">
+        <div>
+            <strong>{{ title }}</strong>
+            {% if subtitle %}<span>{{ subtitle }}</span>{% endif %}
+        </div>
+    </div>
+    <div class="card-body">
+        {{ caller() if caller else "" }}
+    </div>
+</article>

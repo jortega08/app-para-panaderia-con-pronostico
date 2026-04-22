@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ session.get('_csrf_token', '') }}">
+    <title>Comanda #{{ comanda.get('id', '') }}</title>
+    <style>
+        :root {
+            --ticket-width: 76mm;
+            --paper: #ffffff;
+            --screen: #ece6dc;
+            --ink: #111111;
+            --muted: #686868;
+            --line: rgba(0, 0, 0, 0.22);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0;
+            min-height: 100%;
+        }
+
+        body {
+            background: var(--screen);
+            color: var(--ink);
+            font-family: "Segoe UI", Arial, sans-serif;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        .screen-shell {
+            width: min(100%, 420px);
+            margin: 0 auto;
+            padding: 12px 10px 18px;
+            display: grid;
+            gap: 10px;
+        }
+
+        .screen-actions {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            flex-wrap: wrap;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.96);
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            border-radius: 14px;
+            box-shadow: 0 8px 22px rgba(0, 0, 0, 0.08);
+        }
+
+        .screen-actions button {
+            border: 1px solid rgba(0, 0, 0, 0.18);
+            background: #ffffff;
+            color: var(--ink);
+            border-radius: 999px;
+            padding: 9px 14px;
+            font: inherit;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .screen-actions .primary {
+            background: #111111;
+            border-color: #111111;
+            color: #ffffff;
+        }
+
+        .ticket {
+            width: min(100%, var(--ticket-width));
+            margin: 0 auto;
+            padding: 9px 7px 12px;
+            background: var(--paper);
+            border: 1px solid rgba(0, 0, 0, 0.12);
+            box-shadow: 0 16px 32px rgba(0, 0, 0, 0.1);
+            font-size: 12px;
+            line-height: 1.28;
+        }
+
+        .ticket-header {
+            text-align: center;
+            padding-bottom: 8px;
+            border-bottom: 1px dashed var(--line);
+        }
+
+        .brand-logo {
+            max-width: 28mm;
+            max-height: 12mm;
+            object-fit: contain;
+            margin: 0 auto 4px;
+            display: block;
+        }
+
+        .brand-name {
+            font-size: 15px;
+            font-weight: 900;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .brand-subtitle,
+        .ticket-copy,
+        .ticket-footer {
+            color: var(--muted);
+        }
+
+        .ticket-copy {
+            margin-top: 3px;
+            font-size: 10px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .ticket-title {
+            margin: 8px 0 3px;
+            font-size: 20px;
+            font-weight: 900;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+        }
+
+        .ticket-badge {
+            display: inline-block;
+            margin-top: 4px;
+            padding: 2px 7px;
+            border: 1px solid var(--ink);
+            border-radius: 999px;
+            font-size: 9px;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .meta {
+            margin-top: 8px;
+            display: grid;
+        }
+
+        .meta-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 4px 0;
+            border-bottom: 1px dashed rgba(0, 0, 0, 0.12);
+        }
+
+        .meta-row:last-child {
+            border-bottom: none;
+        }
+
+        .meta-label {
+            color: var(--muted);
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            font-size: 10px;
+        }
+
+        .meta-value {
+            text-align: right;
+            font-weight: 800;
+        }
+
+        .items {
+            margin-top: 8px;
+            border-top: 1px dashed var(--line);
+            padding-top: 8px;
+            display: grid;
+            gap: 8px;
+        }
+
+        .item {
+            padding-bottom: 7px;
+            border-bottom: 1px dashed rgba(0, 0, 0, 0.12);
+        }
+
+        .item:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+
+        .item-main {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 8px;
+            align-items: start;
+        }
+
+        .item-qty {
+            font-weight: 900;
+            font-size: 16px;
+            line-height: 1;
+            min-width: 20px;
+        }
+
+        .item-copy {
+            min-width: 0;
+        }
+
+        .item-name {
+            display: block;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 0.01em;
+            word-break: break-word;
+        }
+
+        .item-detail {
+            margin-top: 4px;
+            padding-left: 28px;
+            display: grid;
+            gap: 3px;
+        }
+
+        .item-mod,
+        .item-note {
+            word-break: break-word;
+        }
+
+        .item-mod {
+            color: #242424;
+        }
+
+        .item-note {
+            color: var(--muted);
+            font-style: italic;
+        }
+
+        .note-block {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px dashed var(--line);
+        }
+
+        .note-title {
+            margin: 0 0 4px;
+            font-size: 10px;
+            font-weight: 800;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .ticket-footer {
+            margin-top: 10px;
+            padding-top: 8px;
+            border-top: 1px dashed var(--line);
+            text-align: center;
+            font-size: 10px;
+        }
+
+        @media print {
+            @page {
+                size: 80mm auto;
+                margin: 3mm;
+            }
+
+            body {
+                background: #ffffff;
+            }
+
+            .screen-shell {
+                width: auto;
+                margin: 0;
+                padding: 0;
+                display: block;
+            }
+
+            .screen-actions {
+                display: none !important;
+            }
+
+            .ticket {
+                width: auto;
+                max-width: none;
+                margin: 0;
+                border: none;
+                box-shadow: none;
+                padding: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    {% set created_at = comanda.get('created_at', '') %}
+    {% set pedido_hora = comanda.get('pedido_hora') %}
+    {% set hora_mostrar = pedido_hora or created_at[11:19] %}
+    {% set mesa_label = 'Mesa ' ~ comanda.get('mesa_numero') if comanda.get('mesa_numero') else 'Sin mesa' %}
+    {% if comanda.get('mesa_nombre') %}
+        {% set mesa_label = mesa_label ~ ' - ' ~ comanda.get('mesa_nombre') %}
+    {% endif %}
+    {% set logo_path = branding.get('logo_path') %}
+
+    <div class="screen-shell">
+        <div class="screen-actions">
+            <button type="button" class="primary" onclick="registrarYImprimir()">
+                {{ 'Reimprimir' if print_mode == 'reimprimir' else 'Imprimir' }}
+            </button>
+            <button type="button" onclick="cerrarVentana()">Cerrar</button>
+        </div>
+
+        <main class="ticket">
+            <header class="ticket-header">
+                {% if logo_path %}
+                <img class="brand-logo" src="{{ url_for('static', filename=logo_path) }}" alt="{{ branding.get('brand_name') or 'Panaderia' }}">
+                {% endif %}
+                <div class="brand-name">{{ branding.get('brand_name') or branding.get('legal_name') or 'Panaderia' }}</div>
+                {% if comanda.get('sede_nombre') %}
+                <div class="brand-subtitle">{{ comanda.get('sede_nombre') }}</div>
+                {% endif %}
+                <div class="ticket-title">COMANDA</div>
+                <div class="ticket-copy">Documento operativo de cocina</div>
+                {% if comanda.get('es_incremental') or print_mode == 'reimprimir' %}
+                <div class="ticket-badge">
+                    {% if print_mode == 'reimprimir' %}Reimpresion{% else %}Pedido adicional{% endif %}
+                </div>
+                {% endif %}
+            </header>
+
+            <section class="meta">
+                <div class="meta-row">
+                    <span class="meta-label">Ref.</span>
+                    <span class="meta-value">C#{{ comanda.get('id', '') }} - P#{{ comanda.get('pedido_id', '') }}</span>
+                </div>
+                <div class="meta-row">
+                    <span class="meta-label">Fecha</span>
+                    <span class="meta-value">{{ comanda.get('pedido_fecha', '') }}</span>
+                </div>
+                <div class="meta-row">
+                    <span class="meta-label">Hora</span>
+                    <span class="meta-value">{{ hora_mostrar[:8] if hora_mostrar else '' }}</span>
+                </div>
+                <div class="meta-row">
+                    <span class="meta-label">Mesa</span>
+                    <span class="meta-value">{{ mesa_label }}</span>
+                </div>
+                <div class="meta-row">
+                    <span class="meta-label">Mesero</span>
+                    <span class="meta-value">{{ comanda.get('creada_por_nombre_snapshot') or comanda.get('pedido_mesero') or 'Sin asignar' }}</span>
+                </div>
+                <div class="meta-row">
+                    <span class="meta-label">Estado</span>
+                    <span class="meta-value">{{ comanda.get('estado', '')|replace('_', ' ')|upper }}</span>
+                </div>
+            </section>
+
+            <section class="items">
+                {% for item in comanda.get('items', []) %}
+                <article class="item">
+                    <div class="item-main">
+                        <div class="item-qty">x{{ item.get('cantidad', 0) }}</div>
+                        <div class="item-copy">
+                            <span class="item-name">{{ item.get('producto_nombre_snapshot', '') }}</span>
+                        </div>
+                    </div>
+
+                    {% if item.get('modificaciones') or item.get('observacion') %}
+                    <div class="item-detail">
+                        {% for mod in item.get('modificaciones', []) %}
+                        <div class="item-mod">
+                            {% if mod.get('tipo') == 'adicional' %}
+                                + {{ mod.get('descripcion', '') }}{% if (mod.get('cantidad', 1) or 1) > 1 %} x{{ mod.get('cantidad', 1) }}{% endif %}
+                            {% else %}
+                                Sin {{ mod.get('descripcion', '') }}
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                        {% if item.get('observacion') %}
+                        <div class="item-note">Obs: {{ item.get('observacion') }}</div>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </article>
+                {% endfor %}
+            </section>
+
+            {% if comanda.get('nota_general') %}
+            <section class="note-block">
+                <p class="note-title">Nota general</p>
+                <div>{{ comanda.get('nota_general') }}</div>
+            </section>
+            {% endif %}
+
+            <div class="ticket-footer">
+                Generada {{ created_at }}<br>
+                Sin valor comercial
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const COMANDA_ID = {{ comanda.get('id', 0) | tojson }};
+        const PRINT_MODE = {{ print_mode | tojson }};
+        const AUTO_PRINT = {{ auto_print | tojson }};
+        const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+        let printTriggered = false;
+
+        async function registrarImpresion() {
+            const endpoint = PRINT_MODE === 'reimprimir'
+                ? `/api/comanda/${COMANDA_ID}/reimprimir`
+                : `/api/comanda/${COMANDA_ID}/imprimir`;
+
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': CSRF_TOKEN,
+                },
+                body: JSON.stringify({}),
+            });
+
+            const data = await response.json().catch(() => ({}));
+
+            if (!response.ok || !data.ok) {
+                throw new Error(data.error || 'No se pudo registrar la impresion de la comanda.');
+            }
+        }
+
+        async function registrarYImprimir() {
+            if (printTriggered) return;
+            printTriggered = true;
+
+            try {
+                await registrarImpresion();
+            } catch (error) {
+                printTriggered = false;
+                alert(error.message || 'No se pudo imprimir la comanda.');
+                return;
+            }
+
+            window.print();
+
+            setTimeout(() => {
+                printTriggered = false;
+            }, 1200);
+        }
+
+        function cerrarVentana() {
+            if (window.opener) {
+                window.close();
+                return;
+            }
+            history.back();
+        }
+
+        window.addEventListener('afterprint', () => {
+            if (AUTO_PRINT && window.opener) {
+                window.close();
+            }
+        });
+
+        if (AUTO_PRINT) {
+            window.addEventListener('load', () => {
+                setTimeout(() => {
+                    registrarYImprimir();
+                }, 180);
+            }, { once: true });
+        }
+    </script>
+</body>
+</html>

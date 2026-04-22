@@ -884,10 +884,66 @@
         padding-right: 14px;
     }
 }
+.suspendidas-panel {
+    background: rgba(255,255,255,0.82);
+    border: 1.5px dashed rgba(193,120,23,0.38);
+    border-radius: 18px;
+    padding: 14px 18px;
+}
+.suspendidas-panel-head {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+}
+.suspendidas-panel-head strong { font-size: 14px; }
+.suspendida-chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: rgba(255,248,232,0.92); border: 1px solid rgba(193,120,23,0.2);
+    border-radius: 12px; padding: 8px 12px; cursor: pointer;
+    transition: background 160ms; font-size: 13px;
+}
+.suspendida-chip:hover { background: rgba(255,240,200,0.98); }
+.suspendida-chip-meta { color: var(--text-muted); font-size: 11px; }
+.suspendida-chip-total { font-weight: 700; color: var(--primary); }
+.btn-anular-suspendida {
+    background: none; border: none; cursor: pointer; color: var(--danger);
+    font-size: 18px; padding: 2px 6px; border-radius: 6px; line-height: 1;
+}
+.btn-anular-suspendida:hover { background: rgba(220,38,38,0.08); }
+.precio-override-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: rgba(255,200,80,0.22); border: 1px solid rgba(193,120,23,0.3);
+    border-radius: 6px; padding: 1px 7px; font-size: 11px; color: #b45309; cursor: pointer;
+}
+.precio-override-badge:hover { background: rgba(255,200,80,0.38); }
+.tipo-venta-selector {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;
+}
+.tipo-venta-btn {
+    border: 2px solid rgba(139,85,19,0.18); border-radius: 12px; padding: 10px 8px;
+    background: rgba(255,255,255,0.9); cursor: pointer; text-align: center;
+    transition: border-color 160ms, background 160ms; font-size: 13px;
+}
+.tipo-venta-btn.active {
+    border-color: var(--primary); background: rgba(193,120,23,0.08);
+}
+.tipo-venta-btn strong { display: block; font-size: 13px; margin-bottom: 2px; }
+.tipo-venta-btn span { font-size: 11px; color: var(--text-muted); }
+.cliente-dropdown { position:absolute; z-index:100; inset:auto 0 auto 0; background:#fff; border:1px solid var(--border); border-radius:12px; margin-top:6px; box-shadow:0 12px 26px rgba(15,23,42,.12); max-height:220px; overflow:auto; }
+.cliente-option { padding:10px 14px; cursor:pointer; }
+.cliente-option:hover { background:rgba(193,120,23,.08); }
+.cliente-option-meta { font-size:11px; color:var(--text-muted); margin-top:2px; }
+.comprador-fields { margin-top: 10px; }
 </style>
 
 <div class="page-container pos-page cajero-pos-page">
     <div id="cajaStatusCard"></div>
+    <div id="suspendidaPanel" style="display:none;" class="suspendidas-panel">
+        <div class="suspendidas-panel-head">
+            <span class="material-symbols-outlined" style="color:var(--primary)">pause_circle</span>
+            <strong>Ventas suspendidas</strong>
+            <span class="chip" id="suspendidaCount" style="background:rgba(193,120,23,0.12);color:var(--primary);"></span>
+        </div>
+        <div id="suspendidaList" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+    </div>
 
     <section class="pos-hero-shell">
         <div class="pos-hero-copy">
@@ -997,6 +1053,14 @@
                 </div>
                 <div class="cart-actions">
                     <button class="btn btn-danger-outline" onclick="clearCart()">Limpiar</button>
+                    <button class="btn btn-outline" onclick="abrirModalSurtido()">
+                        <span class="material-symbols-outlined" style="font-size:16px;vertical-align:-3px;">bakery_dining</span>
+                        Elegir surtido
+                    </button>
+                    <button class="btn btn-outline" onclick="abrirModalSuspender()" title="Suspender venta">
+                        <span class="material-symbols-outlined" style="font-size:16px;vertical-align:-3px;">pause_circle</span>
+                        Suspender
+                    </button>
                     <button class="btn btn-cash cart-primary-action pos-action-btn pos-action-btn-compact" onclick="quickCashCheckout()">Cobrar</button>
                     <button class="btn btn-success btn-lg cart-primary-action" onclick="openPaymentModal('transferencia')">
                         Elegir otro método
@@ -1028,6 +1092,13 @@
                 <p class="text-muted" style="margin-bottom: 10px;">Los adicionales son opcionales. Ajusta solo los que necesites para este producto.</p>
                 <div class="mod-options" id="modAdicionales"></div>
             </div>
+            <div class="mod-section" id="modApplyScopeWrap" style="display:none;">
+                <h4>Aplicar a</h4>
+                <select id="modApplyScope" class="form-input">
+                    <option value="one">Solo una unidad de esta linea</option>
+                    <option value="all">Toda la linea actual</option>
+                </select>
+            </div>
             <div class="mod-section">
                 <h4>Exclusiones</h4>
                 <input type="text" id="modExclusion" class="form-input" placeholder="Ej: sin salsa, sin queso...">
@@ -1042,6 +1113,33 @@
     </div>
 </div>
 
+<div class="modal-overlay" id="surtidoModal" style="display:none;" onclick="if (event.target === this) cerrarModalSurtido()">
+    <div class="modal-card" style="max-width:520px;">
+        <div class="modal-header">
+            <div>
+                <h3>Elegir surtido</h3>
+                <p class="text-muted" style="margin:6px 0 0;">Genera una mezcla editable de panes reales segun el valor objetivo.</p>
+            </div>
+            <button class="modal-close" onclick="cerrarModalSurtido()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <label class="form-label" for="surtidoValorInput">Valor objetivo</label>
+            <div style="display:flex; gap:10px; align-items:center; margin-bottom:14px;">
+                <input id="surtidoValorInput" type="number" min="500" step="100" class="form-input" placeholder="Ej: 5000" style="flex:1;">
+                <button type="button" class="btn btn-accent" id="surtidoSugerirBtn" onclick="solicitarSurtido()">Sugerir</button>
+            </div>
+            <div id="surtidoResumen" class="text-muted" style="font-size:13px; margin-bottom:10px;">
+                Ingresa un valor y te proponemos una mezcla de sal y dulce segun la disponibilidad real.
+            </div>
+            <div id="surtidoPreview" class="cart-item-mods" style="display:grid; gap:8px;"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="cerrarModalSurtido()">Cancelar</button>
+            <button class="btn btn-success" id="surtidoAplicarBtn" onclick="aplicarSurtidoPropuesto()" disabled>Agregar al carrito</button>
+        </div>
+    </div>
+</div>
+
 <div class="modal-overlay" id="paymentModal" style="display:none;" onclick="if (event.target === this) closePaymentModal()">
     <div class="modal-card">
         <div class="modal-header">
@@ -1049,6 +1147,84 @@
             <button class="modal-close" onclick="closePaymentModal()">&times;</button>
         </div>
         <div class="modal-body">
+            <div class="tipo-venta-selector">
+                <button type="button" class="tipo-venta-btn active" id="tipoRapidaBtn" onclick="setTipoVenta('rapida')">
+                    <strong>Cobrar rapido</strong>
+                    <span>Sin datos del cliente</span>
+                </button>
+                <button type="button" class="tipo-venta-btn" id="tipoDocBtn" onclick="setTipoVenta('con_documento')">
+                    <strong>Cobrar y emitir</strong>
+                    <span>Documento comercial para imprimir o enviar</span>
+                </button>
+            </div>
+
+            <div id="compradorFields" class="comprador-fields" style="display:none;">
+                <div class="two-col-form" style="margin-bottom:8px;">
+                    <div>
+                        <label class="form-label">Nombre o razon social</label>
+                        <input id="compradorNombre" type="text" class="form-input" placeholder="Nombre completo o empresa">
+                    </div>
+                    <div>
+                        <label class="form-label">Tipo documento</label>
+                        <select id="compradorTipoDoc" class="form-input">
+                            <option value="">Sin documento</option>
+                            <option value="CC">Cedula (CC)</option>
+                            <option value="NIT">NIT</option>
+                            <option value="CE">Cedula extranjeria</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="two-col-form" style="margin-bottom:8px;">
+                    <div>
+                        <label class="form-label">Numero documento</label>
+                        <input id="compradorNumeroDoc" type="text" class="form-input" placeholder="Ej: 123456789">
+                    </div>
+                    <div>
+                        <label class="form-label">Email</label>
+                        <input id="compradorEmail" type="email" class="form-input" placeholder="correo@ejemplo.com">
+                    </div>
+                </div>
+                <div class="two-col-form">
+                    <div>
+                        <label class="form-label">Empresa / institucion</label>
+                        <input id="compradorEmpresa" type="text" class="form-input" placeholder="Opcional">
+                    </div>
+                    <div>
+                        <label class="form-label">Direccion</label>
+                        <input id="compradorDireccion" type="text" class="form-input" placeholder="Opcional">
+                    </div>
+                </div>
+                <div style="margin-top:8px;">
+                    <label class="form-label">Tipo de documento a emitir</label>
+                    <select id="compradorTipoDocumento" class="form-input">
+                        <option value="factura">Factura</option>
+                        <option value="documento_venta">Documento de venta</option>
+                        <option value="remision">Remision</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="clienteCreditoSection" class="payment-summary-box payment-summary-box-soft" style="display:none; margin-bottom:12px;">
+                <div class="payment-summary-row">
+                    <span>Cliente maestro</span>
+                    <strong id="clienteCreditoLabel">Opcional</strong>
+                </div>
+                <div class="form-help" id="clienteCreditoHelp" style="margin-top:8px;">Asocia el cliente para historial y cartera. Con credito es obligatorio.</div>
+                <div class="cliente-autocomplete" style="margin-top:10px; position:relative;">
+                    <input id="ventaClienteBusqueda" type="text" class="form-input" placeholder="Buscar cliente por nombre, doc o telefono" oninput="buscarClientesVenta(this.value)" autocomplete="off">
+                    <div class="cliente-dropdown" id="ventaClienteDropdown" style="display:none;"></div>
+                </div>
+                <input id="ventaClienteId" type="hidden">
+                <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+                    <button type="button" class="btn btn-outline btn-sm" onclick="abrirModalNuevoClienteVenta()">+ Crear cliente</button>
+                    <button type="button" class="btn btn-outline btn-sm" onclick="limpiarClienteVenta()">Limpiar cliente</button>
+                </div>
+                <div id="creditoDueWrap" style="display:none; margin-top:10px;">
+                    <label class="form-label">Fecha de vencimiento</label>
+                    <input id="creditoFechaVencimiento" type="date" class="form-input">
+                </div>
+            </div>
+
             <div class="payment-total-callout">
                 <span>Total a cobrar</span>
                 <strong id="paymentTotal">$0</strong>
@@ -1067,6 +1243,7 @@
                         <option value="efectivo">Efectivo</option>
                         <option value="transferencia">Transferencia</option>
                         <option value="tarjeta">Tarjeta</option>
+                        <option value="credito">Credito</option>
                     </select>
                 </div>
                 <div>
@@ -1090,6 +1267,7 @@
                         <option value="transferencia">Transferencia</option>
                         <option value="tarjeta">Tarjeta</option>
                         <option value="efectivo">Efectivo</option>
+                        <option value="credito">Credito</option>
                     </select>
                 </div>
                 <div>
@@ -1124,6 +1302,138 @@
     </div>
 </div>
 
+<div class="modal-overlay" id="modalNuevoClienteVenta" style="display:none;" onclick="if(event.target===this)cerrarModalNuevoClienteVenta()">
+    <div class="modal-card" style="max-width:540px;">
+        <div class="modal-header">
+            <h3>Nuevo cliente</h3>
+            <button class="modal-close" onclick="cerrarModalNuevoClienteVenta()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="two-col-form">
+                <div>
+                    <label class="form-label">Nombre *</label>
+                    <input id="nuevoClienteVentaNombre" class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">Telefono</label>
+                    <input id="nuevoClienteVentaTelefono" class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">Email</label>
+                    <input id="nuevoClienteVentaEmail" class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">Empresa</label>
+                    <input id="nuevoClienteVentaEmpresa" class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">Tipo documento</label>
+                    <select id="nuevoClienteVentaTipoDoc" class="form-input">
+                        <option value="">Sin documento</option>
+                        <option value="CC">Cedula (CC)</option>
+                        <option value="NIT">NIT</option>
+                        <option value="CE">Cedula extranjeria</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">Numero documento</label>
+                    <input id="nuevoClienteVentaNumeroDoc" class="form-input">
+                </div>
+                <div style="grid-column:1/-1;">
+                    <label class="form-label">Direccion</label>
+                    <input id="nuevoClienteVentaDireccion" class="form-input">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="cerrarModalNuevoClienteVenta()">Cancelar</button>
+            <button class="btn btn-primary" onclick="guardarNuevoClienteVenta()">Crear cliente</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Suspender venta -->
+<div class="modal-overlay" id="suspenderModal" style="display:none;" onclick="if(event.target===this)cerrarModalSuspender()">
+    <div class="modal-card" style="max-width:420px;">
+        <div class="modal-header">
+            <h3>Suspender venta</h3>
+            <button class="modal-close" onclick="cerrarModalSuspender()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p class="text-muted" style="margin-bottom:12px;">La venta quedara guardada. Puedes retomarla mas tarde desde el panel de suspendidas.</p>
+            <label class="form-label">Nota (opcional)</label>
+            <input id="suspenderNota" type="text" class="form-input" placeholder="Ej: cliente volvio en 10 min, mesa 3...">
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="cerrarModalSuspender()">Cancelar</button>
+            <button class="btn btn-accent" onclick="suspenderVentaActual()">Suspender</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Anular venta suspendida -->
+<div class="modal-overlay" id="anularModal" style="display:none;" onclick="if(event.target===this)cerrarModalAnular()">
+    <div class="modal-card" style="max-width:420px;">
+        <div class="modal-header">
+            <h3>Anular venta</h3>
+            <button class="modal-close" onclick="cerrarModalAnular()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p class="text-muted" style="margin-bottom:12px;">Esta accion es definitiva. La venta quedara anulada y no se registrara en ventas del dia.</p>
+            <label class="form-label">Motivo de anulacion <span style="color:var(--danger)">*</span></label>
+            <input id="anularMotivo" type="text" class="form-input" placeholder="Ej: cliente cambio de opinion, error de precio...">
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="cerrarModalAnular()">Cancelar</button>
+            <button class="btn btn-danger" onclick="confirmarAnulacion()">Anular venta</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Editar precio de item -->
+<div class="modal-overlay" id="precioModal" style="display:none;" onclick="if(event.target===this)cerrarModalPrecio()">
+    <div class="modal-card" style="max-width:400px;">
+        <div class="modal-header">
+            <h3>Editar precio</h3>
+            <button class="modal-close" onclick="cerrarModalPrecio()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="payment-summary-box" style="margin-bottom:12px;">
+                <div class="payment-summary-row">
+                    <span>Producto</span>
+                    <strong id="precioModalNombre">-</strong>
+                </div>
+                <div class="payment-summary-row">
+                    <span>Precio catalogo</span>
+                    <strong id="precioModalBase">$0</strong>
+                </div>
+            </div>
+            <label class="form-label">Precio aplicado</label>
+            <input id="precioAplicadoInput" type="number" min="0" step="1" class="form-input" style="margin-bottom:10px;" oninput="updatePrecioModalState()">
+            <div class="mod-section" id="precioApplyScopeWrap" style="display:none;">
+                <label class="form-label">Aplicar a</label>
+                <select id="precioApplyScope" class="form-input">
+                    <option value="one">Solo una unidad de esta linea</option>
+                    <option value="all">Toda la linea actual</option>
+                </select>
+            </div>
+            <label class="form-label">Motivo del cambio <span style="color:var(--danger)">*</span></label>
+            <input id="precioMotivoInput" type="text" class="form-input" placeholder="Ej: descuento cliente frecuente, cortesia...">
+            <div id="precioAutorizacionWrap" style="display:none;margin-top:10px;">
+                <div class="form-help" style="margin-bottom:8px;">Este cambio requiere autorizacion de admin o panadero.</div>
+                <label class="form-label">Autorizado por</label>
+                <input id="precioAutorizadoPorInput" type="text" class="form-input" placeholder="Username del autorizador" style="margin-bottom:10px;">
+                <label class="form-label">PIN de autorizacion</label>
+                <input id="precioAutorizadoPinInput" type="password" inputmode="numeric" class="form-input" placeholder="PIN del autorizador">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="cerrarModalPrecio()">Cancelar</button>
+            <button class="btn btn-success" onclick="guardarPrecioOverride()">Aplicar precio</button>
+        </div>
+    </div>
+</div>
+
 <script>
 document.body.classList.add('cajero-pos-shell');
 
@@ -1131,8 +1441,15 @@ let cart = [];
 let currentModItem = null;
 let tempExclusiones = [];
 let cajaActual = {{ caja|default({})|tojson }};
+let tipoVentaActual = 'rapida';
+let ventasSuspendidas = [];
+let _anularVentaId = null;
+let _clientesVentaBuscados = [];
+let _clienteVentaDebounce = null;
+let _precioModalItemId = null;
 let selectedCategory = 'todos';
 let stockDisponible = {};
+let surtidoPropuesto = null;
 const ADICIONALES = {{ adicionales | tojson }};
 const ADICIONALES_DISPONIBLES = ADICIONALES || [];
 const PRODUCT_CATALOG = [
@@ -1146,10 +1463,13 @@ const PRODUCT_CATALOG = [
         menu: {{ (p.menu or '')|tojson }},
         descripcion: {{ (p.descripcion or '')|tojson }},
         color: {{ p.color|tojson }},
-        stockMinimo: {{ p.stock_minimo or 0 }}
+        stockMinimo: {{ p.stock_minimo or 0 }},
+        surtidoTipo: {{ (p.surtido_tipo or 'none')|tojson }}
     }{% if not loop.last %},{% endif %}
     {% endfor %}
 ];
+const PRODUCT_CATALOG_BY_ID = Object.fromEntries(PRODUCT_CATALOG.map((item) => [String(item.id), item]));
+const PRODUCT_CATALOG_BY_NAME = Object.fromEntries(PRODUCT_CATALOG.map((item) => [normalizeText(item.nombre), item]));
 const QUICK_GROUP_META = {
     favoritos: {
         title: 'Favoritos del turno',
@@ -1173,6 +1493,8 @@ let activeQuickGroup = 'favoritos';
 const quickUseKey = 'richs_pos_quick_use';
 const quickCashButtonId = 'paymentConfirmButton';
 let mobileCartPanelOpen = false;
+const CURRENT_USER_ROLE = {{ session.get('usuario', {}).get('rol', 'cajero')|tojson }};
+const CURRENT_USER_NAME = {{ session.get('usuario', {}).get('nombre', '')|tojson }};
 
 function money(value) {
     return window.AppUI
@@ -1192,6 +1514,107 @@ function escapeHtml(value) {
 
 function normalizeText(value) {
     return `${value == null ? '' : value}`.toLowerCase();
+}
+
+function canonicalLineText(value) {
+    return `${value == null ? '' : value}`.trim().toLowerCase();
+}
+
+function cloneMods(mods) {
+    return (mods || []).map((mod) => ({
+        tipo: mod.tipo,
+        descripcion: `${mod.descripcion || ''}`.trim(),
+        cantidad: Number(mod.cantidad || 1),
+        precio_extra: Number(mod.precio_extra || 0),
+    }));
+}
+
+function normalizeModsForKey(mods) {
+    return cloneMods(mods)
+        .map((mod) => ({
+            tipo: canonicalLineText(mod.tipo),
+            descripcion: canonicalLineText(mod.descripcion),
+            cantidad: Number(mod.cantidad || 1),
+            precio_extra: Number(mod.precio_extra || 0).toFixed(2),
+        }))
+        .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+}
+
+function buildCartLineKey(item) {
+    return JSON.stringify({
+        productId: Number(item.productId || 0),
+        nombre: canonicalLineText(item.nombre),
+        precioBase: Number(item.precioBase ?? item.precio ?? 0).toFixed(2),
+        precioAplicado: Number(item.precioAplicado ?? item.precioBase ?? item.precio ?? 0).toFixed(2),
+        motivoPrecio: canonicalLineText(item.motivoPrecio),
+        autorizadoPor: canonicalLineText(item.autorizadoPor),
+        notas: canonicalLineText(item.notas),
+        modificaciones: normalizeModsForKey(item.modificaciones),
+    });
+}
+
+function nextCartItemId() {
+    return Date.now() + Math.random();
+}
+
+function buildCartItem(data) {
+    return {
+        id: data.id ?? nextCartItemId(),
+        nombre: data.nombre,
+        precio: Number(data.precio ?? data.precioBase ?? 0),
+        precioBase: Number(data.precioBase ?? data.precio ?? 0),
+        precioAplicado: Number(data.precioAplicado ?? data.precioBase ?? data.precio ?? 0),
+        motivoPrecio: `${data.motivoPrecio || ''}`.trim(),
+        autorizadoPor: `${data.autorizadoPor || ''}`.trim(),
+        autorizadoPin: `${data.autorizadoPin || ''}`.trim(),
+        icono: data.icono || 'bakery_dining',
+        cantidad: Math.max(1, Number(data.cantidad || 1)),
+        productId: data.productId || null,
+        stockMinimo: Number(data.stockMinimo || 0),
+        modificaciones: cloneMods(data.modificaciones),
+        notas: `${data.notas || ''}`.trim(),
+    };
+}
+
+function compactCartItems(items) {
+    const agrupados = [];
+    (items || []).forEach((rawItem) => {
+        const item = buildCartItem(rawItem);
+        const existente = agrupados.find((entry) => buildCartLineKey(entry) === buildCartLineKey(item));
+        if (existente) {
+            existente.cantidad += Number(item.cantidad || 0);
+        } else {
+            agrupados.push(item);
+        }
+    });
+    return agrupados.filter((item) => Number(item.cantidad || 0) > 0);
+}
+
+function upsertCartItem(item, excludeId = null) {
+    const linea = buildCartItem(item);
+    const existente = cart.find((entry) => entry.id !== excludeId && buildCartLineKey(entry) === buildCartLineKey(linea));
+    if (existente) {
+        existente.cantidad += Number(linea.cantidad || 0);
+        return existente;
+    }
+    cart.push(linea);
+    return linea;
+}
+
+function applyLinePatch(item, patch, scope = 'all') {
+    if (!item) return null;
+    if (scope === 'one' && Number(item.cantidad || 0) > 1) {
+        item.cantidad -= 1;
+        upsertCartItem({...item, ...patch, id: nextCartItemId(), cantidad: 1}, item.id);
+    } else {
+        Object.assign(item, patch);
+    }
+    cart = compactCartItems(cart);
+    return cart.find((entry) => buildCartLineKey(entry) === buildCartLineKey({...item, ...patch, cantidad: scope === 'one' ? 1 : item.cantidad}));
+}
+
+function usuarioRequiereAutorizacionPrecio() {
+    return CURRENT_USER_ROLE === 'cajero';
 }
 
 function setButtonShortcutLabel(button, label) {
@@ -1365,10 +1788,10 @@ function updatePaymentActionLabels(method = 'efectivo') {
 
     cashButton.classList.toggle('btn-cash', method === 'efectivo');
     cashButton.classList.toggle('btn-success', method !== 'efectivo');
-    setButtonShortcutLabel(
-        cashButton,
-        method === 'efectivo' ? 'Cobrar efectivo' : 'Confirmar cobro'
-    );
+    const etiqueta = tipoVentaActual === 'con_documento'
+        ? 'Cobrar y emitir'
+        : (method === 'efectivo' ? 'Cobrar efectivo' : 'Confirmar cobro');
+    setButtonShortcutLabel(cashButton, etiqueta);
 }
 
 function highlightProductCard(productId) {
@@ -1413,7 +1836,8 @@ function getItemExtraUnitTotal(item) {
 }
 
 function getItemUnitPrice(item) {
-    return Number(item.precio || 0) + getItemExtraUnitTotal(item);
+    const base = item.precioAplicado != null ? Number(item.precioAplicado) : Number(item.precio || 0);
+    return base + getItemExtraUnitTotal(item);
 }
 
 function calcItemTotal(item) {
@@ -1526,23 +1950,164 @@ function getInputAdicional(adicionalId) {
     return document.querySelector(`[data-adicional-qty="${adicionalId}"]`);
 }
 
+function buildCurrentCartPayload() {
+    return cart.map((item) => ({
+        producto_id: item.productId,
+        producto: item.nombre,
+        cantidad: Number(item.cantidad || 0),
+    }));
+}
+
+function abrirModalSurtido() {
+    surtidoPropuesto = null;
+    document.getElementById('surtidoValorInput').value = '';
+    document.getElementById('surtidoResumen').textContent = 'Ingresa un valor y te proponemos una mezcla de sal y dulce segun la disponibilidad real.';
+    document.getElementById('surtidoPreview').innerHTML = '';
+    document.getElementById('surtidoAplicarBtn').disabled = true;
+    document.getElementById('surtidoModal').style.display = 'flex';
+}
+
+function cerrarModalSurtido() {
+    document.getElementById('surtidoModal').style.display = 'none';
+}
+
+function renderSurtidoPreview(resultado) {
+    const preview = document.getElementById('surtidoPreview');
+    const resumen = document.getElementById('surtidoResumen');
+    const aplicarBtn = document.getElementById('surtidoAplicarBtn');
+    if (!preview || !resumen || !aplicarBtn) return;
+
+    if (!resultado || !resultado.ok) {
+        surtidoPropuesto = null;
+        preview.innerHTML = '';
+        resumen.textContent = resultado?.error || 'No fue posible generar una propuesta.';
+        aplicarBtn.disabled = true;
+        return;
+    }
+
+    surtidoPropuesto = resultado;
+    const objetivo = Number(resultado.objetivo || 0);
+    const propuesto = Number(resultado.propuesto || 0);
+    const diferencia = Number(resultado.diferencia || 0);
+    const diferenciaLabel = diferencia === 0
+        ? 'Exacto'
+        : (diferencia > 0 ? `Faltan ${money(diferencia)}` : `Excede ${money(Math.abs(diferencia))}`);
+    resumen.innerHTML = `
+        <strong>Objetivo:</strong> ${money(objetivo)} ·
+        <strong>Propuesto:</strong> ${money(propuesto)} ·
+        <strong>Diferencia:</strong> ${diferenciaLabel} ·
+        <strong>Unidades:</strong> ${resultado.total_unidades || 0}
+    `;
+    preview.innerHTML = (resultado.items || []).map((item) => {
+        const producto = PRODUCT_CATALOG_BY_ID[String(item.producto_id || '')] || PRODUCT_CATALOG_BY_NAME[normalizeText(item.producto)] || {};
+        const categoriaBadge = item.categoria_surtido === 'dulce' ? 'Dulce' : item.categoria_surtido === 'sal' ? 'Sal' : 'Mixto';
+        return `
+            <div class="mod-option" style="justify-content:space-between; gap:14px;">
+                <div style="display:grid; gap:2px;">
+                    <strong>${escapeHtml(item.producto)}</strong>
+                    <span class="text-muted" style="font-size:12px;">${item.cantidad} unidad(es) · ${escapeHtml(categoriaBadge)} · stock ${item.disponible}</span>
+                </div>
+                <div style="text-align:right;">
+                    <strong>${money((Number(item.precio_unitario || 0) * Number(item.cantidad || 0)))}</strong>
+                    <div class="text-muted" style="font-size:12px;">${escapeHtml(producto.categoria || item.categoria || '')}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+    aplicarBtn.disabled = !(resultado.items || []).length;
+}
+
+async function solicitarSurtido() {
+    const input = document.getElementById('surtidoValorInput');
+    const btn = document.getElementById('surtidoSugerirBtn');
+    const valorObjetivo = Number(input?.value || 0);
+    if (!valorObjetivo || valorObjetivo <= 0) {
+        Toast.warning('Ingresa un valor objetivo valido.');
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Buscando...';
+    try {
+        const res = await fetch('/api/surtido/sugerir', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                valor_objetivo: valorObjetivo,
+                items_actuales: buildCurrentCartPayload(),
+            }),
+        });
+        const data = await res.json();
+        renderSurtidoPreview(data);
+        if (!res.ok || !data.ok) {
+            Toast.warning(data.error || 'No se pudo generar el surtido.');
+            return;
+        }
+        Toast.success('Surtido sugerido. Revísalo antes de agregarlo.');
+    } catch (error) {
+        renderSurtidoPreview({ok: false, error: error.message || 'No se pudo generar el surtido.'});
+        Toast.error(error.message || 'No se pudo generar el surtido.');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Sugerir';
+    }
+}
+
+function aplicarSurtidoPropuesto() {
+    if (!surtidoPropuesto || !Array.isArray(surtidoPropuesto.items) || !surtidoPropuesto.items.length) {
+        Toast.warning('Primero genera una propuesta de surtido.');
+        return;
+    }
+
+    surtidoPropuesto.items.forEach((item) => {
+        const producto = PRODUCT_CATALOG_BY_ID[String(item.producto_id || '')] || PRODUCT_CATALOG_BY_NAME[normalizeText(item.producto)];
+        if (!producto) return;
+        upsertCartItem({
+            nombre: producto.nombre,
+            precio: Number(producto.precio || item.precio_unitario || 0),
+            precioBase: Number(producto.precio || item.precio_unitario || 0),
+            precioAplicado: Number(producto.precio || item.precio_unitario || 0),
+            motivoPrecio: '',
+            autorizadoPor: '',
+            autorizadoPin: '',
+            icono: producto.icono || 'bakery_dining',
+            cantidad: Number(item.cantidad || 1),
+            productId: producto.id,
+            stockMinimo: Number(producto.stockMinimo || 0),
+            modificaciones: [],
+        });
+        markQuickUse(producto.nombre);
+    });
+    cart = compactCartItems(cart);
+    cerrarModalSurtido();
+    pulseCartCounter();
+    renderCart();
+    actualizarBadgesStock();
+    renderQuickGroup(activeQuickGroup);
+    Toast.success('Surtido agregado. Puedes quitar lineas o ajustar cantidades antes de cobrar.');
+}
+
 function addToCart(nombre, precio, icono, productId, stockMinimo) {
     const restante = getStockRestante(nombre);
     if (restante <= 0) {
         Toast.warning(`${nombre} no tiene stock disponible en este momento.`);
         return;
     }
-
-    cart.push({
-        id: Date.now() + Math.random(),
+    upsertCartItem({
         nombre,
         precio: Number(precio),
+        precioBase: Number(precio),
+        precioAplicado: Number(precio),
+        motivoPrecio: '',
+        autorizadoPor: '',
+        autorizadoPin: '',
         icono,
         cantidad: 1,
         productId,
         stockMinimo: Number(stockMinimo || 0),
         modificaciones: [],
     });
+    cart = compactCartItems(cart);
     markQuickUse(nombre);
     highlightProductCard(productId);
     pulseCartCounter();
@@ -1572,6 +2137,7 @@ function updateQty(itemId, qty) {
         }
         item.cantidad = qty;
     }
+    cart = compactCartItems(cart);
     pulseCartCounter();
     renderCart();
     actualizarBadgesStock();
@@ -1649,6 +2215,7 @@ function renderCart() {
                 <div class="cart-empty-title">La venta esta vacia</div>
                 <p class="text-muted">Toca un producto, un favorito o un combo para empezar.</p>
                 <div class="cart-empty-actions">
+                    <button type="button" class="btn btn-ghost btn-sm" onclick="abrirModalSurtido()">Elegir surtido</button>
                     <button type="button" class="btn btn-ghost btn-sm" onclick="focusProductSearch()">Buscar</button>
                     <button type="button" class="btn btn-cash btn-sm" onclick="quickCashCheckout()">Cobrar</button>
                 </div>
@@ -1700,7 +2267,18 @@ function renderCart() {
                         <span class="material-symbols-outlined cart-item-icon">${item.icono}</span>
                         <div>
                             <div class="cart-item-name">${escapeHtml(item.nombre)}</div>
-                            <div class="cart-item-price">${money(item.precio)} c/u</div>
+                            <div class="cart-item-price" style="display:flex;align-items:center;gap:6px;">
+                                ${money(getItemUnitPrice(item))} c/u
+                                ${item.precioAplicado != null && item.precioAplicado !== item.precioBase
+                                    ? `<span class="precio-override-badge" onclick="abrirModalPrecio(${item.id})" title="Precio modificado: ${escapeHtml(item.motivoPrecio)}${item.autorizadoPor ? ' | autorizado por ' + escapeHtml(item.autorizadoPor) : ''}">
+                                        <span class="material-symbols-outlined" style="font-size:11px;">edit</span>
+                                        mod.
+                                      </span>`
+                                    : `<button type="button" class="precio-override-badge" onclick="abrirModalPrecio(${item.id})" title="Editar precio">
+                                        <span class="material-symbols-outlined" style="font-size:11px;">edit</span>
+                                       </button>`
+                                }
+                            </div>
                         </div>
                     </div>
                     <div class="cart-item-controls">
@@ -1740,6 +2318,8 @@ function abrirModal(itemId) {
         .map(mod => mod.descripcion);
 
     document.getElementById('modModalTitle').textContent = 'Personalizar: ' + item.nombre;
+    document.getElementById('modApplyScope').value = Number(item.cantidad || 0) > 1 ? 'one' : 'all';
+    document.getElementById('modApplyScopeWrap').style.display = Number(item.cantidad || 0) > 1 ? '' : 'none';
     renderAdicionalesModal(item);
     document.getElementById('modExclusion').value = '';
     renderExclusiones();
@@ -1821,6 +2401,7 @@ function cambiarCantidadAdicional(adicionalId, delta) {
 function guardarMods() {
     const item = cart.find(entry => entry.id === currentModItem);
     if (!item) return;
+    const scope = document.getElementById('modApplyScope').value || 'all';
 
     const mods = [];
     document.querySelectorAll('[data-adicional-qty]').forEach(input => {
@@ -1845,9 +2426,10 @@ function guardarMods() {
         });
     });
 
-    item.modificaciones = mods;
+    applyLinePatch(item, {modificaciones: mods}, scope);
     cerrarModal();
     renderCart();
+    actualizarBadgesStock();
 }
 
 function openPaymentModal(preferredMethod = 'efectivo') {
@@ -1866,9 +2448,12 @@ function openPaymentModal(preferredMethod = 'efectivo') {
     document.getElementById('pagoMixtoPanel').style.display = 'none';
     document.getElementById('paymentAmount2').value = '';
 
-    const validMethods = ['efectivo', 'transferencia', 'tarjeta'];
+    const validMethods = ['efectivo', 'transferencia', 'tarjeta', 'credito'];
     document.getElementById('paymentMethod').value = validMethods.includes(preferredMethod) ? preferredMethod : 'efectivo';
     document.getElementById('paymentReceived').value = window.AppUI ? AppUI.suggestedCash(getCartTotal()) : String(Math.ceil(getCartTotal()));
+    document.getElementById('compradorTipoDocumento').value = 'factura';
+    limpiarClienteVenta();
+    document.getElementById('creditoFechaVencimiento').value = new Date().toISOString().slice(0, 10);
     updatePaymentSummary();
     document.getElementById('paymentModal').style.display = 'flex';
     updatePaymentActionLabels(document.getElementById('paymentMethod').value);
@@ -1893,7 +2478,7 @@ function updatePaymentSummary() {
     const receivedInput = document.getElementById('paymentReceived');
     const itemsCount = getCartCount();
 
-    const esExacto = metodo === 'transferencia' || metodo === 'tarjeta';
+    const esExacto = metodo === 'transferencia' || metodo === 'tarjeta' || metodo === 'credito';
 
     if (mixto) {
         const monto2 = Number(document.getElementById('paymentAmount2').value || 0);
@@ -1932,101 +2517,514 @@ function updatePaymentSummary() {
 
     document.getElementById('paymentTotal').textContent = money(total);
     document.getElementById('paymentItems').textContent = window.AppUI ? AppUI.formatNumber(itemsCount, 0) : itemsCount;
-    document.getElementById('paymentHelpChip').textContent = esExacto ? (metodo === 'tarjeta' ? 'Tarjeta: monto exacto' : 'Transferencia: monto exacto') : 'Efectivo: ingresa lo que entrega el cliente';
+        document.getElementById('paymentHelpChip').textContent =
+            metodo === 'credito'
+                ? 'Credito: el saldo se registra en cartera'
+                : (esExacto ? (metodo === 'tarjeta' ? 'Tarjeta: monto exacto' : 'Transferencia: monto exacto') : 'Efectivo: ingresa lo que entrega el cliente');
     updatePaymentActionLabels(metodo);
+    updateClienteCreditoVisibility();
 }
+
+function setTipoVenta(tipo) {
+    tipoVentaActual = tipo;
+    document.getElementById('tipoRapidaBtn').classList.toggle('active', tipo === 'rapida');
+    document.getElementById('tipoDocBtn').classList.toggle('active', tipo === 'con_documento');
+    document.getElementById('compradorFields').style.display = tipo === 'con_documento' ? '' : 'none';
+    updateClienteCreditoVisibility();
+    updatePaymentActionLabels(document.getElementById('paymentMethod')?.value || 'efectivo');
+}
+
+function ventaUsaCredito() {
+    const metodo1 = document.getElementById('paymentMethod')?.value || 'efectivo';
+    const mixto = document.getElementById('pagoMixtoToggle')?.checked;
+    const metodo2 = document.getElementById('paymentMethod2')?.value || '';
+    return metodo1 === 'credito' || (mixto && metodo2 === 'credito');
+}
+
+function updateClienteCreditoVisibility() {
+    const visible = tipoVentaActual === 'con_documento' || ventaUsaCredito();
+    const requiereCredito = ventaUsaCredito();
+    document.getElementById('clienteCreditoSection').style.display = visible ? '' : 'none';
+    document.getElementById('creditoDueWrap').style.display = requiereCredito ? '' : 'none';
+    document.getElementById('clienteCreditoLabel').textContent = requiereCredito ? 'Obligatorio' : 'Opcional';
+    document.getElementById('clienteCreditoHelp').textContent = requiereCredito
+        ? 'Selecciona o crea el cliente para generar la cuenta por cobrar.'
+        : 'Puedes asociarlo para historial comercial y para autocompletar el documento.';
+}
+
+function limpiarClienteVenta() {
+    document.getElementById('ventaClienteBusqueda').value = '';
+    document.getElementById('ventaClienteId').value = '';
+    document.getElementById('ventaClienteDropdown').style.display = 'none';
+}
+
+function buscarClientesVenta(query) {
+    clearTimeout(_clienteVentaDebounce);
+    if (!query || query.trim().length < 2) {
+        document.getElementById('ventaClienteDropdown').style.display = 'none';
+        return;
+    }
+    _clienteVentaDebounce = setTimeout(async () => {
+        try {
+            const res = await fetch(`/api/clientes?q=${encodeURIComponent(query.trim())}`);
+            const data = await res.json();
+            _clientesVentaBuscados = data.clientes || [];
+            renderClienteDropdownVenta();
+        } catch (_) {
+            document.getElementById('ventaClienteDropdown').style.display = 'none';
+        }
+    }, 220);
+}
+
+function renderClienteDropdownVenta() {
+    const dd = document.getElementById('ventaClienteDropdown');
+    if (!_clientesVentaBuscados.length) {
+        dd.innerHTML = `<div class="cliente-option" onclick="abrirModalNuevoClienteVenta()"><strong>+ Crear nuevo cliente</strong></div>`;
+        dd.style.display = 'block';
+        return;
+    }
+    dd.innerHTML = _clientesVentaBuscados.map((c, index) => `
+        <div class="cliente-option" onclick="seleccionarClienteVentaPorIndex(${index})">
+            <strong>${c.nombre}</strong>
+            <div class="cliente-option-meta">${[c.empresa, c.telefono, c.numero_doc].filter(Boolean).join(' · ')}</div>
+        </div>
+    `).join('') + `<div class="cliente-option" style="border-top:1px solid var(--border);" onclick="abrirModalNuevoClienteVenta()"><strong>+ Crear nuevo cliente</strong></div>`;
+    dd.style.display = 'block';
+}
+
+function seleccionarClienteVentaPorIndex(index) {
+    const c = _clientesVentaBuscados[index];
+    if (!c) return;
+    document.getElementById('ventaClienteBusqueda').value = c.nombre || '';
+    document.getElementById('ventaClienteId').value = c.id || '';
+    document.getElementById('ventaClienteDropdown').style.display = 'none';
+    if (tipoVentaActual === 'con_documento') {
+        if (!document.getElementById('compradorNombre').value.trim()) document.getElementById('compradorNombre').value = c.nombre || '';
+        if (!document.getElementById('compradorTipoDoc').value) document.getElementById('compradorTipoDoc').value = c.tipo_doc || '';
+        if (!document.getElementById('compradorNumeroDoc').value.trim()) document.getElementById('compradorNumeroDoc').value = c.numero_doc || '';
+        if (!document.getElementById('compradorEmail').value.trim()) document.getElementById('compradorEmail').value = c.email || '';
+        if (!document.getElementById('compradorEmpresa').value.trim()) document.getElementById('compradorEmpresa').value = c.empresa || '';
+        if (!document.getElementById('compradorDireccion').value.trim()) document.getElementById('compradorDireccion').value = c.direccion || '';
+    }
+}
+
+function abrirModalNuevoClienteVenta() {
+    document.getElementById('ventaClienteDropdown').style.display = 'none';
+    ['nuevoClienteVentaNombre','nuevoClienteVentaTelefono','nuevoClienteVentaEmail','nuevoClienteVentaEmpresa','nuevoClienteVentaNumeroDoc','nuevoClienteVentaDireccion'].forEach(id => {
+        document.getElementById(id).value = '';
+    });
+    document.getElementById('nuevoClienteVentaTipoDoc').value = '';
+    document.getElementById('modalNuevoClienteVenta').style.display = 'flex';
+}
+
+function cerrarModalNuevoClienteVenta() {
+    document.getElementById('modalNuevoClienteVenta').style.display = 'none';
+}
+
+async function guardarNuevoClienteVenta() {
+    const payload = {
+        nombre: document.getElementById('nuevoClienteVentaNombre').value.trim(),
+        telefono: document.getElementById('nuevoClienteVentaTelefono').value.trim(),
+        email: document.getElementById('nuevoClienteVentaEmail').value.trim(),
+        empresa: document.getElementById('nuevoClienteVentaEmpresa').value.trim(),
+        tipo_doc: document.getElementById('nuevoClienteVentaTipoDoc').value,
+        numero_doc: document.getElementById('nuevoClienteVentaNumeroDoc').value.trim(),
+        direccion: document.getElementById('nuevoClienteVentaDireccion').value.trim(),
+    };
+    if (!payload.nombre) {
+        Toast.warning('Ingresa el nombre del cliente.');
+        return;
+    }
+    try {
+        const res = await fetch('/api/clientes', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'No se pudo crear el cliente.');
+        _clientesVentaBuscados = [{ id: data.cliente_id, ...payload }];
+        seleccionarClienteVentaPorIndex(0);
+        cerrarModalNuevoClienteVenta();
+        Toast.success('Cliente creado y seleccionado.');
+    } catch (error) {
+        Toast.error(error.message || 'No se pudo crear el cliente.');
+    }
+}
+
+document.addEventListener('click', (event) => {
+    if (!event.target.closest('.cliente-autocomplete')) {
+        const dd = document.getElementById('ventaClienteDropdown');
+        if (dd) dd.style.display = 'none';
+    }
+});
 
 async function confirmPayment() {
     const metodo = document.getElementById('paymentMethod').value;
     const mixto = document.getElementById('pagoMixtoToggle').checked;
     const total = getCartTotal();
     const montoRecibido = Number(document.getElementById('paymentReceived').value || 0);
+    const clienteId = Number(document.getElementById('ventaClienteId')?.value || 0);
+    const clienteNombre = document.getElementById('ventaClienteBusqueda')?.value?.trim() || '';
+    const datosDocumento = {
+        cliente_id: clienteId || null,
+        nombre: document.getElementById('compradorNombre')?.value?.trim() || '',
+        tipo_doc: document.getElementById('compradorTipoDoc')?.value || '',
+        numero_doc: document.getElementById('compradorNumeroDoc')?.value?.trim() || '',
+        email: document.getElementById('compradorEmail')?.value?.trim() || '',
+        empresa: document.getElementById('compradorEmpresa')?.value?.trim() || '',
+        direccion: document.getElementById('compradorDireccion')?.value?.trim() || '',
+        tipo_documento: document.getElementById('compradorTipoDocumento')?.value || 'factura',
+    };
 
-    let metodo2 = null;
-    let monto2 = null;
+    if (tipoVentaActual === 'con_documento' && !datosDocumento.nombre) {
+        Toast.warning('Ingresa el nombre o razon social para emitir el documento.');
+        return;
+    }
 
+    let metodo2 = null, monto2 = null;
     if (mixto) {
         metodo2 = document.getElementById('paymentMethod2')?.value || null;
         monto2 = Number(document.getElementById('paymentAmount2').value || 0);
-
-        if (!monto2 || monto2 <= 0) {
-            Toast.warning('Ingresa el monto del segundo metodo de pago.');
-            return;
-        }
-        if (metodo2 === metodo) {
-            Toast.warning('Los dos metodos de pago no pueden ser iguales.');
-            return;
-        }
+        if (!monto2 || monto2 <= 0) { Toast.warning('Ingresa el monto del segundo metodo de pago.'); return; }
+        if (metodo2 === metodo) { Toast.warning('Los dos metodos de pago no pueden ser iguales.'); return; }
         const montoPrimario = Math.max(total - monto2, 0);
-        if (Math.abs(monto2 + montoPrimario - total) > 1) {
-            Toast.warning('La suma de los dos montos no coincide con el total.');
-            return;
-        }
         if (metodo === 'efectivo' && montoRecibido + 1e-9 < montoPrimario) {
-            Toast.warning('El efectivo no alcanza para cubrir su parte del total.');
-            return;
+            Toast.warning('El efectivo no alcanza para cubrir su parte del total.'); return;
         }
     } else {
         if (metodo === 'efectivo' && montoRecibido + 1e-9 < total) {
-            Toast.warning('El monto recibido debe cubrir el total de la venta.');
-            return;
+            Toast.warning('El monto recibido debe cubrir el total de la venta.'); return;
         }
+    }
+    const requiereClienteCredito = metodo === 'credito' || (mixto && metodo2 === 'credito');
+    if (requiereClienteCredito && !clienteId) {
+        Toast.warning('Selecciona o crea un cliente para registrar la venta a credito.');
+        return;
     }
 
     await cargarStockDisponible();
     const faltantesPrevios = validarCarritoContraStock();
     if (faltantesPrevios.length) {
-        const detalle = faltantesPrevios
-            .map(item => `${item.producto}: disponibles ${item.disponible}, solicitadas ${item.requerido}`)
-            .join(', ');
-        Toast.error('No puedes cobrar esta venta porque no hay stock suficiente: ' + detalle);
-        actualizarBadgesStock();
-        return;
+        Toast.error('Stock insuficiente: ' + faltantesPrevios.map(f => `${f.producto}: ${f.disponible}/${f.requerido}`).join(', '));
+        actualizarBadgesStock(); return;
     }
 
-    const items = cart.map(item => ({
-        producto_id: item.productId,
-        producto: item.nombre,
-        cantidad: item.cantidad,
-        precio: getItemUnitPrice(item),
-        modificaciones: (item.modificaciones || []).map(mod => ({
-            tipo: mod.tipo,
-            descripcion: mod.descripcion,
-            cantidad: mod.cantidad,
-        })),
-    }));
+    const confirmBtn = document.getElementById('paymentConfirmButton');
+    if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Procesando...'; }
 
     try {
-        const body = {
-            items,
-            metodo_pago: metodo,
-            monto_recibido: montoRecibido,
-        };
-        if (mixto && metodo2 && monto2) {
-            body.metodo_pago_2 = metodo2;
-            body.monto_pago_2 = monto2;
-        }
-        const res = await fetch('/api/venta', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
+        // 1. Crear header
+        const r1 = await fetch('/api/venta/iniciar', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({tipo_venta: tipoVentaActual}),
         });
-        const data = await res.json();
-        if (!res.ok || !data.ok) {
-            const faltantes = (data.faltantes || [])
-                .map(item => `- ${item.producto}: faltan ${item.faltante}`)
-                .join('\n');
-            throw new Error((data.error || 'No se pudo registrar la venta.') + (faltantes ? `\n${faltantes}` : ''));
+        const d1 = await r1.json();
+        if (!d1.ok) throw new Error(d1.error || 'Error al iniciar venta');
+        const ventaId = d1.venta_id;
+
+        // 2. Items
+        const items = cart.map(item => ({
+            producto_id: item.productId, producto: item.nombre, cantidad: item.cantidad,
+            precio_base: item.precioBase ?? item.precio,
+            precio_aplicado: item.precioAplicado ?? item.precio,
+            motivo_precio: item.motivoPrecio || '',
+            autorizado_por: item.autorizadoPor || '',
+            autorizado_pin: item.autorizadoPin || '',
+            modificaciones: (item.modificaciones || []).map(m => ({tipo: m.tipo, descripcion: m.descripcion, cantidad: m.cantidad, precio_extra: m.precio_extra || 0})),
+        }));
+        const r2 = await fetch(`/api/venta/${ventaId}/items`, {
+            method: 'PUT', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({items}),
+        });
+        const d2 = await r2.json();
+        if (!d2.ok) throw new Error(d2.error || 'Error al guardar los items');
+
+        // 3. Datos comprador si aplica
+        if (tipoVentaActual === 'con_documento') {
+            await fetch(`/api/venta/${ventaId}/comprador`, {
+                method: 'PUT', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    nombre_comprador: datosDocumento.nombre,
+                    tipo_doc: datosDocumento.tipo_doc,
+                    numero_doc: datosDocumento.numero_doc,
+                    email_comprador: datosDocumento.email,
+                    empresa_comprador: datosDocumento.empresa,
+                    direccion_comprador: datosDocumento.direccion,
+                    cliente_id: clienteId || null,
+                }),
+            });
+        } else if (clienteId) {
+            await fetch(`/api/venta/${ventaId}/cliente`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    cliente_id: clienteId,
+                    cliente_nombre_snapshot: clienteNombre,
+                }),
+            });
         }
 
-        cajaActual = data.caja || cajaActual;
+        // 4. Pagos
+        const montoPrimario = mixto ? Math.max(total - monto2, 0) : total;
+        const r4 = await fetch(`/api/venta/${ventaId}/pagar`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({metodo, monto: montoPrimario, recibido: montoRecibido}),
+        });
+        const d4 = await r4.json();
+        if (!d4.ok) throw new Error(d4.error || 'Error al registrar pago');
+
+        if (mixto && monto2 > 0) {
+            await fetch(`/api/venta/${ventaId}/pagar`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({metodo: metodo2, monto: monto2, recibido: monto2}),
+            });
+        }
+
+        // 5. Cerrar
+        const r5 = await fetch(`/api/venta/${ventaId}/cerrar`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                fecha_vencimiento_credito: requiereClienteCredito ? (document.getElementById('creditoFechaVencimiento')?.value || '') : '',
+            }),
+        });
+        const d5 = await r5.json();
+        if (!d5.ok) throw new Error(d5.error || 'Error al cerrar venta');
+
+        let documentoGenerado = null;
+        if (tipoVentaActual === 'con_documento') {
+            const r6 = await fetch(`/api/documento/generar-desde-venta/${ventaId}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(datosDocumento),
+            });
+            const d6 = await r6.json();
+            if (!d6.ok) throw new Error(d6.error || 'No se pudo generar el documento');
+            documentoGenerado = d6;
+        }
+
+        cajaActual = d5.caja || cajaActual;
         renderCajaStatus();
         closePaymentModal();
         clearCart();
-        Toast.success(data.mensaje || 'Venta registrada correctamente.');
+        const cambio = d4.cambio || 0;
+        if (documentoGenerado?.documento_id) {
+            window.open(`/documento/${documentoGenerado.documento_id}/print?mode=imprimir&auto=1`, '_blank', 'noopener');
+            Toast.success('Venta cobrada y documento generado.');
+        } else {
+            Toast.success(cambio > 0 ? `Venta cobrada. Cambio: ${money(cambio)}` : 'Venta registrada correctamente.');
+        }
     } catch (err) {
         Toast.error(err.message || 'No se pudo registrar la venta.');
+    } finally {
+        if (confirmBtn) { confirmBtn.disabled = false; updatePaymentActionLabels(document.getElementById('paymentMethod')?.value || 'efectivo'); }
     }
+}
+
+// ── Suspender / Reanudar ──────────────────────────────────────────────────────
+
+function abrirModalSuspender() {
+    if (cart.length === 0) { Toast.warning('Agrega productos antes de suspender.'); return; }
+    document.getElementById('suspenderNota').value = '';
+    document.getElementById('suspenderModal').style.display = 'flex';
+}
+
+function cerrarModalSuspender() {
+    document.getElementById('suspenderModal').style.display = 'none';
+}
+
+async function suspenderVentaActual() {
+    const nota = document.getElementById('suspenderNota').value.trim();
+    try {
+        const r1 = await fetch('/api/venta/iniciar', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({tipo_venta: tipoVentaActual || 'rapida'}),
+        });
+        const d1 = await r1.json();
+        if (!d1.ok) throw new Error(d1.error);
+        const ventaId = d1.venta_id;
+
+        const items = cart.map(item => ({
+            producto_id: item.productId, producto: item.nombre, cantidad: item.cantidad,
+            precio_base: item.precioBase ?? item.precio,
+            precio_aplicado: item.precioAplicado ?? item.precio,
+            motivo_precio: item.motivoPrecio || '',
+            autorizado_por: item.autorizadoPor || '',
+            autorizado_pin: item.autorizadoPin || '',
+            modificaciones: item.modificaciones || [],
+        }));
+        const r2 = await fetch(`/api/venta/${ventaId}/items`, {
+            method: 'PUT', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({items}),
+        });
+        const d2 = await r2.json();
+        if (!d2.ok) throw new Error(d2.error || 'No se pudieron guardar los items');
+
+        const r3 = await fetch(`/api/venta/${ventaId}/suspender`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({nota}),
+        });
+        const d3 = await r3.json();
+        if (!d3.ok) throw new Error(d3.error);
+
+        clearCart();
+        cerrarModalSuspender();
+        Toast.success('Venta suspendida. Puedes retomarla cuando quieras.');
+        await cargarVentasSuspendidas();
+    } catch (err) {
+        Toast.error(err.message || 'No se pudo suspender la venta.');
+    }
+}
+
+async function cargarVentasSuspendidas() {
+    try {
+        const r = await fetch('/api/ventas/suspendidas');
+        const d = await r.json();
+        ventasSuspendidas = d.ventas || [];
+        renderVentasSuspendidas();
+    } catch (e) {}
+}
+
+function renderVentasSuspendidas() {
+    const panel = document.getElementById('suspendidaPanel');
+    const list = document.getElementById('suspendidaList');
+    const count = document.getElementById('suspendidaCount');
+    if (!panel || !list) return;
+    if (!ventasSuspendidas.length) { panel.style.display = 'none'; return; }
+    panel.style.display = '';
+    if (count) count.textContent = ventasSuspendidas.length;
+    list.innerHTML = ventasSuspendidas.map(v => {
+        const total = money(v.total || 0);
+        const items = (v.items || []).slice(0, 2).map(i => escapeHtml(i.producto)).join(', ');
+        const extra = (v.items || []).length > 2 ? ` +${v.items.length - 2}` : '';
+        const hora = String(v.creado_en || '').slice(11, 16) || '--:--';
+        return `<div style="display:flex;align-items:center;gap:6px;">
+            <div class="suspendida-chip" onclick="reanudarVentaSuspendida(${v.id})">
+                <span class="material-symbols-outlined" style="font-size:16px;color:var(--primary)">play_circle</span>
+                <div>
+                    <div style="font-weight:600;">${items}${extra}</div>
+                    <div class="suspendida-chip-meta">${hora} · <span class="suspendida-chip-total">${total}</span>${v.nota ? ' · ' + escapeHtml(v.nota) : ''}</div>
+                </div>
+            </div>
+            <button class="btn-anular-suspendida" onclick="abrirModalAnular(${v.id})" title="Anular esta venta">&times;</button>
+        </div>`;
+    }).join('');
+}
+
+async function reanudarVentaSuspendida(ventaId) {
+    try {
+        const r = await fetch(`/api/venta/${ventaId}/reanudar`, {method: 'POST'});
+        const d = await r.json();
+        if (!d.ok) throw new Error(d.error);
+        const venta = d.venta;
+        cart = [];
+        (venta.items || []).forEach(item => {
+            upsertCartItem({
+                id: nextCartItemId(),
+                nombre: item.producto, precio: item.precio_base,
+                precioBase: item.precio_base, precioAplicado: item.precio_aplicado,
+                motivoPrecio: item.motivo_precio || '',
+                autorizadoPor: item.autorizado_por || '',
+                icono: 'bakery_dining', cantidad: item.cantidad,
+                productId: item.producto_id, stockMinimo: 0,
+                modificaciones: item.modificaciones || [],
+            });
+        });
+        cart = compactCartItems(cart);
+        renderCart(); actualizarBadgesStock(); renderQuickGroup(activeQuickGroup);
+        await cargarVentasSuspendidas();
+        Toast.success('Venta reanudada.');
+    } catch (err) {
+        Toast.error(err.message || 'No se pudo reanudar la venta.');
+    }
+}
+
+// ── Anular ────────────────────────────────────────────────────────────────────
+
+function abrirModalAnular(ventaId) {
+    _anularVentaId = ventaId;
+    document.getElementById('anularMotivo').value = '';
+    document.getElementById('anularModal').style.display = 'flex';
+}
+
+function cerrarModalAnular() {
+    _anularVentaId = null;
+    document.getElementById('anularModal').style.display = 'none';
+}
+
+async function confirmarAnulacion() {
+    const motivo = document.getElementById('anularMotivo').value.trim();
+    if (!motivo) { Toast.warning('El motivo de anulacion es obligatorio.'); return; }
+    try {
+        const r = await fetch(`/api/venta/${_anularVentaId}/anular`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({motivo}),
+        });
+        const d = await r.json();
+        if (!d.ok) throw new Error(d.error);
+        cerrarModalAnular();
+        Toast.success('Venta anulada.');
+        await cargarVentasSuspendidas();
+    } catch (err) {
+        Toast.error(err.message || 'No se pudo anular la venta.');
+    }
+}
+
+// ── Precio override ───────────────────────────────────────────────────────────
+
+function abrirModalPrecio(itemId) {
+    const item = cart.find(e => e.id === itemId);
+    if (!item) return;
+    _precioModalItemId = itemId;
+    document.getElementById('precioModalNombre').textContent = item.nombre;
+    document.getElementById('precioModalBase').textContent = money(item.precioBase ?? item.precio);
+    document.getElementById('precioAplicadoInput').value = item.precioAplicado ?? item.precio;
+    document.getElementById('precioMotivoInput').value = item.motivoPrecio || '';
+    document.getElementById('precioAutorizadoPorInput').value = item.autorizadoPor || '';
+    document.getElementById('precioAutorizadoPinInput').value = '';
+    document.getElementById('precioApplyScope').value = Number(item.cantidad || 0) > 1 ? 'one' : 'all';
+    document.getElementById('precioApplyScopeWrap').style.display = Number(item.cantidad || 0) > 1 ? '' : 'none';
+    updatePrecioModalState();
+    document.getElementById('precioModal').style.display = 'flex';
+}
+
+function cerrarModalPrecio() {
+    _precioModalItemId = null;
+    document.getElementById('precioModal').style.display = 'none';
+}
+
+function updatePrecioModalState() {
+    const item = cart.find(e => e.id === _precioModalItemId);
+    const wrap = document.getElementById('precioAutorizacionWrap');
+    if (!item || !wrap) return;
+    const nuevo = Number(document.getElementById('precioAplicadoInput').value);
+    const cambiado = !Number.isNaN(nuevo) && nuevo !== Number(item.precioBase ?? item.precio ?? 0);
+    wrap.style.display = cambiado && usuarioRequiereAutorizacionPrecio() ? '' : 'none';
+}
+
+function guardarPrecioOverride() {
+    const item = cart.find(e => e.id === _precioModalItemId);
+    if (!item) return;
+    const nuevo = Number(document.getElementById('precioAplicadoInput').value);
+    const motivo = document.getElementById('precioMotivoInput').value.trim();
+    const autorizadoPor = document.getElementById('precioAutorizadoPorInput').value.trim();
+    const autorizadoPin = document.getElementById('precioAutorizadoPinInput').value.trim();
+    const scope = document.getElementById('precioApplyScope').value || 'all';
+    if (isNaN(nuevo) || nuevo < 0) { Toast.warning('Precio invalido.'); return; }
+    if (nuevo !== item.precioBase && !motivo) { Toast.warning('El motivo es obligatorio al cambiar el precio.'); return; }
+    if (nuevo !== item.precioBase && usuarioRequiereAutorizacionPrecio() && (!autorizadoPor || !autorizadoPin)) {
+        Toast.warning('Ingresa autorizador y PIN para cambiar el precio.');
+        return;
+    }
+    applyLinePatch(item, {
+        precioAplicado: nuevo,
+        motivoPrecio: nuevo === item.precioBase ? '' : motivo,
+        autorizadoPor: nuevo === item.precioBase ? '' : (usuarioRequiereAutorizacionPrecio() ? autorizadoPor : CURRENT_USER_NAME),
+        autorizadoPin: nuevo === item.precioBase ? '' : (usuarioRequiereAutorizacionPrecio() ? autorizadoPin : ''),
+    }, scope);
+    cerrarModalPrecio();
+    renderCart();
 }
 
 renderCajaStatus();
@@ -2084,7 +3082,9 @@ async function cargarTop3() {
 
 cargarStockDisponible();
 cargarTop3();
+cargarVentasSuspendidas();
 setInterval(cargarStockDisponible, 30000);
 setInterval(cargarTop3, 30000);
+setInterval(cargarVentasSuspendidas, 60000);
 </script>
 {% endblock %}

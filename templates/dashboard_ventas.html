@@ -1,6 +1,20 @@
 {% extends "base.html" %}
 {% block title_extra %} - Ventas de Hoy{% endblock %}
 {% block content %}
+{% set sales_help = {
+    'total_vendido': 'Valor total vendido en el turno o dia. Si se frena frente al ritmo esperado, revisa horas pico y productos lideres.',
+    'transacciones': 'Cantidad de ventas registradas en el periodo. Si sube sin crecer el total, el ticket promedio puede estar bajando.',
+    'efectivo': 'Monto cobrado en efectivo. Si domina demasiado, prepara cambio y refuerza control de caja.',
+    'tarjeta': 'Monto cobrado con tarjeta. Si sube, conviene conciliar datafono antes del cierre.',
+    'transferencia': 'Monto recibido por transferencia. Si crece, valida comprobantes y registro oportuno.',
+    'ticket_promedio': 'Valor promedio por transaccion. Si baja, revisa mezcla de productos y ventas complementarias.',
+    'ventas_producto': 'Ranking visual de unidades vendidas por producto. Si un articulo cae frente al resto, revisa disponibilidad o exhibicion.',
+    'medios_pago': 'Distribucion del dinero por metodo de pago. Sirve para anticipar caja, conciliacion y necesidad de cambio.',
+    'ventas_hora': 'Muestra las horas con mas unidades vendidas. Si el pico se acerca, adelanta alistamiento y apoyo en caja.',
+    'detalle_producto': 'Detalle rapido por producto con unidades y valor vendido. Usalo para detectar que empuja el ingreso del dia.',
+    'movimientos_caja': 'Lista ingresos y egresos manuales del turno. Si aparecen varios seguidos, revisa soporte antes del cierre.',
+    'ventas_mesero': 'Compara la facturacion por responsable. Si alguien concentra ventas, puede necesitar apoyo en horas pico.'
+} %}
 <div class="page-container cajero-ventas-page ventas-page">
     <section class="sales-hero-card">
         <div class="sales-hero-copy">
@@ -30,24 +44,34 @@
                 </div>
                 <div class="sales-kpi-grid sales-kpi-grid-hero" id="metricsRow">
                     <div class="metric-card sales-metric-card">
+                        <div class="card-help-corner">{% with help_text=sales_help.total_vendido %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
                         <div class="metric-label">Total vendido</div>
                         <div class="metric-value text-success" id="metricDinero">$0</div>
                     </div>
                     <div class="metric-card sales-metric-card">
+                        <div class="card-help-corner">{% with help_text=sales_help.transacciones %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
                         <div class="metric-label">Transacciones</div>
                         <div class="metric-value text-accent" id="metricTrans">0</div>
                     </div>
                     <div class="metric-card sales-metric-card">
+                        <div class="card-help-corner">{% with help_text=sales_help.efectivo %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
                         <div class="metric-label">Efectivo</div>
                         <div class="metric-value text-primary" id="metricEfectivo">$0</div>
                     </div>
                     <div class="metric-card sales-metric-card">
+                        <div class="card-help-corner">{% with help_text=sales_help.tarjeta %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
                         <div class="metric-label">Tarjeta</div>
                         <div class="metric-value text-accent" id="metricTarjeta">$0</div>
                     </div>
                     <div class="metric-card sales-metric-card">
+                        <div class="card-help-corner">{% with help_text=sales_help.transferencia %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
                         <div class="metric-label">Transferencia</div>
                         <div class="metric-value text-warning" id="metricTransferencia">$0</div>
+                    </div>
+                    <div class="metric-card sales-metric-card">
+                        <div class="card-help-corner">{% with help_text=sales_help.ticket_promedio %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
+                        <div class="metric-label">Ticket promedio</div>
+                        <div class="metric-value" id="metricTicket">$0</div>
                     </div>
                 </div>
             </div>
@@ -63,9 +87,10 @@
                     <strong>Ventas por Producto</strong>
                     <span>Lectura visual de los articulos que sostienen el ingreso del dia.</span>
                 </div>
+                <div class="card-help-inline">{% with help_text=sales_help.ventas_producto %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
             </div>
             <div class="card-body sales-chart-body">
-                <canvas id="ventasChart" height="250"></canvas>
+                <div id="ventasChart" style="width:100%;height:250px;"></div>
                 <p class="text-muted text-center sales-empty-state" id="chartEmpty" style="display:none;">
                     No hay ventas hoy todavia.
                 </p>
@@ -77,13 +102,27 @@
                     <strong>Medios de Pago</strong>
                     <span>Mix operativo para entender la caja y el comportamiento de cobro.</span>
                 </div>
+                <div class="card-help-inline">{% with help_text=sales_help.medios_pago %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
             </div>
             <div class="card-body sales-chart-body">
-                <canvas id="paymentChart" height="250"></canvas>
+                <div id="paymentChart" style="width:100%;height:250px;"></div>
                 <p class="text-muted text-center sales-empty-state" id="paymentChartEmpty" style="display:none;">
                     Aun no hay pagos registrados hoy.
                 </p>
             </div>
+        </div>
+    </section>
+
+    <section class="card sales-wide-card">
+        <div class="card-header sales-section-header">
+            <div>
+                <strong>Ventas por Hora</strong>
+                <span>Ritmo de venta durante el turno para anticipar picos y quietud.</span>
+            </div>
+            <div class="card-help-inline">{% with help_text=sales_help.ventas_hora %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
+        </div>
+        <div class="card-body sales-chart-body">
+            <div id="horaChart" style="width:100%;height:200px;"></div>
         </div>
     </section>
 
@@ -94,6 +133,7 @@
                     <strong>Detalle por Producto</strong>
                     <span>Referencia rapida para ver que categorias empujan el ticket del dia.</span>
                 </div>
+                <div class="card-help-inline">{% with help_text=sales_help.detalle_producto %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
             </div>
             <div class="card-body sales-panel-body" id="detalleProductos">
                 <p class="text-muted text-center sales-empty-state">Cargando...</p>
@@ -105,6 +145,7 @@
                     <strong>Movimientos de Caja</strong>
                     <span>Ingreso y egresos manuales para vigilar el flujo real del turno.</span>
                 </div>
+                <div class="card-help-inline">{% with help_text=sales_help.movimientos_caja %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
             </div>
             <div class="card-body sales-panel-body" id="movimientosCaja">
                 <p class="text-muted text-center sales-empty-state">Cargando...</p>
@@ -118,6 +159,7 @@
                 <strong>Ventas por Mesero</strong>
                 <span>Comparativa de responsables para detectar quien mueve la facturacion del dia.</span>
             </div>
+            <div class="card-help-inline">{% with help_text=sales_help.ventas_mesero %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
         </div>
         <div class="card-body sales-panel-body" id="ventasResponsable">
             <p class="text-muted text-center sales-empty-state">Cargando...</p>
@@ -155,8 +197,7 @@
 
 <script>
 const ES_CAJERO = {{ (layout == 'cajero')|tojson }};
-let ventasChart = null;
-let paymentChart = null;
+// ECharts: instancias gestionadas por AppCharts.init / AppCharts.dispose
 let cajaActual = {{ caja|default({})|tojson }};
 let arqueosActuales = {{ historial_arqueos|default([])|tojson }};
 let movimientosActuales = {{ movimientos_caja|default([])|tojson }};
@@ -189,6 +230,7 @@ function loadData(isAuto = false) {
         updateMetrics(data.totales || {}, cajaActual);
         updateProductChart(data.resumen || []);
         updatePaymentChart(data.metodos_pago || []);
+        updateHoraChart(data.ventas_por_hora || []);
         updateDetalle(data.resumen || []);
         updateVentasResponsable(data.ventas_por_responsable || []);
         updateMovimientos(movimientosActuales || []);
@@ -212,93 +254,97 @@ function updateMetrics(t, caja) {
     document.getElementById('metricEfectivo').textContent = money((caja || {}).ventas_efectivo || 0);
     document.getElementById('metricTarjeta').textContent = money((caja || {}).ventas_tarjeta || 0);
     document.getElementById('metricTransferencia').textContent = money((caja || {}).ventas_transferencia || 0);
+    const ticketEl = document.getElementById('metricTicket');
+    if (ticketEl) ticketEl.textContent = money(t.ticket_promedio || 0);
 }
 
-function updateProductChart(resumen) {
-    const canvas = document.getElementById('ventasChart');
-    const emptyMsg = document.getElementById('chartEmpty');
+function updateHoraChart(rows) {
+    const chart = AppCharts.init('horaChart');
+    if (!chart) return;
+    if (!rows.length) { AppCharts.dispose('horaChart'); return; }
 
-    if (!resumen || resumen.length === 0) {
-        if (ventasChart) {
-            ventasChart.destroy();
-            ventasChart = null;
-        }
-        canvas.style.display = 'none';
-        emptyMsg.style.display = 'block';
-        return;
-    }
-    canvas.style.display = 'block';
-    emptyMsg.style.display = 'none';
+    // Rellena las 24 horas aunque no haya ventas en algunas
+    const byHour = {};
+    rows.forEach(r => { byHour[String(r.hora).padStart(2, '0')] = Number(r.panes || 0); });
+    const hours = Array.from({length: 24}, (_, i) => String(i).padStart(2, '0'));
+    const valores = hours.map(h => byHour[h] || 0);
+    const maxVal = Math.max(...valores, 1);
 
-    const labels = resumen.map(r => r.producto);
-    const cantidades = resumen.map(r => r.total_cantidad);
-    const colores = ['#E8B44D','#E07A5F','#81B29A','#9B8EA0','#B0BEC5','#FFB74D','#D4A373'];
-
-    if (ventasChart) ventasChart.destroy();
-
-    ventasChart = new Chart(canvas, {
-        type: 'bar',
-        data: {
-            labels,
-            datasets: [{
-                label: 'Unidades vendidas',
-                data: cantidades,
-                backgroundColor: colores.slice(0, labels.length),
-                borderRadius: 8,
-                borderSkipped: false,
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: {display: false} },
-            scales: {
-                y: { beginAtZero: true, grid: {color: '#EFEBE9'}, ticks: {color: '#5D4037'} },
-                x: { grid: {display: false}, ticks: {color: '#5D4037', font: {size: 13}} }
-            }
-        }
+    chart.setOption({
+        color: ['#C17817'],
+        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, textStyle: { color: '#5D4037', fontSize: 12 },
+            formatter: p => `${p[0].axisValue}:00 — <b>${p[0].value}</b> unidades` },
+        grid: { left: '3%', right: '3%', bottom: '8%', top: '8%', containLabel: true },
+        xAxis: { type: 'category', data: hours.map(h => h + ':00'),
+            axisLabel: { color: '#5D4037', fontSize: 11, interval: 1, rotate: 35 },
+            axisLine: { lineStyle: { color: '#EFEBE9' } }, splitLine: { show: false } },
+        yAxis: { type: 'value', axisLabel: { color: '#5D4037' },
+            splitLine: { lineStyle: { color: '#EFEBE9' } }, minInterval: 1 },
+        series: [{
+            type: 'bar', barMaxWidth: 28,
+            data: valores.map(v => ({
+                value: v,
+                itemStyle: {
+                    color: v === maxVal && v > 0
+                        ? '#C17817'
+                        : `rgba(193,120,23,${v > 0 ? (0.3 + (v / maxVal) * 0.65).toFixed(2) : 0.12})`,
+                    borderRadius: [4, 4, 0, 0],
+                },
+            })),
+        }],
     });
 }
 
+function updateProductChart(resumen) {
+    const el = document.getElementById('ventasChart');
+    const emptyMsg = document.getElementById('chartEmpty');
+
+    if (!resumen || resumen.length === 0) {
+        AppCharts.dispose('ventasChart');
+        el.style.display = 'none';
+        emptyMsg.style.display = 'block';
+        return;
+    }
+    el.style.display = 'block';
+    emptyMsg.style.display = 'none';
+
+    const chart = AppCharts.init('ventasChart');
+    if (!chart) return;
+    chart.setOption(AppCharts.barOption({
+        labels: resumen.map(r => r.producto),
+        values: resumen.map(r => r.total_cantidad),
+    }));
+}
+
 function updatePaymentChart(metodos) {
-    const canvas = document.getElementById('paymentChart');
+    const el = document.getElementById('paymentChart');
     const emptyMsg = document.getElementById('paymentChartEmpty');
     const dataset = (metodos || []).filter(item => Number(item.total || 0) > 0);
 
     if (!dataset.length) {
-        if (paymentChart) {
-            paymentChart.destroy();
-            paymentChart = null;
-        }
-        canvas.style.display = 'none';
+        AppCharts.dispose('paymentChart');
+        el.style.display = 'none';
         emptyMsg.style.display = 'block';
         return;
     }
-    canvas.style.display = 'block';
+    el.style.display = 'block';
     emptyMsg.style.display = 'none';
 
-    if (paymentChart) paymentChart.destroy();
-    paymentChart = new Chart(canvas, {
-        type: 'doughnut',
-        data: {
-            labels: dataset.map(item => item.metodo),
-            datasets: [{
-                data: dataset.map(item => Number(item.total || 0)),
-                backgroundColor: ['#4F8C5B', '#D28B36', '#8B5E3C'],
-                borderWidth: 0,
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { position: 'bottom' },
-                tooltip: {
-                    callbacks: {
-                        label: (ctx) => `${ctx.label}: ${money(ctx.raw)}`,
-                    }
-                }
-            }
+    const chart = AppCharts.init('paymentChart');
+    if (!chart) return;
+    chart.setOption(AppCharts.pieOption({
+        labels: dataset.map(item => item.metodo),
+        values: dataset.map(item => Number(item.total || 0)),
+        colors: [AppCharts.CAJA_COLORS.efectivo,
+                 AppCharts.CAJA_COLORS.tarjeta,
+                 AppCharts.CAJA_COLORS.transferencia],
+        radius: ['40%', '68%'],
+    }));
+    // Sobreescribir el tooltip para mostrar formato de dinero
+    chart.setOption({
+        tooltip: {
+            trigger: 'item',
+            formatter: (p) => `${p.name}: <b>${money(p.value)}</b> (${p.percent}%)`,
         }
     });
 }

@@ -32,7 +32,7 @@ services:
           echo "FLASK_SECRET_KEY is required for the production stack." >&2
           exit 1
         fi
-        exec gunicorn -c gunicorn.conf.py app:app
+        exec gunicorn -c gunicorn.conf.py wsgi:app
     volumes:
       - backups:/app/backups
     init: true

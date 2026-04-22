@@ -97,3 +97,33 @@ python app.py
   PostgreSQL fuera de la laptop o del Wi-Fi local.
 - En PostgreSQL, los backups/restores ya no se hacen desde la app. Usa
   `pg_dump`, snapshots del proveedor o un runbook externo de respaldo.
+
+## Configuracion por cliente
+
+Cada instalacion debe quedar parametrizada para una sola panaderia. En esta
+fase la separacion queda asi:
+
+- Dominio del cliente: `NGINX_SERVER_NAME`.
+- Modo de ejecucion: `FLASK_ENV` para desarrollo y produccion.
+- Clave de sesion: `FLASK_SECRET_KEY`.
+- Conexion a la base del cliente: `DATABASE_URL`.
+- Capacidad del proceso web: `GUNICORN_WORKERS`.
+
+La identidad visual y fiscal del cliente ya sale de la panaderia local en la
+base de datos, no de una seleccion dinamica de tenant:
+
+- Nombre comercial: `tenant_branding.brand_name`
+- Razon social o nombre legal: `tenant_branding.legal_name`
+- Logo y favicon: `tenant_branding.logo_path` y `tenant_branding.favicon_path`
+- Colores de marca: `tenant_branding.primary_color`,
+  `tenant_branding.secondary_color` y `tenant_branding.accent_color`
+
+Para cada despliegue de cliente recomendamos revisar este checklist antes de
+salir a produccion:
+
+1. Definir `NGINX_SERVER_NAME` con el dominio final del cliente.
+2. Configurar `FLASK_SECRET_KEY` y `DATABASE_URL` propios de esa instalacion.
+3. Ajustar los datos de `tenant_branding` para logo, nombre comercial y datos
+   fiscales de la panaderia.
+4. Mantener aislada la configuracion de correo saliente por cliente cuando se
+   habilite el envio de documentos en releases posteriores.

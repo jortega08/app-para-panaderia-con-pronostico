@@ -1,0 +1,834 @@
+<!doctype html>
+<html lang="es">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ session.get('_csrf_token', '') }}">
+    <title>{{ (payload.get('tipo_documento') or 'Documento')|replace('_', ' ')|title }} {{ documento.get('consecutivo',
+        '') }}</title>
+    <style>
+        :root {
+            --ticket-width: 76mm;
+            --ticket-paper: #fff;
+            --screen-bg: #efe7dc;
+            --ink: #151515;
+            --muted: #575757;
+            --line: #cfcfcf;
+            --accent: #000;
+            --ok: #1f6a48;
+            --danger: #aa3f2d;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0;
+            min-height: 100%;
+        }
+
+        body {
+            background: var(--screen-bg);
+            color: var(--ink);
+            font-family: "Segoe UI", Arial, sans-serif;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        .screen-shell {
+            width: min(100%, 440px);
+            margin: 0 auto;
+            padding: 14px 10px 18px;
+            display: grid;
+            gap: 10px;
+        }
+
+        .screen-actions,
+        .email-panel {
+            background: rgba(255, 255, 255, 0.96);
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            border-radius: 14px;
+            padding: 12px;
+            box-shadow: 0 8px 22px rgba(0, 0, 0, 0.08);
+        }
+
+        .screen-actions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .screen-actions-left,
+        .screen-actions-right,
+        .email-panel-head {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .screen-actions button,
+        .email-grid button {
+            border: 1px solid rgba(0, 0, 0, 0.18);
+            background: #fff;
+            color: var(--ink);
+            border-radius: 999px;
+            padding: 9px 14px;
+            font: inherit;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .screen-actions button.primary,
+        .email-grid button {
+            background: #1f1f1f;
+            border-color: #1f1f1f;
+            color: #fff;
+        }
+
+        .screen-note,
+        .email-status,
+        .envio-meta {
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .email-panel-head strong {
+            font-size: 14px;
+        }
+
+        .email-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 8px;
+            align-items: end;
+            margin-top: 10px;
+        }
+
+        .email-grid label {
+            display: grid;
+            gap: 5px;
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--muted);
+        }
+
+        .email-grid input {
+            width: 100%;
+            border: 1px solid rgba(0, 0, 0, 0.16);
+            border-radius: 10px;
+            padding: 10px 11px;
+            font: inherit;
+        }
+
+        .email-status {
+            min-height: 18px;
+            margin-top: 8px;
+        }
+
+        .email-status.ok {
+            color: var(--ok);
+        }
+
+        .email-status.error {
+            color: var(--danger);
+        }
+
+        .envios-history {
+            display: grid;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .envio-item {
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
+            padding: 9px 10px;
+            background: #fff;
+            font-size: 12px;
+        }
+
+        .envio-item strong:last-child {
+            display: inline-block;
+            margin-top: 5px;
+        }
+
+        .ticket {
+            width: var(--ticket-width);
+            margin: 0 auto;
+            background: var(--ticket-paper);
+            color: var(--ink);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.1);
+            padding: 4mm 3mm 5mm;
+            font-size: 11px;
+            line-height: 1.28;
+            font-variant-numeric: tabular-nums;
+            overflow-wrap: anywhere;
+        }
+
+        .ticket-header,
+        .ticket-section,
+        .ticket-footer {
+            break-inside: avoid;
+        }
+
+        .ticket-header {
+            text-align: center;
+            padding-bottom: 2.2mm;
+            border-bottom: 1px dashed var(--line);
+        }
+
+        .brand-logo {
+            display: block;
+            width: auto;
+            max-width: 20mm;
+            max-height: 20mm;
+            margin: 0 auto 2mm;
+            object-fit: contain;
+        }
+
+        .brand-name {
+            font-size: 14px;
+            font-weight: 800;
+            line-height: 1.1;
+            text-transform: uppercase;
+        }
+
+        .brand-line,
+        .muted-line {
+            color: var(--muted);
+            margin-top: 1mm;
+        }
+
+        .doc-title {
+            margin-top: 2.2mm;
+            font-size: 12px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .doc-code {
+            margin-top: 1mm;
+            font-size: 13px;
+            font-weight: 800;
+        }
+
+        .ticket-section {
+            padding: 2.4mm 0;
+            border-bottom: 1px dashed var(--line);
+        }
+
+        .section-label {
+            margin-bottom: 1.4mm;
+            font-size: 10px;
+            font-weight: 800;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+
+        .meta-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 1mm 3mm;
+            align-items: start;
+        }
+
+        .meta-row,
+        .totals-row,
+        .payment-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 8px;
+        }
+
+        .meta-row strong,
+        .totals-row strong,
+        .payment-row strong {
+            font-weight: 700;
+        }
+
+        .compact-lines {
+            display: grid;
+            gap: 1mm;
+        }
+
+        .items-head {
+            display: grid;
+            grid-template-columns: 8mm minmax(0, 1fr) 18mm;
+            gap: 2mm;
+            margin-bottom: 1.5mm;
+            font-size: 10px;
+            font-weight: 800;
+            color: var(--muted);
+            text-transform: uppercase;
+        }
+
+        .item-row {
+            padding: 1.6mm 0 1.4mm;
+            border-top: 1px dotted #d9d9d9;
+            break-inside: avoid;
+        }
+
+        .item-row:first-of-type {
+            border-top: none;
+            padding-top: 0;
+        }
+
+        .item-main {
+            display: grid;
+            grid-template-columns: 8mm minmax(0, 1fr) 18mm;
+            gap: 2mm;
+            align-items: start;
+        }
+
+        .qty,
+        .line-amount {
+            white-space: nowrap;
+        }
+
+        .line-amount {
+            text-align: right;
+            font-weight: 700;
+        }
+
+        .item-name {
+            font-weight: 700;
+            color: var(--ink);
+        }
+
+        .item-unit {
+            margin-top: 0.8mm;
+            color: var(--muted);
+            font-size: 10px;
+        }
+
+        .item-detail {
+            margin-top: 0.8mm;
+            padding-left: 10mm;
+            color: var(--muted);
+            font-size: 10px;
+        }
+
+        .item-detail strong {
+            color: var(--ink);
+        }
+
+        .totals-block {
+            display: grid;
+            gap: 1.1mm;
+        }
+
+        .totals-row {
+            font-size: 11px;
+        }
+
+        .totals-row.total {
+            margin-top: 1.2mm;
+            padding-top: 1.6mm;
+            border-top: 1px solid var(--ink);
+            font-size: 14px;
+            font-weight: 900;
+        }
+
+        .totals-row.total strong {
+            font-size: 14px;
+        }
+
+        .payment-list,
+        .extra-list {
+            display: grid;
+            gap: 1.1mm;
+            margin-top: 1.5mm;
+        }
+
+        .payment-note,
+        .footer-note {
+            margin-top: 1.2mm;
+            color: var(--muted);
+        }
+
+        .ticket-footer {
+            padding-top: 2.4mm;
+            text-align: center;
+            font-size: 10px;
+            color: var(--muted);
+        }
+
+        .ticket-footer strong {
+            display: block;
+            margin-bottom: 1mm;
+            color: var(--ink);
+            font-size: 11px;
+        }
+
+        @media (max-width: 430px) {
+            .screen-shell {
+                width: 100%;
+                padding-inline: 6px;
+            }
+
+            .email-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media print {
+            @page {
+                margin: 0;
+                size: auto;
+            }
+
+            html,
+            body {
+                width: 80mm;
+                background: #fff;
+            }
+
+            body {
+                padding: 0;
+            }
+
+            .screen-actions,
+            .email-panel {
+                display: none !important;
+            }
+
+            .screen-shell {
+                width: 80mm;
+                max-width: 80mm;
+                margin: 0;
+                padding: 0;
+                display: block;
+            }
+
+            .ticket {
+                width: 76mm;
+                margin: 0;
+                border: none;
+                box-shadow: none;
+                padding-top: 3mm;
+                padding-bottom: 3mm;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    {% set negocio = payload.get('negocio', {}) %}
+    {% set cliente = payload.get('cliente', {}) %}
+    {% set origen = payload.get('origen', {}) %}
+    {% set totales = payload.get('totales', {}) %}
+    {% set pagos = payload.get('pagos', []) %}
+    {% set items = payload.get('items', []) %}
+    {% set envios = documento.get('envios', []) %}
+    {% set subtotal = (totales.get('subtotal') or 0)|float %}
+    {% set impuestos = (totales.get('impuestos') or 0)|float %}
+    {% set total = (totales.get('total') or 0)|float %}
+    {% set anticipo = (totales.get('anticipo') or 0)|float %}
+    {% set saldo_pendiente = (totales.get('saldo_pendiente') or 0)|float %}
+    {% set descuento = subtotal + impuestos - total %}
+    {% set cliente_nombre = cliente.get('nombre') or cliente.get('empresa') or '' %}
+    {% set cliente_doc = cliente.get('numero_doc') or '' %}
+    {% set cliente_email = cliente.get('email') or documento.get('cliente_email_snapshot') or '' %}
+    {% set cliente_empresa = cliente.get('empresa') or documento.get('cliente_empresa_snapshot') or '' %}
+    {% set cliente_direccion = cliente.get('direccion') or documento.get('cliente_direccion_snapshot') or '' %}
+    {% set emitido_por = documento.get('emitido_por_nombre_snapshot') or origen.get('pagado_por') or
+    origen.get('registrado_por') or 'Sistema' %}
+
+    <div class="screen-shell">
+        {% if not email_mode %}
+        <div class="screen-actions">
+            <div class="screen-actions-left">
+                <button type="button" class="primary" onclick="registrarYImprimir()">
+                    {{ 'Reimprimir' if print_mode == 'reimprimir' else 'Imprimir' }}
+                </button>
+                <button type="button" onclick="cerrarVentana()">Cerrar</button>
+            </div>
+            <div class="screen-actions-right">
+                <div class="screen-note">
+                    {{ 'Correo listo para enviar.' if smtp_ready else 'SMTP no configurado en este ambiente.' }}
+                </div>
+            </div>
+        </div>
+
+        <div class="email-panel">
+            <div class="email-panel-head">
+                <strong>Enviar documento por correo</strong>
+                <span class="screen-note">La comanda nunca se envia por email.</span>
+            </div>
+            <div class="email-grid">
+                <label>
+                    Correo destino
+                    <input id="emailDestino" type="email" value="{{ cliente_email }}" placeholder="cliente@correo.com"
+                        {% if not smtp_ready %}disabled{% endif %}>
+                </label>
+                <button type="button" onclick="enviarDocumentoPorCorreo()" {% if not smtp_ready %}disabled{% endif
+                    %}>Enviar</button>
+            </div>
+            <div class="email-status" id="emailStatus"></div>
+            {% if envios %}
+            <div class="envios-history" id="enviosHistory">
+                {% for envio in envios %}
+                <div class="envio-item">
+                    <div>
+                        <strong>{{ envio.get('email_destino') }}</strong>
+                        <div class="envio-meta">
+                            {{ envio.get('created_at') }} · intento {{ envio.get('intentos') }}
+                            {% if envio.get('ultimo_error') %}· {{ envio.get('ultimo_error') }}{% endif %}
+                        </div>
+                    </div>
+                    <strong>{{ envio.get('estado', '')|upper }}</strong>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <main class="ticket">
+            <header class="ticket-header">
+                {% if negocio.get('logo_path') or logo_data_uri %}
+                <img class="brand-logo" src="{{ logo_data_uri or url_for('static', filename='brand/richs_logo.svg') }}"
+                    alt="{{ negocio.get('brand_name') or 'Panaderia' }}"> {% endif %}
+                <div class="brand-name">{{ negocio.get('brand_name') or 'Panaderia' }}</div>
+                {% if negocio.get('legal_name') and negocio.get('legal_name') != negocio.get('brand_name') %}
+                <div class="brand-line">{{ negocio.get('legal_name') }}</div>
+                {% endif %}
+                {% if negocio.get('tax_id') %}
+                <div class="brand-line">{{ negocio.get('tax_label') or 'NIT' }}: {{ negocio.get('tax_id') }}</div>
+                {% endif %}
+                {% if negocio.get('direccion') %}
+                <div class="brand-line">{{ negocio.get('direccion') }}</div>
+                {% endif %}
+                {% if negocio.get('telefono') or negocio.get('ciudad') %}
+                <div class="brand-line">
+                    {% if negocio.get('telefono') %}{{ negocio.get('telefono') }}{% endif %}
+                    {% if negocio.get('telefono') and negocio.get('ciudad') %} · {% endif %}
+                    {% if negocio.get('ciudad') %}{{ negocio.get('ciudad') }}{% endif %}
+                </div>
+                {% endif %}
+                {% if negocio.get('sede_nombre') %}
+                <div class="brand-line">Sede: {{ negocio.get('sede_nombre') }}</div>
+                {% endif %}
+                <div class="doc-title">{{ (payload.get('tipo_documento') or 'documento')|replace('_', ' ')|title }}
+                </div>
+                <div class="doc-code">{{ documento.get('consecutivo') }}</div>
+            </header>
+
+            <section class="ticket-section">
+                <div class="section-label">Documento</div>
+                <div class="compact-lines">
+                    <div class="meta-row"><span>Fecha</span><strong>{{ payload.get('fecha_operacion') or
+                            payload.get('fecha_emision') or documento.get('created_at') or '-' }}</strong></div>
+                    <div class="meta-row"><span>Hora</span><strong>{{ payload.get('hora_operacion') or '-' }}</strong>
+                    </div>
+                    <div class="meta-row"><span>Origen</span><strong>{{ documento.get('origen_tipo', '')|replace('_', '
+                            ')|title }} #{{ documento.get('origen_id') }}</strong></div>
+                    <div class="meta-row"><span>Emitido por</span><strong>{{ emitido_por }}</strong></div>
+                    {% if negocio.get('sede_codigo') %}
+                    <div class="meta-row"><span>Caja</span><strong>{{ negocio.get('sede_codigo') }}</strong></div>
+                    {% endif %}
+                    {% if origen.get('mesa_numero') %}
+                    <div class="meta-row"><span>Mesa</span><strong>{{ origen.get('mesa_numero') }}</strong></div>
+                    {% endif %}
+                    {% if origen.get('pagado_en') %}
+                    <div class="meta-row"><span>Terminal</span><strong>{{ origen.get('pagado_en') }}</strong></div>
+                    {% endif %}
+                    {% if origen.get('tipo_venta') %}
+                    <div class="meta-row"><span>Tipo venta</span><strong>{{ origen.get('tipo_venta')|replace('_', '
+                            ')|title }}</strong></div>
+                    {% endif %}
+                    {% if origen.get('canal_venta') %}
+                    <div class="meta-row"><span>Canal</span><strong>{{ origen.get('canal_venta')|replace('_', ' ')|title
+                            }}</strong></div>
+                    {% endif %}
+                    {% if origen.get('tipo_encargo') %}
+                    <div class="meta-row"><span>Tipo</span><strong>{{ origen.get('tipo_encargo')|replace('_', ' ')|title
+                            }}</strong></div>
+                    {% endif %}
+                    {% if origen.get('estado') %}
+                    <div class="meta-row"><span>Estado</span><strong>{{ origen.get('estado')|replace('_', ' ')|title
+                            }}</strong></div>
+                    {% endif %}
+                </div>
+            </section>
+
+            <section class="ticket-section">
+                <div class="section-label">Cliente</div>
+                <div class="compact-lines">
+                    {% if cliente_nombre or cliente_doc or cliente_email or cliente_empresa or cliente_direccion %}
+                    <div class="meta-row"><span>Cliente</span><strong>{{ cliente_nombre or 'Consumidor final'
+                            }}</strong></div>
+                    {% if cliente_empresa and cliente_empresa != cliente_nombre %}
+                    <div class="meta-row"><span>Empresa</span><strong>{{ cliente_empresa }}</strong></div>
+                    {% endif %}
+                    {% if cliente_doc %}
+                    <div class="meta-row"><span>{{ cliente.get('tipo_doc') or 'Documento' }}</span><strong>{{
+                            cliente_doc }}</strong></div>
+                    {% endif %}
+                    {% if cliente_email %}
+                    <div class="meta-row"><span>Correo</span><strong>{{ cliente_email }}</strong></div>
+                    {% endif %}
+                    {% if cliente_direccion %}
+                    <div class="meta-row"><span>Direccion</span><strong>{{ cliente_direccion }}</strong></div>
+                    {% endif %}
+                    {% else %}
+                    <div class="meta-row"><span>Cliente</span><strong>Consumidor final</strong></div>
+                    {% endif %}
+                </div>
+            </section>
+
+            <section class="ticket-section">
+                <div class="section-label">Detalle</div>
+                <div class="items-head">
+                    <span>Cant</span>
+                    <span>Descripcion</span>
+                    <span style="text-align:right;">Valor</span>
+                </div>
+                {% for item in items %}
+                <article class="item-row">
+                    <div class="item-main">
+                        <div class="qty">{{ item.get('cantidad') }}</div>
+                        <div>
+                            <div class="item-name">{{ item.get('producto') }}</div>
+                            {% if item.get('precio_unitario') and (item.get('cantidad') or 0) > 1 %}
+                            <div class="item-unit">{{ item.get('cantidad') }} x ${{
+                                '{:,.2f}'.format(item.get('precio_unitario') or 0) }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="line-amount">${{ '{:,.2f}'.format(item.get('subtotal') or 0) }}</div>
+                    </div>
+                    {% if item.get('modificaciones') %}
+                    <div class="item-detail">
+                        {% for mod in item.get('modificaciones', []) %}
+                        <div>
+                            {% if mod.get('tipo') == 'adicional' %}
+                            + {{ mod.get('descripcion') }}{% if (mod.get('cantidad', 1) or 1) > 1 %} x{{
+                            mod.get('cantidad', 1) }}{% endif %}
+                            {% if (mod.get('precio_extra') or 0) > 0 %} (${{ '{:,.2f}'.format(mod.get('precio_extra') or
+                            0) }}){% endif %}
+                            {% else %}
+                            Sin {{ mod.get('descripcion') }}
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    {% if item.get('notas') %}
+                    <div class="item-detail"><strong>Nota:</strong> {{ item.get('notas') }}</div>
+                    {% endif %}
+                </article>
+                {% else %}
+                <div class="muted-line">No hay items registrados en este documento.</div>
+                {% endfor %}
+            </section>
+
+            <section class="ticket-section">
+                <div class="section-label">Totales</div>
+                <div class="totals-block">
+                    <div class="totals-row"><span>Subtotal</span><strong>${{ '{:,.2f}'.format(subtotal) }}</strong>
+                    </div>
+                    {% if descuento > 0.009 %}
+                    <div class="totals-row"><span>Descuento</span><strong>${{ '{:,.2f}'.format(descuento) }}</strong>
+                    </div>
+                    {% endif %}
+                    {% if impuestos > 0.009 %}
+                    <div class="totals-row"><span>Impuesto</span><strong>${{ '{:,.2f}'.format(impuestos) }}</strong>
+                    </div>
+                    {% endif %}
+                    {% if anticipo > 0.009 %}
+                    <div class="totals-row"><span>Anticipo</span><strong>${{ '{:,.2f}'.format(anticipo) }}</strong>
+                    </div>
+                    {% endif %}
+                    {% if saldo_pendiente > 0.009 %}
+                    <div class="totals-row"><span>Saldo pendiente</span><strong>${{ '{:,.2f}'.format(saldo_pendiente)
+                            }}</strong></div>
+                    {% endif %}
+                    <div class="totals-row total"><span>TOTAL</span><strong>${{ '{:,.2f}'.format(total) }}</strong>
+                    </div>
+                </div>
+
+                {% if pagos %}
+                <div class="payment-list">
+                    {% if pagos|length == 1 %}
+                    <div class="payment-row">
+                        <span>Pago</span>
+                        <strong>{{ (pagos[0].get('metodo') or payload.get('metodo_pago_resumen') or
+                            'Registrado')|replace('_', ' ')|title }}</strong>
+                    </div>
+                    {% endif %}
+                    {% for pago in pagos %}
+                    <div class="payment-row">
+                        <span>{{ (pago.get('metodo') or 'Pago')|replace('_', ' ')|title }}</span>
+                        <strong>${{ '{:,.2f}'.format(pago.get('monto') or 0) }}</strong>
+                    </div>
+                    {% if pago.get('referencia') %}
+                    <div class="payment-note">Ref: {{ pago.get('referencia') }}</div>
+                    {% endif %}
+                    {% if (pago.get('cambio') or 0) > 0 %}
+                    <div class="payment-note">Cambio: ${{ '{:,.2f}'.format(pago.get('cambio') or 0) }}</div>
+                    {% endif %}
+                    {% if pago.get('notas') %}
+                    <div class="payment-note">{{ pago.get('notas') }}</div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+                {% elif payload.get('metodo_pago_resumen') %}
+                <div class="payment-list">
+                    <div class="payment-row">
+                        <span>Pago</span>
+                        <strong>{{ payload.get('metodo_pago_resumen') }}</strong>
+                    </div>
+                </div>
+                {% endif %}
+            </section>
+
+            {% if origen.get('fecha_entrega') or origen.get('hora_entrega') or origen.get('direccion_entrega') or
+            origen.get('telefono') or payload.get('observaciones') %}
+            <section class="ticket-section">
+                <div class="section-label">{{ 'Entrega y notas' if documento.get('origen_tipo') == 'encargo' else
+                    'Notas' }}</div>
+                <div class="extra-list">
+                    {% if origen.get('fecha_entrega') or origen.get('hora_entrega') %}
+                    <div class="meta-row">
+                        <span>Entrega</span>
+                        <strong>{{ origen.get('fecha_entrega') or '' }} {{ origen.get('hora_entrega') or '' }}</strong>
+                    </div>
+                    {% endif %}
+                    {% if origen.get('direccion_entrega') %}
+                    <div class="meta-row"><span>Direccion</span><strong>{{ origen.get('direccion_entrega') }}</strong>
+                    </div>
+                    {% endif %}
+                    {% if origen.get('telefono') %}
+                    <div class="meta-row"><span>Telefono</span><strong>{{ origen.get('telefono') }}</strong></div>
+                    {% endif %}
+                    {% if payload.get('observaciones') %}
+                    <div class="footer-note">{{ payload.get('observaciones') }}</div>
+                    {% endif %}
+                </div>
+            </section>
+            {% endif %}
+
+            <footer class="ticket-footer">
+                <strong>{{ negocio.get('invoice_footer') or 'Gracias por su compra' }}</strong>
+                <div>Documento interno #{{ documento.get('id') }}</div>
+                <div>{{ documento.get('estado', '')|replace('_', ' ')|title }}</div>
+            </footer>
+        </main>
+    </div>
+
+    {% if not email_mode %}
+    <script>
+        const DOCUMENTO_ID = {{ documento.get('id', 0) | tojson }};
+        const PRINT_MODE = {{ print_mode | tojson }};
+        const AUTO_PRINT = {{ auto_print | tojson }};
+        const SMTP_READY = {{ smtp_ready | tojson }};
+        const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+        let printTriggered = false;
+
+        async function registrarImpresion() {
+            const endpoint = PRINT_MODE === 'reimprimir'
+                ? `/api/documento/${DOCUMENTO_ID}/reimprimir`
+                : `/api/documento/${DOCUMENTO_ID}/imprimir`;
+
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': CSRF_TOKEN,
+                },
+                body: JSON.stringify({}),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data.ok) {
+                throw new Error(data.error || 'No se pudo registrar la impresion del documento.');
+            }
+        }
+
+        async function registrarYImprimir() {
+            if (printTriggered) return;
+            printTriggered = true;
+            try {
+                await registrarImpresion();
+            } catch (error) {
+                printTriggered = false;
+                alert(error.message || 'No se pudo imprimir el documento.');
+                return;
+            }
+            window.print();
+            setTimeout(() => {
+                printTriggered = false;
+            }, 1200);
+        }
+
+        async function enviarDocumentoPorCorreo() {
+            if (!SMTP_READY) return;
+            const input = document.getElementById('emailDestino');
+            const status = document.getElementById('emailStatus');
+            const email = String(input?.value || '').trim();
+            if (!email) {
+                status.textContent = 'Indica un correo destino antes de enviar.';
+                status.className = 'email-status error';
+                return;
+            }
+            status.textContent = 'Enviando documento...';
+            status.className = 'email-status';
+            try {
+                const response = await fetch(`/api/documento/${DOCUMENTO_ID}/enviar`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': CSRF_TOKEN,
+                    },
+                    body: JSON.stringify({ email }),
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok || !data.ok) {
+                    throw new Error(data.error || 'No se pudo enviar el documento.');
+                }
+                status.textContent = `Documento enviado a ${email}.`;
+                status.className = 'email-status ok';
+                window.location.reload();
+            } catch (error) {
+                status.textContent = error.message || 'No se pudo enviar el documento.';
+                status.className = 'email-status error';
+            }
+        }
+
+        function cerrarVentana() {
+            if (window.opener) {
+                window.close();
+                return;
+            }
+            history.back();
+        }
+
+        window.addEventListener('afterprint', () => {
+            if (AUTO_PRINT && window.opener) {
+                window.close();
+            }
+        });
+
+        if (AUTO_PRINT) {
+            window.addEventListener('load', () => {
+                setTimeout(() => {
+                    registrarYImprimir();
+                }, 180);
+            }, { once: true });
+        }
+    </script>
+    {% endif %}
+</body>
+
+</html>

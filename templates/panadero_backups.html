@@ -34,7 +34,31 @@
         </div>
     </div>
 
-    {# ── INFO NUBE ── #}
+    {# ── INFO POR MOTOR ── #}
+    {% if info.motor_activo == 'postgresql' %}
+    <div class="card" style="margin-bottom: 20px; border-left: 4px solid #2f6b63;">
+        <div class="card-header"><span class="material-symbols-outlined">storage</span> Motor PostgreSQL activo</div>
+        <div class="card-body">
+            <p style="margin-bottom: 10px;">
+                Los respaldos se generan con <strong>pg_dump</strong> y se guardan en
+                <code>{{ info.directorio }}</code>.
+                {% if info.pg_dump_disponible %}
+                <span style="color:#2f6b63;font-weight:700;"> pg_dump disponible en este servidor.</span>
+                {% else %}
+                <span style="color:#b7422f;font-weight:700;"> pg_dump NO encontrado en PATH.
+                Instala <code>postgresql-client</code> para habilitar backups automaticos.</span>
+                {% endif %}
+            </p>
+            <p style="color: #8f6511; background: rgba(217,164,65,.1); border-radius: 10px;
+               padding: 10px 14px; font-size: 13px; margin-bottom: 0;">
+                <strong>Restauracion:</strong> En PostgreSQL la restauracion desde la UI esta
+                deshabilitada por seguridad multi-tenant. Usa <code>psql</code> o
+                <code>pg_restore</code> siguiendo el runbook en
+                <code>docs/runbook-backup-restore.md</code>.
+            </p>
+        </div>
+    </div>
+    {% else %}
     <div class="card" style="margin-bottom: 20px;">
         <div class="card-header"><span class="material-symbols-outlined">cloud</span> Respaldo en la Nube</div>
         <div class="card-body">
@@ -56,6 +80,7 @@
             </p>
         </div>
     </div>
+    {% endif %}
 
     {# ── LISTA DE BACKUPS ── #}
     <div class="card">
@@ -87,9 +112,15 @@
                         <td>{{ b.tamano_mb }} MB</td>
                         <td class="text-muted">{{ b.nota or '-' }}</td>
                         <td>
+                            {% if info.restore_en_app_disponible %}
                             <button class="btn btn-sm btn-accent" onclick="restaurar(this, '{{ b.timestamp }}', '{{ b.fecha }} {{ b.hora[:5] }}')">
                                 <span class="material-symbols-outlined">restore</span> Restaurar
                             </button>
+                            {% else %}
+                            <span class="text-muted" style="font-size:12px;" title="Restauracion manual via psql/pg_restore">
+                                <span class="material-symbols-outlined" style="font-size:16px;vertical-align:middle;">lock</span> Restaurar via runbook
+                            </span>
+                            {% endif %}
                             <button class="btn btn-sm btn-danger-outline" onclick="eliminarBackup(this, '{{ b.timestamp }}')">
                                 <span class="material-symbols-outlined">delete</span> Eliminar
                             </button>

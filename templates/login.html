@@ -1,89 +1,329 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="login-page">
-    <div class="login-card">
-        <div class="login-accent"></div>
-        <div class="login-brand-lockup">
-            <div class="login-logo-shell">
-                <img src="{{ url_for('static', filename='brand/richs-logo.svg', v='20260327-ui') }}" alt="RICHS" class="login-logo">
-            </div>
-            <div class="login-brand-copy">
-                <h1 class="login-title">RICHS</h1>
-                <p class="login-subtitle">POS, pronostico y operacion diaria</p>
-            </div>
+  <div class="login-card">
+    <div class="login-accent"></div>
+
+    <div class="login-brand-lockup">
+      <div class="login-logo-shell">
+        <img src="{{ url_for('static', filename=brand_context.logo_path, v='20260421-sprint1') }}"
+             alt="{{ brand_context.brand_name }}" class="login-logo">
+      </div>
+      <div class="login-brand-copy">
+        <h1 class="login-title">{{ brand_context.brand_name }}</h1>
+        <p class="login-subtitle">POS · Pronóstico · Operación diaria</p>
+      </div>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+      <div class="login-alert login-alert-{{ category }}">
+        <span class="material-symbols-outlined">
+          {{ 'warning' if category == 'warning' else ('check_circle' if category == 'success' else 'error') }}
+        </span>
+        {{ message }}
+      </div>
+      {% endfor %}
+    {% endwith %}
+
+    <div class="login-divider"></div>
+
+    <div id="modoOperativo">
+      <div class="login-tenant-badge">
+        <span class="material-symbols-outlined">storefront</span>
+        <span>
+          {% if login_operativo.sede_unica %}
+            Acceso operativo rápido · 1 sede activa
+          {% else %}
+            Acceso operativo multi-sede · {{ login_operativo.sedes_activas }} sedes activas
+          {% endif %}
+        </span>
+      </div>
+
+      <form id="formOperativo" method="POST" action="{{ url_for('auth.login') }}">
+        <input type="hidden" name="modo" value="operativo">
+        <input type="hidden" name="pin" id="pinHiddenOp">
+
+        <p class="login-instruction">
+          {% if login_operativo.requiere_username %}
+            Usuario y PIN de 4 dígitos
+          {% else %}
+            Ingresa tu PIN de 4 dígitos
+          {% endif %}
+        </p>
+
+        {% if login_operativo.requiere_username %}
+        <div class="login-code-input-wrap" style="margin-bottom:14px">
+          <span class="material-symbols-outlined login-input-icon">person</span>
+          <input type="text" id="usernameOpInput" name="username_op" class="login-code-input"
+                 placeholder="Tu usuario"
+                 autocomplete="username" autocapitalize="none" spellcheck="false"
+                 maxlength="40">
+        </div>
+        {% endif %}
+
+        <div class="pin-display" id="pinDisplayOp">
+          <span class="pin-dot"></span>
+          <span class="pin-dot"></span>
+          <span class="pin-dot"></span>
+          <span class="pin-dot"></span>
         </div>
 
-        <div class="login-divider"></div>
+        <div class="numpad">
+          {% for row in [['1','2','3'],['4','5','6'],['7','8','9'],['del','0','ok']] %}
+          <div class="numpad-row">
+            {% for key in row %}
+            {% if key == 'del' %}
+            <button type="button" class="numpad-btn numpad-del" onclick="pinDel()">
+              <span class="material-symbols-outlined">backspace</span>
+            </button>
+            {% elif key == 'ok' %}
+            <button type="button" class="numpad-btn numpad-ok" onclick="pinSubmitOp()">
+              <span class="material-symbols-outlined">login</span>
+            </button>
+            {% else %}
+            <button type="button" class="numpad-btn" onclick="pinAdd('{{ key }}')">{{ key }}</button>
+            {% endif %}
+            {% endfor %}
+          </div>
+          {% endfor %}
+        </div>
+      </form>
 
-        <p class="login-instruction">Ingresa tu PIN para abrir tu turno.</p>
-
-        <form method="POST" action="{{ url_for('login') }}" id="loginForm">
-            <input type="hidden" name="pin" id="pinInput">
-            <div class="pin-display" id="pinDisplay">
-                <span class="pin-dot"></span>
-                <span class="pin-dot"></span>
-                <span class="pin-dot"></span>
-                <span class="pin-dot"></span>
-            </div>
-
-            <div class="numpad">
-                {% for row in [['1','2','3'],['4','5','6'],['7','8','9'],['del','0','ok']] %}
-                <div class="numpad-row">
-                    {% for key in row %}
-                    {% if key == 'del' %}
-                    <button type="button" class="numpad-btn numpad-del" onclick="pinDel()"><span class="material-symbols-outlined">backspace</span></button>
-                    {% elif key == 'ok' %}
-                    <button type="button" class="numpad-btn numpad-ok" onclick="pinSubmit()"><span class="material-symbols-outlined">login</span></button>
-                    {% else %}
-                    <button type="button" class="numpad-btn" onclick="pinAdd('{{ key }}')">{{ key }}</button>
-                    {% endif %}
-                    {% endfor %}
-                </div>
-                {% endfor %}
-            </div>
-        </form>
-
-        <p class="login-hint">Acceso rapido para cajeros, panaderos y personal de servicio.</p>
+      <p class="login-hint" style="margin-top:16px">
+        <button type="button" class="login-toggle-link" onclick="irModoAdmin()">
+          <span class="material-symbols-outlined" style="font-size:14px;vertical-align:middle">admin_panel_settings</span>
+          Soy administrador
+        </button>
+      </p>
     </div>
+
+    <div id="modoAdmin" style="display:none">
+      <p class="login-instruction">Acceso de administración</p>
+
+      <form method="POST" action="{{ url_for('auth.login') }}"
+            id="formAdmin" style="display:flex;flex-direction:column;gap:14px">
+        <input type="hidden" name="modo" value="admin">
+
+        <div class="form-field">
+          <label class="form-label" for="loginUsername">Usuario o correo</label>
+          <input type="text" id="loginUsername" name="username" class="form-input"
+                 placeholder="usuario o correo@ejemplo.com"
+                 autocomplete="username" autocapitalize="none" spellcheck="false">
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="loginPassword">Contraseña</label>
+          <div style="position:relative">
+            <input type="password" id="loginPassword" name="password" class="form-input"
+                   placeholder="Tu contraseña" autocomplete="current-password"
+                   style="padding-right:44px">
+            <button type="button" onclick="togglePassword()" tabindex="-1"
+                    style="position:absolute;right:12px;top:50%;transform:translateY(-50%);
+                           background:none;border:none;cursor:pointer;color:#9ca3af;padding:0">
+              <span class="material-symbols-outlined" id="eyeIcon">visibility</span>
+            </button>
+          </div>
+        </div>
+        <button type="submit" class="login-btn-primary">
+          <span class="material-symbols-outlined">login</span> Iniciar sesión
+        </button>
+      </form>
+
+      <p class="login-hint" style="margin-top:16px">
+        <button type="button" class="login-toggle-link" onclick="irModoOperativo()">
+          <span class="material-symbols-outlined" style="font-size:14px;vertical-align:middle">arrow_back</span>
+          Volver al acceso operativo
+        </button>
+      </p>
+    </div>
+  </div>
 </div>
 
-<script>
-let pin = '';
-const dots = document.querySelectorAll('.pin-dot');
-const pinInput = document.getElementById('pinInput');
-
-function updateDots() {
-    dots.forEach(function(dot, i) {
-        dot.classList.toggle('filled', i < pin.length);
-    });
+<style>
+:root {
+  --lc-accent:  #c17817;
+  --lc-ink:     #2b1a12;
+  --lc-muted:   #6d584b;
+  --lc-border:  rgba(139,85,19,.14);
 }
 
+.login-alert {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:10px 14px;
+  border-radius:10px;
+  font-size:.875rem;
+  margin-bottom:10px;
+}
+.login-alert .material-symbols-outlined { font-size:18px; flex-shrink:0; }
+.login-alert-error { background:#fef2f2; color:#b91c1c; border:1px solid #fca5a5; }
+.login-alert-warning { background:#fffbeb; color:#92400e; border:1px solid #fcd34d; }
+.login-alert-success { background:#f0fdf4; color:#166534; border:1px solid #86efac; }
+
+.login-tenant-badge {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  background:rgba(193,120,23,.10);
+  border:1px solid rgba(193,120,23,.18);
+  border-radius:12px;
+  padding:8px 12px;
+  font-size:.875rem;
+  font-weight:700;
+  color:var(--lc-accent);
+  margin-bottom:16px;
+}
+
+.login-code-input-wrap {
+  position:relative;
+  display:flex;
+  align-items:center;
+  border:1.5px solid var(--lc-border);
+  border-radius:12px;
+  background:#fff;
+  overflow:hidden;
+}
+.login-code-input-wrap:focus-within { border-color:var(--lc-accent); }
+.login-input-icon {
+  font-size:20px;
+  color:var(--lc-muted);
+  padding:0 12px;
+  flex-shrink:0;
+}
+.login-code-input {
+  flex:1;
+  border:none;
+  outline:none;
+  background:transparent;
+  font-size:1rem;
+  font-weight:600;
+  padding:13px 14px 13px 0;
+  color:var(--lc-ink);
+}
+.login-btn-primary {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  background:var(--lc-accent);
+  color:#fff;
+  border:none;
+  border-radius:12px;
+  cursor:pointer;
+  font-size:1rem;
+  font-weight:700;
+  padding:14px;
+  width:100%;
+  margin-top:4px;
+}
+.login-toggle-link {
+  background:none;
+  border:none;
+  color:var(--lc-accent);
+  cursor:pointer;
+  font-size:.82rem;
+  padding:0;
+  text-decoration:underline;
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+}
+.form-field { display:flex; flex-direction:column; gap:6px; }
+.form-label { font-size:.85rem; font-weight:600; color:var(--lc-muted); }
+.form-input {
+  border:1.5px solid var(--lc-border);
+  border-radius:10px;
+  font-size:1rem;
+  padding:11px 14px;
+  outline:none;
+  background:#fff;
+  color:var(--lc-ink);
+}
+.form-input:focus { border-color:var(--lc-accent); }
+</style>
+
+<script>
+const LOGIN_REQUIRES_USERNAME = {{ login_operativo.requiere_username|tojson }};
+let pin = '';
+
+function pinDots() { return document.querySelectorAll('#pinDisplayOp .pin-dot'); }
+function updateDots() { pinDots().forEach((d, i) => d.classList.toggle('filled', i < pin.length)); }
+
 function pinAdd(n) {
-    if (pin.length < 4) {
-        pin += n;
-        updateDots();
-        if (pin.length === 4) {
-            setTimeout(pinSubmit, 200);
-        }
+  if (pin.length < 4) {
+    pin += n;
+    updateDots();
+    if (pin.length === 4 && !LOGIN_REQUIRES_USERNAME) {
+      setTimeout(pinSubmitOp, 220);
     }
+  }
 }
 
 function pinDel() {
-    pin = pin.slice(0, -1);
-    updateDots();
+  pin = pin.slice(0, -1);
+  updateDots();
 }
 
-function pinSubmit() {
-    if (pin.length > 0) {
-        pinInput.value = pin;
-        document.getElementById('loginForm').submit();
+function pinSubmitOp() {
+  if (LOGIN_REQUIRES_USERNAME) {
+    const username = document.getElementById('usernameOpInput').value.trim();
+    if (!username) {
+      document.getElementById('usernameOpInput').focus();
+      return;
     }
+  }
+  if (!pin) return;
+  document.getElementById('pinHiddenOp').value = pin;
+  document.getElementById('formOperativo').submit();
 }
 
-document.addEventListener('keydown', function(e) {
-    if (e.key >= '0' && e.key <= '9') pinAdd(e.key);
-    else if (e.key === 'Backspace') pinDel();
-    else if (e.key === 'Enter') pinSubmit();
+function irModoAdmin() {
+  document.getElementById('modoOperativo').style.display = 'none';
+  document.getElementById('modoAdmin').style.display = '';
+  setTimeout(() => document.getElementById('loginUsername').focus(), 80);
+}
+
+function irModoOperativo() {
+  document.getElementById('modoAdmin').style.display = 'none';
+  document.getElementById('modoOperativo').style.display = '';
+  setTimeout(() => {
+    const target = LOGIN_REQUIRES_USERNAME ? document.getElementById('usernameOpInput') : null;
+    (target || document.body).focus?.();
+  }, 80);
+}
+
+function togglePassword() {
+  const inp = document.getElementById('loginPassword');
+  const ico = document.getElementById('eyeIcon');
+  if (inp.type === 'password') {
+    inp.type = 'text';
+    ico.textContent = 'visibility_off';
+  } else {
+    inp.type = 'password';
+    ico.textContent = 'visibility';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (LOGIN_REQUIRES_USERNAME) {
+    document.getElementById('usernameOpInput')?.focus();
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (document.getElementById('modoAdmin').style.display !== 'none') return;
+  const active = document.activeElement;
+  if (LOGIN_REQUIRES_USERNAME && active && active.id === 'usernameOpInput') {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      pinSubmitOp();
+    }
+    return;
+  }
+  if (e.key >= '0' && e.key <= '9') pinAdd(e.key);
+  else if (e.key === 'Backspace') pinDel();
+  else if (e.key === 'Enter') pinSubmitOp();
 });
 </script>
 {% endblock %}

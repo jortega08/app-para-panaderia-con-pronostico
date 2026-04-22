@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+{% block title %} · Panel de Plataforma{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div class="page-header-info">
+    <h1 class="page-title">Panel de Plataforma</h1>
+    <p class="page-subtitle">Gestión de panaderías y suscripciones</p>
+  </div>
+  <div class="page-header-actions">
+    <input type="text" id="busqueda" class="input" placeholder="Buscar panadería…"
+           style="max-width:220px" oninput="filtrar()">
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body" style="padding:0">
+    <div style="overflow-x:auto">
+      <table class="table" id="tablaPanel">
+        <thead>
+          <tr>
+            <th>Panadería</th>
+            <th>Código</th>
+            <th>Estado op.</th>
+            <th>Plan</th>
+            <th>Suscripción</th>
+            <th>Vencimiento</th>
+            <th>Sedes</th>
+            <th>Usuarios</th>
+            <th>Productos</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="cuerpoTabla">
+          {% for p in panaderias %}
+          <tr data-id="{{ p.id }}" data-nombre="{{ p.nombre|lower }}">
+            <td>
+              <strong>{{ p.nombre }}</strong>
+              {% if p.slug %}<br><small class="text-muted">{{ p.slug }}</small>{% endif %}
+            </td>
+            <td><code>{{ p.codigo or '—' }}</code></td>
+            <td>
+              {% if p.estado_operativo == 'activa' %}
+                <span class="badge badge-success">Activa</span>
+              {% elif p.estado_operativo == 'prueba' %}
+                <span class="badge badge-info">Prueba</span>
+              {% else %}
+                <span class="badge badge-danger">{{ p.estado_operativo|capitalize }}</span>
+              {% endif %}
+            </td>
+            <td>
+              <span class="badge
+                {% if p.plan == 'enterprise' %}badge-warning
+                {% elif p.plan == 'pro' %}badge-info
+                {% elif p.plan == 'starter' %}badge-success
+                {% else %}badge-secondary{% endif %}">
+                {{ p.plan|upper }}
+              </span>
+            </td>
+            <td>
+              {% if p.estado_suscripcion == 'activa' %}
+                <span class="badge badge-success">Activa</span>
+              {% elif p.estado_suscripcion == 'trial' %}
+                <span class="badge badge-info">Trial</span>
+              {% elif p.estado_suscripcion in ('vencida','cancelada','suspendida') %}
+                <span class="badge badge-danger">{{ p.estado_suscripcion|capitalize }}</span>
+              {% else %}
+                <span class="badge badge-secondary">{{ p.estado_suscripcion }}</span>
+              {% endif %}
+            </td>
+            <td style="font-size:.85rem">{{ p.fecha_vencimiento or '—' }}</td>
+            <td style="text-align:center">
+              <span class="{{ 'text-danger' if p.total_sedes >= p.max_sedes else '' }}">
+                {{ p.total_sedes }}/{{ p.max_sedes }}
+              </span>
+            </td>
+            <td style="text-align:center">
+              <span class="{{ 'text-danger' if p.total_usuarios >= p.max_usuarios else '' }}">
+                {{ p.total_usuarios }}/{{ p.max_usuarios }}
+              </span>
+            </td>
+            <td style="text-align:center">
+              <span class="{{ 'text-danger' if p.total_productos >= p.max_productos else '' }}">
+                {{ p.total_productos }}/{{ p.max_productos }}
+              </span>
+            </td>
+            <td style="white-space:nowrap;display:flex;gap:.4rem">
+              <button class="btn btn-sm btn-secondary"
+                      onclick="abrirModalPlan(
+                        {{ p.id }},
+                        {{ p.nombre|tojson }},
+                        '{{ p.plan }}',
+                        '{{ p.estado_suscripcion }}',
+                        '{{ p.fecha_vencimiento or '' }}')">
+                Plan
+              </button>
+              {% if p.estado_operativo == 'activa' %}
+              <button class="btn btn-sm btn-danger"
+                      onclick="cambiarEstado({{ p.id }}, 'suspendida')">
+                Suspender
+              </button>
+              {% else %}
+              <button class="btn btn-sm btn-success"
+                      onclick="cambiarEstado({{ p.id }}, 'activa')">
+                Activar
+              </button>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="10" class="text-center text-muted">Sin panaderías registradas</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Modal cambio de plan -->
+<div id="modalOverlay"
+     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;
+            align-items:center;justify-content:center">
+  <div class="card" style="width:100%;max-width:420px;margin:auto">
+    <div class="card-header">
+      <h3 class="card-title" id="modalTitulo">Cambiar plan</h3>
+    </div>
+    <div class="card-body" style="display:flex;flex-direction:column;gap:1rem">
+      <input type="hidden" id="modalPanaderiaId">
+      <div>
+        <label class="label">Plan</label>
+        <select id="selectPlan" class="input">
+          <option value="free">Free</option>
+          <option value="starter">Starter</option>
+          <option value="pro">Pro</option>
+          <option value="enterprise">Enterprise</option>
+        </select>
+      </div>
+      <div>
+        <label class="label">Estado suscripción</label>
+        <select id="selectEstado" class="input">
+          <option value="activa">Activa</option>
+          <option value="trial">Trial</option>
+          <option value="vencida">Vencida</option>
+          <option value="cancelada">Cancelada</option>
+          <option value="suspendida">Suspendida</option>
+        </select>
+      </div>
+      <div>
+        <label class="label">Fecha de vencimiento (vacío = sin límite)</label>
+        <input type="date" id="inputVencimiento" class="input">
+      </div>
+      <div>
+        <label class="label">Notas internas</label>
+        <input type="text" id="inputNotas" class="input" placeholder="Opcional…">
+      </div>
+    </div>
+    <div class="card-footer" style="display:flex;gap:.75rem;justify-content:flex-end">
+      <button class="btn btn-secondary" onclick="cerrarModal()">Cancelar</button>
+      <button class="btn btn-primary" id="btnGuardar" onclick="guardarPlan()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+function filtrar() {
+  const q = document.getElementById('busqueda').value.toLowerCase();
+  document.querySelectorAll('#cuerpoTabla tr[data-id]').forEach(tr => {
+    tr.style.display = (!q || tr.dataset.nombre.includes(q)) ? '' : 'none';
+  });
+}
+
+function abrirModalPlan(id, nombre, plan, estado, vencimiento) {
+  document.getElementById('modalPanaderiaId').value = id;
+  document.getElementById('modalTitulo').textContent = `Plan — ${nombre}`;
+  document.getElementById('selectPlan').value = plan;
+  document.getElementById('selectEstado').value = estado;
+  document.getElementById('inputVencimiento').value = vencimiento || '';
+  document.getElementById('inputNotas').value = '';
+  const overlay = document.getElementById('modalOverlay');
+  overlay.style.display = 'flex';
+}
+
+function cerrarModal() {
+  document.getElementById('modalOverlay').style.display = 'none';
+}
+
+async function guardarPlan() {
+  const id = document.getElementById('modalPanaderiaId').value;
+  const btn = document.getElementById('btnGuardar');
+  btn.disabled = true;
+  btn.textContent = 'Guardando…';
+  try {
+    const res = await fetch(`/api/platform/panaderia/${id}/suscripcion`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+      body: JSON.stringify({
+        plan: document.getElementById('selectPlan').value,
+        estado: document.getElementById('selectEstado').value,
+        fecha_vencimiento: document.getElementById('inputVencimiento').value || null,
+        notas: document.getElementById('inputNotas').value,
+      }),
+    });
+    const data = await res.json();
+    if (!data.ok) { alert(data.error || 'Error'); return; }
+    cerrarModal();
+    location.reload();
+  } catch (e) {
+    alert('Error de red');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Guardar';
+  }
+}
+
+async function cambiarEstado(id, nuevoEstado) {
+  const accion = nuevoEstado === 'activa' ? 'activar' : 'suspender';
+  if (!confirm(`¿${accion.charAt(0).toUpperCase() + accion.slice(1)} esta panadería?`)) return;
+  try {
+    const res = await fetch(`/api/platform/panaderia/${id}/estado`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+      body: JSON.stringify({ estado_operativo: nuevoEstado }),
+    });
+    const data = await res.json();
+    if (!data.ok) { alert(data.error || 'Error'); return; }
+    location.reload();
+  } catch (e) {
+    alert('Error de red');
+  }
+}
+
+// Cerrar modal al hacer click fuera
+document.getElementById('modalOverlay').addEventListener('click', function(e) {
+  if (e.target === this) cerrarModal();
+});
+</script>
+{% endblock %}

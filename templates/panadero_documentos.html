@@ -1,0 +1,452 @@
+{% extends "base.html" %}
+{% block title_extra %} - Documentos{% endblock %}
+{% block content %}
+<style>
+.documentos-shell { display:grid; gap:18px; }
+.documentos-meta { display:flex; flex-wrap:wrap; gap:10px; }
+.documentos-chip {
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    padding:8px 12px;
+    border-radius:999px;
+    background:linear-gradient(180deg,#fff8f1 0%,#ffffff 100%);
+    border:1px solid rgba(212,114,42,.16);
+    font-size:13px;
+}
+.documentos-table-wrap { overflow:auto; }
+.documentos-table th, .documentos-table td { white-space:nowrap; vertical-align:top; }
+.documentos-table td.wrap { white-space:normal; min-width:220px; }
+.estado-chip {
+    display:inline-flex;
+    align-items:center;
+    padding:4px 10px;
+    border-radius:999px;
+    font-size:12px;
+    font-weight:700;
+    text-transform:capitalize;
+}
+.estado-generado { background:#fff4d7; color:#8d5a00; }
+.estado-emitido { background:#eef6ff; color:#1f4e8c; }
+.estado-enviado { background:#e7f7ec; color:#146c43; }
+.estado-anulado { background:#fde4e1; color:#b42318; }
+.envio-no_enviado { background:#f4f5f7; color:#475467; }
+.envio-enviado { background:#e7f7ec; color:#146c43; }
+.envio-error { background:#fde4e1; color:#b42318; }
+.documento-row-meta { margin-top:4px; color:var(--text-muted); font-size:12px; }
+.documento-action-group { display:flex; gap:6px; flex-wrap:wrap; }
+.documento-error-line { margin-top:4px; color:#b42318; font-size:12px; white-space:normal; }
+.documento-empty { padding:10px 0 4px; }
+.documento-modal-grid { display:grid; gap:12px; }
+.documento-modal-help { margin:0; color:var(--text-muted); font-size:13px; }
+.envios-list { display:grid; gap:10px; }
+.envio-card {
+    border:1px solid rgba(0,0,0,.08);
+    border-radius:14px;
+    background:#fff;
+    padding:12px;
+}
+.envio-card-head {
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:12px;
+    flex-wrap:wrap;
+}
+.envio-card-meta {
+    display:grid;
+    gap:4px;
+    margin-top:8px;
+    color:var(--text-muted);
+    font-size:13px;
+}
+.documentos-header-note {
+    margin:10px 0 0;
+    color:#8d5a00;
+    font-size:13px;
+}
+</style>
+
+<div class="page-container documentos-shell">
+    <section class="card">
+        <div class="card-header">
+            <div>
+                <h2 class="page-title" style="margin:0;">Historial de documentos emitidos</h2>
+                <p class="text-muted" style="margin:6px 0 0;">Consulta facturas y documentos historicos, reimprime copias existentes y revisa cada intento de envio.</p>
+                {% if not smtp_ready %}
+                <p class="documentos-header-note">El correo saliente no esta configurado en esta instalacion. Puedes consultar historial y abrir documentos, pero el reenvio quedara bloqueado hasta configurar SMTP.</p>
+                {% endif %}
+            </div>
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="card-body">
+            <form method="get" class="filters-form" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;align-items:end;">
+                <div>
+                    <label class="form-label">Origen</label>
+                    <select class="form-input" name="origen_tipo">
+                        <option value="" {% if not filtro_origen_tipo %}selected{% endif %}>Todos</option>
+                        <option value="venta" {% if filtro_origen_tipo == 'venta' %}selected{% endif %}>Venta</option>
+                        <option value="pedido" {% if filtro_origen_tipo == 'pedido' %}selected{% endif %}>Pedido / mesa</option>
+                        <option value="encargo" {% if filtro_origen_tipo == 'encargo' %}selected{% endif %}>Encargo</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">Cliente</label>
+                    <input class="form-input" name="cliente" value="{{ filtro_cliente }}" placeholder="Nombre, documento, correo o empresa">
+                </div>
+                <div>
+                    <label class="form-label">Desde</label>
+                    <input class="form-input" type="date" name="fecha_desde" value="{{ filtro_fecha_desde }}">
+                </div>
+                <div>
+                    <label class="form-label">Hasta</label>
+                    <input class="form-input" type="date" name="fecha_hasta" value="{{ filtro_fecha_hasta }}">
+                </div>
+                <div>
+                    <label class="form-label">Estado de envio</label>
+                    <select class="form-input" name="estado_envio">
+                        <option value="" {% if not filtro_estado_envio %}selected{% endif %}>Todos</option>
+                        <option value="no_enviado" {% if filtro_estado_envio == 'no_enviado' %}selected{% endif %}>No enviado</option>
+                        <option value="enviado" {% if filtro_estado_envio == 'enviado' %}selected{% endif %}>Enviado</option>
+                        <option value="error" {% if filtro_estado_envio == 'error' %}selected{% endif %}>Error</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">Estado del documento</label>
+                    <select class="form-input" name="estado">
+                        <option value="" {% if not filtro_estado_documento %}selected{% endif %}>Todos</option>
+                        <option value="generado" {% if filtro_estado_documento == 'generado' %}selected{% endif %}>Generado</option>
+                        <option value="emitido" {% if filtro_estado_documento == 'emitido' %}selected{% endif %}>Emitido</option>
+                        <option value="enviado" {% if filtro_estado_documento == 'enviado' %}selected{% endif %}>Enviado</option>
+                        <option value="anulado" {% if filtro_estado_documento == 'anulado' %}selected{% endif %}>Anulado</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">Tipo de documento</label>
+                    <select class="form-input" name="tipo_documento">
+                        <option value="" {% if not filtro_tipo_documento %}selected{% endif %}>Todos</option>
+                        <option value="factura" {% if filtro_tipo_documento == 'factura' %}selected{% endif %}>Factura</option>
+                        <option value="documento_venta" {% if filtro_tipo_documento == 'documento_venta' %}selected{% endif %}>Documento de venta</option>
+                        <option value="remision" {% if filtro_tipo_documento == 'remision' %}selected{% endif %}>Remision</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">Tamano de pagina</label>
+                    <select class="form-input" name="size">
+                        {% for option in (25, 50, 100) %}
+                        <option value="{{ option }}" {% if pagination.size == option %}selected{% endif %}>{{ option }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div style="display:flex;gap:10px;">
+                    <button class="btn btn-accent" type="submit">Filtrar</button>
+                    <a class="btn btn-outline" href="{{ url_for('panadero_documentos') }}">Limpiar</a>
+                </div>
+            </form>
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="card-header">
+            <div>
+                <strong>Listado de documentos</strong>
+                <span>{{ pagination.total_items }} documento{{ '' if pagination.total_items == 1 else 's' }} en el filtro actual.</span>
+            </div>
+            <div class="documentos-meta">
+                <span class="documentos-chip">Pagina {{ pagination.page }} de {{ pagination.total_pages }}</span>
+                <span class="documentos-chip">{{ pagination.items_count }} registro{{ '' if pagination.items_count == 1 else 's' }} en esta pagina</span>
+            </div>
+        </div>
+        <div class="card-body documentos-table-wrap">
+            {% if documentos %}
+            <table class="table table-compact documentos-table">
+                <thead>
+                    <tr>
+                        <th>Consecutivo</th>
+                        <th>Fecha / hora</th>
+                        <th>Tipo</th>
+                        <th>Cliente</th>
+                        <th>Origen</th>
+                        <th>Total</th>
+                        <th>Estado documento</th>
+                        <th>Estado envio</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for documento in documentos %}
+                    <tr>
+                        <td>
+                            <strong>{{ documento.consecutivo }}</strong>
+                            <div class="documento-row-meta">#{{ documento.id }}</div>
+                        </td>
+                        <td>{{ documento.created_at or '-' }}</td>
+                        <td>{{ documento.tipo_documento|replace('_', ' ')|capitalize }}</td>
+                        <td class="wrap">
+                            <div><strong>{{ documento.cliente_nombre_snapshot or 'Consumidor final' }}</strong></div>
+                            <div class="documento-row-meta">
+                                {{ documento.cliente_numero_doc_snapshot or documento.cliente_email_snapshot or documento.cliente_empresa_snapshot or 'Sin dato adicional' }}
+                            </div>
+                        </td>
+                        <td>
+                            {% if documento.origen_tipo == 'pedido' %}
+                            Pedido / mesa #{{ documento.origen_id }}
+                            {% elif documento.origen_tipo == 'encargo' %}
+                            Encargo #{{ documento.origen_id }}
+                            {% else %}
+                            Venta #{{ documento.origen_id }}
+                            {% endif %}
+                        </td>
+                        <td><strong>${{ '{:,.0f}'.format(documento.total or 0) }}</strong></td>
+                        <td>
+                            <span class="estado-chip estado-{{ documento.estado }}">{{ documento.estado }}</span>
+                            <div class="documento-row-meta">{{ documento.emitido_por_nombre_snapshot or 'Sistema' }}</div>
+                        </td>
+                        <td class="wrap">
+                            <span class="estado-chip envio-{{ documento.estado_envio }}">{{ 'No enviado' if documento.estado_envio == 'no_enviado' else documento.estado_envio|capitalize }}</span>
+                            <div class="documento-row-meta">
+                                {% if documento.total_envios %}
+                                {{ documento.total_envios }} intento{{ '' if documento.total_envios == 1 else 's' }}
+                                {% else %}
+                                Sin intentos registrados
+                                {% endif %}
+                                {% if documento.ultimo_envio_at %}
+                                <span> - {{ documento.ultimo_envio_at }}</span>
+                                {% endif %}
+                            </div>
+                            {% if documento.estado_envio == 'error' and documento.ultimo_error_envio %}
+                            <div class="documento-error-line">{{ documento.ultimo_error_envio }}</div>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="documento-action-group">
+                                <a class="btn btn-outline btn-sm" href="{{ url_for('ver_documento_print', documento_id=documento.id) }}" target="_blank" rel="noopener">Ver</a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% include "components/_pagination.html" %}
+            {% else %}
+            <div class="documento-empty">
+                <div class="empty-state">
+                    <div class="empty-state-illustration">
+                        <span class="material-symbols-outlined" style="font-size:40px;">receipt_long</span>
+                    </div>
+                    <div class="empty-state-title">No hay documentos para este filtro</div>
+                    <div class="empty-state-text">Prueba otro origen, cliente o rango de fechas para encontrar el documento historico que necesitas.</div>
+                    <a class="btn btn-accent" href="{{ url_for('panadero_documentos') }}">Quitar filtros</a>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </section>
+</div>
+
+<div class="modal-overlay" id="modalReenvioDocumento" style="display:none;" onclick="if(event.target===this)cerrarModalReenvio()">
+    <div class="modal-card" style="max-width:520px;">
+        <div class="modal-header">
+            <h3>Reenviar documento</h3>
+            <button class="modal-close" type="button" onclick="cerrarModalReenvio()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="documento-modal-grid">
+                <div class="payment-summary-box">
+                    <div class="payment-summary-row"><span>Documento</span><strong id="reenvioDocumentoCodigo">-</strong></div>
+                    <div class="payment-summary-row"><span>Cliente</span><strong id="reenvioDocumentoCliente">-</strong></div>
+                </div>
+                <p class="documento-modal-help" id="reenvioSnapshotHelp">Se propone el correo historico guardado en el documento. Puedes corregirlo antes de reenviar.</p>
+                <div>
+                    <label class="form-label" for="reenvioDocumentoEmail">Correo destino</label>
+                    <input id="reenvioDocumentoEmail" class="form-input" type="email" placeholder="cliente@correo.com">
+                </div>
+                <p class="documento-modal-help" id="reenvioSmtpHelp" {% if smtp_ready %}hidden{% endif %}>SMTP no esta disponible. El boton de envio queda bloqueado hasta que el correo saliente se configure.</p>
+                <div id="reenvioDocumentoEstado" class="text-muted" style="min-height:18px;"></div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" type="button" onclick="cerrarModalReenvio()">Cancelar</button>
+            <button class="btn btn-accent" id="reenvioDocumentoConfirmar" type="button" onclick="confirmarReenvioDocumento()" {% if not smtp_ready %}disabled{% endif %}>Reenviar por correo</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="modalHistorialEnvios" style="display:none;" onclick="if(event.target===this)cerrarHistorialEnvios()">
+    <div class="modal-card" style="max-width:720px;">
+        <div class="modal-header">
+            <h3>Historial de envios</h3>
+            <button class="modal-close" type="button" onclick="cerrarHistorialEnvios()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="payment-summary-box" style="margin-bottom:12px;">
+                <div class="payment-summary-row"><span>Documento</span><strong id="historialEnviosCodigo">-</strong></div>
+            </div>
+            <div id="historialEnviosBody" class="envios-list">
+                <div class="text-muted">Cargando...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+const SMTP_READY = {{ smtp_ready|tojson }};
+let documentoReenvioActual = null;
+
+function abrirModalReenvio(documentoId, consecutivo, emailSnapshot, clienteNombre) {
+    documentoReenvioActual = Number(documentoId);
+    document.getElementById('reenvioDocumentoCodigo').textContent = consecutivo || '-';
+    document.getElementById('reenvioDocumentoCliente').textContent = clienteNombre || 'Consumidor final';
+    document.getElementById('reenvioDocumentoEmail').value = emailSnapshot || '';
+    document.getElementById('reenvioDocumentoEstado').textContent = '';
+    document.getElementById('reenvioDocumentoConfirmar').disabled = !SMTP_READY;
+    document.getElementById('modalReenvioDocumento').style.display = 'flex';
+    setTimeout(function() {
+        document.getElementById('reenvioDocumentoEmail').focus();
+    }, 30);
+}
+
+function cerrarModalReenvio() {
+    document.getElementById('modalReenvioDocumento').style.display = 'none';
+    document.getElementById('reenvioDocumentoEstado').textContent = '';
+    documentoReenvioActual = null;
+}
+
+async function confirmarReenvioDocumento() {
+    if (!documentoReenvioActual) return;
+    const emailInput = document.getElementById('reenvioDocumentoEmail');
+    const statusNode = document.getElementById('reenvioDocumentoEstado');
+    const button = document.getElementById('reenvioDocumentoConfirmar');
+    const email = String(emailInput.value || '').trim();
+
+    if (!SMTP_READY) {
+        Toast.warning('Configura SMTP antes de reenviar documentos.');
+        return;
+    }
+    if (!email) {
+        Toast.warning('Indica un correo destino para reenviar el documento.');
+        emailInput.focus();
+        return;
+    }
+
+    AppUI.setButtonLoading(button, true, 'Enviando...');
+    statusNode.textContent = 'Enviando documento...';
+    try {
+        const response = await fetch(`/api/documento/${documentoReenvioActual}/enviar`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': CSRF_TOKEN,
+            },
+            body: JSON.stringify({ email }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) {
+            throw new Error(data.error || 'No se pudo reenviar el documento.');
+        }
+        statusNode.textContent = `Documento enviado a ${data.email || email}.`;
+        Toast.success(`Documento reenviado a ${data.email || email}.`);
+        setTimeout(function() {
+            window.location.reload();
+        }, 700);
+    } catch (error) {
+        const message = error?.message || 'No se pudo reenviar el documento.';
+        statusNode.textContent = message;
+        Toast.error(message);
+    } finally {
+        AppUI.setButtonLoading(button, false);
+    }
+}
+
+async function reimprimirDocumento(documentoId, printUrl) {
+    const ok = await appConfirm(
+        'Se abrira la copia historica del documento y se auditara la reimpresion. Deseas continuar?',
+        { title: 'Reimprimir documento', type: 'warning', confirmText: 'Reimprimir' }
+    );
+    if (!ok) return;
+    window.open(printUrl, '_blank', 'noopener');
+}
+
+function abrirHistorialEnvios(documentoId, consecutivo) {
+    document.getElementById('historialEnviosCodigo').textContent = consecutivo || '-';
+    document.getElementById('historialEnviosBody').innerHTML = '<div class="text-muted">Cargando...</div>';
+    document.getElementById('modalHistorialEnvios').style.display = 'flex';
+    cargarHistorialEnvios(documentoId);
+}
+
+function cerrarHistorialEnvios() {
+    document.getElementById('modalHistorialEnvios').style.display = 'none';
+}
+
+function estadoEnvioLabel(estado) {
+    if (estado === 'no_enviado') return 'No enviado';
+    if (estado === 'enviado') return 'Enviado';
+    if (estado === 'error') return 'Error';
+    if (estado === 'pendiente') return 'Pendiente';
+    return estado || 'Sin dato';
+}
+
+function renderEnvios(envios) {
+    if (!Array.isArray(envios) || !envios.length) {
+        return AppUI.renderEmptyState({
+            type: 'tray',
+            title: 'Sin envios registrados',
+            description: 'Todavia no se ha intentado enviar este documento por correo.',
+        });
+    }
+    return envios.map(function(envio) {
+        const estado = String(envio.estado || 'no_enviado');
+        const fecha = envio.sent_at || envio.created_at || '-';
+        const email = AppUI.escapeHtml(envio.email_destino || 'Sin correo');
+        const intentos = Number(envio.intentos || 0);
+        const errorHtml = envio.ultimo_error
+            ? `<div class="documento-error-line">${AppUI.escapeHtml(envio.ultimo_error)}</div>`
+            : '';
+        return `
+            <article class="envio-card">
+                <div class="envio-card-head">
+                    <div>
+                        <strong>${email}</strong>
+                        <div class="documento-row-meta">Intento ${Math.max(intentos, 1)}</div>
+                    </div>
+                    <span class="estado-chip envio-${AppUI.escapeHtml(estado)}">${AppUI.escapeHtml(estadoEnvioLabel(estado))}</span>
+                </div>
+                <div class="envio-card-meta">
+                    <div>Fecha: ${AppUI.escapeHtml(fecha)}</div>
+                    <div>Estado registrado: ${AppUI.escapeHtml(estadoEnvioLabel(estado))}</div>
+                </div>
+                ${errorHtml}
+            </article>
+        `;
+    }).join('');
+}
+
+async function cargarHistorialEnvios(documentoId) {
+    const container = document.getElementById('historialEnviosBody');
+    try {
+        const response = await fetch(`/api/documento/${documentoId}/envios`, { cache: 'no-store' });
+        const data = await response.json();
+        if (!response.ok || !data.ok) {
+            throw new Error(data.error || 'No se pudo cargar el historial de envios.');
+        }
+        container.innerHTML = renderEnvios(data.envios || []);
+    } catch (error) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-title">No se pudo cargar el historial</div>
+                <div class="empty-state-text">${AppUI.escapeHtml(error?.message || 'Intenta nuevamente en un momento.')}</div>
+            </div>
+        `;
+    }
+}
+
+document.addEventListener('keydown', function(event) {
+    if (event.key !== 'Escape') return;
+    cerrarModalReenvio();
+    cerrarHistorialEnvios();
+});
+</script>
+{% endblock %}

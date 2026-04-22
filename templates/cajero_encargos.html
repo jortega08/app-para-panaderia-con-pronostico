@@ -2,35 +2,54 @@
 {% block title_extra %} - Encargos{% endblock %}
 {% block content %}
 <style>
-    .encargo-grid { display: flex; flex-direction: column; gap: 12px; }
-    .encargo-card { background: var(--surface); border-radius: 12px; border: 1px solid var(--border); overflow: hidden; }
-    .encargo-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; gap: 10px; cursor: pointer; }
-    .encargo-header-left { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
-    .encargo-id { font-size: 11px; color: var(--text-muted); font-weight: 600; white-space: nowrap; }
-    .encargo-cliente { font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .encargo-empresa { font-size: 12px; color: var(--text-muted); }
-    .encargo-fecha { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
-    .encargo-total { font-weight: 700; font-size: 15px; white-space: nowrap; }
-    .encargo-body { padding: 0 16px 16px; border-top: 1px solid var(--border); }
-    .encargo-items-list { margin: 12px 0 0; }
-    .encargo-item-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border-light, #f0f0f0); font-size: 14px; }
-    .encargo-item-row:last-child { border-bottom: none; }
-    .encargo-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.encargo-grid { display: flex; flex-direction: column; gap: 12px; }
+.encargo-card { background: var(--surface); border-radius: 14px; border: 1px solid var(--border); overflow: hidden; }
+.encargo-header { display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; gap: 10px; cursor: pointer; }
+.encargo-header-left { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+.encargo-id { font-size: 11px; color: var(--text-muted); font-weight: 600; white-space: nowrap; }
+.encargo-cliente { font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.encargo-empresa { font-size: 12px; color: var(--text-muted); }
+.encargo-fecha { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+.encargo-total { font-weight: 700; font-size: 15px; white-space: nowrap; }
+.encargo-body { padding: 0 16px 16px; border-top: 1px solid var(--border); }
+.encargo-items-list { margin: 12px 0 0; }
+.encargo-item-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border-light, #f0f0f0); font-size: 14px; }
+.encargo-item-row:last-child { border-bottom: none; }
+.encargo-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.encargo-meta-row { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; color: var(--text-muted); }
+.encargo-meta-item { display: flex; align-items: center; gap: 4px; }
+.pago-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--border-light, #f0ebe3); font-size: 13px; }
+.pago-row:last-child { border-bottom: none; }
+.saldo-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 99px; font-size: 12px; font-weight: 600; }
+.saldo-pagado { background: #d1e7dd; color: #0f5132; }
+.saldo-parcial { background: #fff3cd; color: #856404; }
+.saldo-pendiente-badge { background: #f8d7da; color: #842029; }
 
-    .badge-pendiente  { background: var(--color-warning-bg, #fff3cd); color: var(--color-warning, #856404); }
-    .badge-listo      { background: var(--color-success-bg, #d1e7dd); color: var(--color-success, #0f5132); }
-    .badge-entregado  { background: var(--color-surface-2, #e9ecef); color: var(--text-muted); }
-    .badge-cancelado  { background: var(--color-danger-bg, #f8d7da); color: var(--color-danger, #842029); }
+/* Estado badges */
+.badge-cotizacion   { background: #e8eaf6; color: #3949ab; }
+.badge-confirmado   { background: #e3f2fd; color: #0d47a1; }
+.badge-con_anticipo { background: #fff8e1; color: #e65100; }
+.badge-programado   { background: #e8f5e9; color: #1b5e20; }
+.badge-listo        { background: #d1e7dd; color: #0f5132; }
+.badge-entregado    { background: #e9ecef; color: #495057; }
+.badge-cancelado    { background: #f8d7da; color: #842029; }
+.badge-pendiente    { background: #fff3cd; color: #856404; }
 
-    .encargo-form-card { background: var(--surface); border-radius: 12px; border: 1px solid var(--border); padding: 20px; margin-bottom: 20px; }
-    .encargo-form-title { font-size: 16px; font-weight: 700; margin-bottom: 16px; }
-    .encargo-product-row { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 8px; }
-    .encargo-product-row select, .encargo-product-row input { flex: 1; }
-    .encargo-product-row .qty-input { width: 80px; flex: none; }
-    .encargo-product-rows { margin: 12px 0; }
-
-    .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
-    .filter-bar select, .filter-bar input { max-width: 180px; }
+/* Form */
+.encargo-form-card { background: var(--surface); border-radius: 14px; border: 1px solid var(--border); padding: 20px; margin-bottom: 20px; }
+.encargo-form-title { font-size: 16px; font-weight: 700; margin-bottom: 16px; }
+.encargo-product-row { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 8px; }
+.encargo-product-row select, .encargo-product-row input { flex: 1; }
+.encargo-product-row .qty-input { width: 80px; flex: none; }
+.encargo-product-rows { margin: 12px 0; }
+.filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+.filter-bar select, .filter-bar input { max-width: 200px; }
+.cliente-autocomplete { position: relative; }
+.cliente-dropdown { position: absolute; z-index: 100; background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(44,24,16,0.12); width: 100%; top: calc(100% + 4px); left: 0; max-height: 260px; overflow-y: auto; }
+.cliente-option { padding: 10px 14px; cursor: pointer; font-size: 14px; }
+.cliente-option:hover { background: rgba(193,120,23,0.07); }
+.cliente-option-meta { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+.canal-chip { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; padding: 2px 8px; border-radius: 99px; background: rgba(139,85,19,0.10); color: var(--primary); }
 </style>
 
 <div class="page-header" style="margin-bottom:18px;">
@@ -39,39 +58,84 @@
             <span class="material-symbols-outlined">event_note</span>
             {{ encargo_view_title | default('Encargos') }}
         </h2>
-        <p class="text-muted">{{ encargo_view_description | default('Consulta y gestiona los encargos registrados en el sistema.') }}</p>
+        <p class="text-muted">{{ encargo_view_description | default('Gestiona pedidos anticipados con seguimiento completo desde cotizacion hasta entrega.') }}</p>
     </div>
 </div>
 
 {% if puede_crear_encargos %}
-<!-- Formulario de nuevo encargo -->
+<!-- Formulario de nuevo encargo (v2) -->
 <div class="encargo-form-card" id="formNuevoEncargo" style="display:none;">
     <div class="encargo-form-title">Nuevo Encargo</div>
+
     <div class="two-col-form" style="gap:12px;">
         <div>
             <label class="form-label">Cliente *</label>
-            <input id="encCliente" type="text" class="form-input" placeholder="Nombre del cliente">
+            <div class="cliente-autocomplete">
+                <input id="encCliente" type="text" class="form-input" placeholder="Nombre del cliente"
+                       oninput="buscarClientes(this.value)" autocomplete="off">
+                <div class="cliente-dropdown" id="clienteDropdown" style="display:none;"></div>
+            </div>
+            <input type="hidden" id="encClienteId">
+        </div>
+        <div>
+            <label class="form-label">Telefono</label>
+            <input id="encTelefono" type="tel" class="form-input" placeholder="+57 300 000 0000">
         </div>
         <div>
             <label class="form-label">Empresa / Institucion</label>
             <input id="encEmpresa" type="text" class="form-input" placeholder="Opcional">
         </div>
         <div>
+            <label class="form-label">Notas</label>
+            <input id="encNotas" type="text" class="form-input" placeholder="Instrucciones especiales">
+        </div>
+        <div>
             <label class="form-label">Fecha de entrega *</label>
             <input id="encFecha" type="date" class="form-input">
         </div>
         <div>
-            <label class="form-label">Notas</label>
-            <input id="encNotas" type="text" class="form-input" placeholder="Instrucciones especiales">
+            <label class="form-label">Hora de entrega</label>
+            <input id="encHora" type="time" class="form-input">
+        </div>
+        <div>
+            <label class="form-label">Canal de venta</label>
+            <select id="encCanal" class="form-input">
+                <option value="tienda">Tienda</option>
+                <option value="whatsapp">WhatsApp</option>
+                <option value="telefono">Telefono</option>
+                <option value="plataforma">Plataforma</option>
+            </select>
+        </div>
+        <div>
+            <label class="form-label">Tipo de encargo</label>
+            <select id="encTipo" class="form-input">
+                <option value="orden">Orden confirmada</option>
+                <option value="cotizacion">Cotizacion</option>
+            </select>
+        </div>
+        <div style="grid-column: 1/-1;">
+            <label class="form-label">Direccion de entrega</label>
+            <input id="encDireccion" type="text" class="form-input" placeholder="Solo si es domicilio">
         </div>
     </div>
 
     <div style="margin-top:14px;">
-        <label class="form-label">Productos</label>
-        <div class="encargo-product-rows" id="encProductRows">
-            <!-- rows added by JS -->
-        </div>
+        <label class="form-label">Productos *</label>
+        <div class="encargo-product-rows" id="encProductRows"></div>
         <button type="button" class="btn btn-outline" onclick="agregarFilaProducto()">+ Agregar producto</button>
+    </div>
+
+    <div style="margin-top:14px; border-top:1px solid var(--border); padding-top:14px;">
+        <label class="form-label">Anticipo (pago inicial)</label>
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            <input id="encAnticipo" type="number" min="0" step="1000" class="form-input" style="max-width:160px;" placeholder="0" oninput="recalcularTotal()">
+            <select id="encMetodoAnticipo" class="form-input" style="max-width:160px;">
+                <option value="efectivo">Efectivo</option>
+                <option value="transferencia">Transferencia</option>
+                <option value="tarjeta">Tarjeta</option>
+            </select>
+            <span id="encSaldoPreview" style="font-size:13px; color:var(--text-muted);"></span>
+        </div>
     </div>
 
     <div style="margin-top:16px; display:flex; gap:10px; justify-content:flex-end; align-items:center;">
@@ -82,14 +146,17 @@
 </div>
 {% endif %}
 
-<!-- Barra de filtros y accion -->
+<!-- Barra de filtros -->
 <div class="filter-bar">
     {% if puede_crear_encargos %}
     <button class="btn btn-primary" onclick="abrirFormEncargo()">+ Nuevo encargo</button>
     {% endif %}
     <select id="filtroEstado" class="form-input" onchange="filtrarEncargos()">
         <option value="">Todos los estados</option>
-        <option value="pendiente">Pendiente</option>
+        <option value="cotizacion">Cotizacion</option>
+        <option value="confirmado">Confirmado</option>
+        <option value="con_anticipo">Con anticipo</option>
+        <option value="programado">Programado</option>
         <option value="listo">Listo</option>
         <option value="entregado">Entregado</option>
         <option value="cancelado">Cancelado</option>
@@ -101,20 +168,36 @@
 <div class="encargo-grid" id="encargosGrid">
 {% if encargos %}
     {% for enc in encargos %}
-    <div class="encargo-card" data-estado="{{ enc.estado }}" data-cliente="{{ enc.cliente | lower }}">
+    <div class="encargo-card"
+         data-estado="{{ enc.estado }}"
+         data-cliente="{{ enc.cliente | lower }}"
+         data-id="{{ enc.id }}">
         <div class="encargo-header" onclick="toggleEncargo({{ enc.id }})">
             <div class="encargo-header-left">
                 <span class="encargo-id">#{{ enc.id }}</span>
-                <div>
+                <div style="min-width:0;">
                     <div class="encargo-cliente">{{ enc.cliente }}</div>
                     {% if enc.empresa %}<div class="encargo-empresa">{{ enc.empresa }}</div>{% endif %}
                 </div>
-                <span class="badge badge-{{ enc.estado }}">{{ enc.estado | capitalize }}</span>
+                <span class="badge badge-{{ enc.estado }}">{{ enc.estado | replace('_', ' ') | capitalize }}</span>
+                {% if enc.canal_venta and enc.canal_venta != 'tienda' %}
+                <span class="canal-chip">
+                    <span class="material-symbols-outlined" style="font-size:12px;">
+                        {% if enc.canal_venta == 'whatsapp' %}chat{% elif enc.canal_venta == 'telefono' %}call{% else %}devices{% endif %}
+                    </span>
+                    {{ enc.canal_venta | capitalize }}
+                </span>
+                {% endif %}
             </div>
             <div style="display:flex;align-items:center;gap:14px;flex-shrink:0;">
                 <div style="text-align:right;">
-                    <div class="encargo-fecha">Entrega: <strong>{{ enc.fecha_entrega }}</strong></div>
-                    <div class="encargo-total">${{ enc.total | int | string | replace(',','') }}</div>
+                    <div class="encargo-fecha">
+                        {{ enc.fecha_entrega }}{% if enc.hora_entrega %} · {{ enc.hora_entrega }}{% endif %}
+                    </div>
+                    <div class="encargo-total">${{ enc.total | int | string }}</div>
+                    {% if enc.saldo_pendiente and enc.saldo_pendiente > 0 %}
+                    <div style="font-size:11px;color:var(--danger);">Saldo: ${{ enc.saldo_pendiente | int }}</div>
+                    {% endif %}
                 </div>
                 <span class="material-symbols-outlined" style="color:var(--text-muted);">expand_more</span>
             </div>
@@ -128,18 +211,103 @@
                 </div>
                 {% endfor %}
             </div>
-            {% if enc.notas %}<div style="margin-top:8px;font-size:13px;color:var(--text-muted);">Notas: {{ enc.notas }}</div>{% endif %}
-            <div style="margin-top:6px;font-size:12px;color:var(--text-muted);">Registrado por {{ enc.registrado_por }} · {{ enc.creado_en[:16] }}</div>
+
+            <div class="encargo-meta-row">
+                {% if enc.telefono %}
+                <span class="encargo-meta-item">
+                    <span class="material-symbols-outlined" style="font-size:14px;">call</span>
+                    {{ enc.telefono }}
+                </span>
+                {% endif %}
+                {% if enc.direccion_entrega %}
+                <span class="encargo-meta-item">
+                    <span class="material-symbols-outlined" style="font-size:14px;">location_on</span>
+                    {{ enc.direccion_entrega }}
+                </span>
+                {% endif %}
+                {% if enc.notas %}
+                <span class="encargo-meta-item">
+                    <span class="material-symbols-outlined" style="font-size:14px;">notes</span>
+                    {{ enc.notas }}
+                </span>
+                {% endif %}
+            </div>
+
+            <!-- Pagos / Anticipo -->
+            {% if enc.total and enc.total > 0 %}
+            <div style="margin-top:12px; background:rgba(193,120,23,0.04); border-radius:10px; padding:10px 12px; border:1px solid rgba(193,120,23,0.12);">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <strong style="font-size:13px;">Pagos</strong>
+                    <span class="saldo-badge {% if enc.saldo_pendiente <= 0 %}saldo-pagado{% elif enc.anticipo > 0 %}saldo-parcial{% else %}saldo-pendiente-badge{% endif %}">
+                        {% if enc.saldo_pendiente <= 0 %}Pagado completo
+                        {% elif enc.anticipo > 0 %}Anticipo: ${{ enc.anticipo | int }} · Saldo: ${{ enc.saldo_pendiente | int }}
+                        {% else %}Sin anticipo
+                        {% endif %}
+                    </span>
+                </div>
+                {% for p in enc.get('pagos', []) %}
+                <div class="pago-row">
+                    <span>{{ p.metodo | capitalize }} · {{ p.registrado_en[:10] }}</span>
+                    <strong>${{ p.monto | int }}</strong>
+                </div>
+                {% endfor %}
+                {% if puede_cambiar_estado_encargo and enc.saldo_pendiente and enc.saldo_pendiente > 0 %}
+                <button class="btn btn-outline btn-sm" style="margin-top:8px;"
+                        onclick="abrirModalPagoEncargo({{ enc.id }}, {{ enc.saldo_pendiente }})">
+                    + Registrar pago
+                </button>
+                {% endif %}
+            </div>
+            {% endif %}
+
+            {% if enc.documentos %}
+            <div style="margin-top:12px; background:rgba(47,107,99,0.06); border-radius:10px; padding:10px 12px; border:1px solid rgba(47,107,99,0.14);">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; gap:8px; flex-wrap:wrap;">
+                    <strong style="font-size:13px;">Documentos emitidos</strong>
+                    <span style="font-size:12px; color:var(--text-muted);">{{ enc.documentos|length }} registrado{{ '' if enc.documentos|length == 1 else 's' }}</span>
+                </div>
+                {% for doc in enc.documentos %}
+                <div class="pago-row">
+                    <span>{{ doc.consecutivo }} · {{ doc.created_at[:16] }}</span>
+                    <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                        <a class="btn btn-outline btn-sm" href="{{ url_for('ver_documento_print', documento_id=doc.id) }}" target="_blank" rel="noopener">Ver</a>
+                        <a class="btn btn-outline btn-sm" href="{{ url_for('ver_documento_print', documento_id=doc.id, mode='reimprimir', auto=1) }}" target="_blank" rel="noopener">Reimprimir</a>
+                        <button class="btn btn-outline btn-sm" onclick="reenviarDocumentoEncargo({{ doc.id }}, {{ (doc.cliente_email_snapshot or '')|tojson }})">Enviar por correo</button>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <div style="margin-top:8px;font-size:12px;color:var(--text-muted);">
+                Registrado por {{ enc.registrado_por }} · {{ enc.creado_en[:16] }}
+            </div>
+
             {% if puede_cambiar_estado_encargo or puede_eliminar_encargo %}
             <div class="encargo-actions">
-                {% if puede_cambiar_estado_encargo and enc.estado == 'pendiente' %}
-                <button class="btn btn-success btn-sm" onclick="cambiarEstadoEncargo({{ enc.id }}, 'listo')">Marcar listo</button>
-                <button class="btn btn-accent btn-sm" onclick="cambiarEstadoEncargo({{ enc.id }}, 'cancelado')">Cancelar encargo</button>
-                {% elif puede_cambiar_estado_encargo and enc.estado == 'listo' %}
-                <button class="btn btn-primary btn-sm" onclick="cambiarEstadoEncargo({{ enc.id }}, 'entregado')">Marcar entregado</button>
-                <button class="btn btn-outline btn-sm" onclick="cambiarEstadoEncargo({{ enc.id }}, 'pendiente')">Revertir a pendiente</button>
+                {% set e = enc.estado %}
+                {% if puede_cambiar_estado_encargo %}
+                    <button class="btn btn-outline btn-sm" onclick="abrirModalDocumentoEncargo({{ enc.id }})">Emitir documento</button>
+                    {% if e == 'cotizacion' %}
+                    <button class="btn btn-primary btn-sm" onclick="cambiarEstado({{ enc.id }}, 'confirmado')">Confirmar</button>
+                    <button class="btn btn-danger-outline btn-sm" onclick="cambiarEstado({{ enc.id }}, 'cancelado')">Cancelar</button>
+                    {% elif e == 'confirmado' %}
+                    <button class="btn btn-accent btn-sm" onclick="cambiarEstado({{ enc.id }}, 'programado')">Programar</button>
+                    <button class="btn btn-success btn-sm" onclick="cambiarEstado({{ enc.id }}, 'listo')">Marcar listo</button>
+                    <button class="btn btn-danger-outline btn-sm" onclick="cambiarEstado({{ enc.id }}, 'cancelado')">Cancelar</button>
+                    {% elif e == 'con_anticipo' %}
+                    <button class="btn btn-accent btn-sm" onclick="cambiarEstado({{ enc.id }}, 'programado')">Programar</button>
+                    <button class="btn btn-success btn-sm" onclick="cambiarEstado({{ enc.id }}, 'listo')">Marcar listo</button>
+                    <button class="btn btn-danger-outline btn-sm" onclick="cambiarEstado({{ enc.id }}, 'cancelado')">Cancelar</button>
+                    {% elif e == 'programado' %}
+                    <button class="btn btn-success btn-sm" onclick="cambiarEstado({{ enc.id }}, 'listo')">Marcar listo</button>
+                    <button class="btn btn-danger-outline btn-sm" onclick="cambiarEstado({{ enc.id }}, 'cancelado')">Cancelar</button>
+                    {% elif e == 'listo' %}
+                    <button class="btn btn-primary btn-sm" onclick="cambiarEstado({{ enc.id }}, 'entregado')">Marcar entregado</button>
+                    <button class="btn btn-outline btn-sm" onclick="cambiarEstado({{ enc.id }}, 'programado')">Revertir a programado</button>
+                    {% endif %}
                 {% endif %}
-                {% if puede_eliminar_encargo and enc.estado in ('pendiente', 'cancelado') %}
+                {% if puede_eliminar_encargo and e in ('cotizacion', 'cancelado') %}
                 <button class="btn btn-danger-outline btn-sm" onclick="eliminarEncargo({{ enc.id }})">Eliminar</button>
                 {% endif %}
             </div>
@@ -152,11 +320,175 @@
 {% endif %}
 </div>
 
+<!-- Modal: registrar pago de encargo -->
+<div class="modal-overlay" id="modalPagoEncargo" style="display:none;" onclick="if(event.target===this)cerrarModalPagoEncargo()">
+    <div class="modal-card" style="max-width:400px;">
+        <div class="modal-header">
+            <h3>Registrar pago</h3>
+            <button class="modal-close" onclick="cerrarModalPagoEncargo()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="payment-summary-box" style="margin-bottom:12px;">
+                <div class="payment-summary-row">
+                    <span>Saldo pendiente</span>
+                    <strong id="pagoEncSaldo">$0</strong>
+                </div>
+            </div>
+            <div class="two-col-form">
+                <div>
+                    <label class="form-label">Metodo de pago</label>
+                    <select id="pagoEncMetodo" class="form-input">
+                        <option value="efectivo">Efectivo</option>
+                        <option value="transferencia">Transferencia</option>
+                        <option value="tarjeta">Tarjeta</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">Monto</label>
+                    <input id="pagoEncMonto" type="number" min="0" step="1000" class="form-input">
+                </div>
+            </div>
+            <label class="form-label" style="margin-top:8px;">Referencia / Nota</label>
+            <input id="pagoEncReferencia" type="text" class="form-input" placeholder="Opcional">
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="cerrarModalPagoEncargo()">Cancelar</button>
+            <button class="btn btn-success" onclick="confirmarPagoEncargo()">Registrar pago</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: emitir documento de encargo -->
+<div class="modal-overlay" id="modalDocumentoEncargo" style="display:none;" onclick="if(event.target===this)cerrarModalDocumentoEncargo()">
+    <div class="modal-card" style="max-width:620px;">
+        <div class="modal-header">
+            <h3>Emitir documento</h3>
+            <button class="modal-close" onclick="cerrarModalDocumentoEncargo()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="payment-summary-box" style="margin-bottom:12px;">
+                <div class="payment-summary-row">
+                    <span>Encargo</span>
+                    <strong id="docEncargoId">#-</strong>
+                </div>
+                <div class="payment-summary-row">
+                    <span>Total</span>
+                    <strong id="docEncargoTotal">$0</strong>
+                </div>
+                <div class="payment-summary-row">
+                    <span>Saldo pendiente</span>
+                    <strong id="docEncargoSaldo">$0</strong>
+                </div>
+            </div>
+            <div class="two-col-form">
+                <div>
+                    <label class="form-label">Nombre o razon social</label>
+                    <input id="docEncNombre" type="text" class="form-input" placeholder="Nombre completo o empresa">
+                </div>
+                <div>
+                    <label class="form-label">Tipo documento</label>
+                    <select id="docEncTipoDoc" class="form-input">
+                        <option value="">Sin documento</option>
+                        <option value="CC">Cedula (CC)</option>
+                        <option value="NIT">NIT</option>
+                        <option value="CE">Cedula extranjeria</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">Numero documento</label>
+                    <input id="docEncNumeroDoc" type="text" class="form-input" placeholder="Ej: 123456789">
+                </div>
+                <div>
+                    <label class="form-label">Email</label>
+                    <input id="docEncEmail" type="email" class="form-input" placeholder="cliente@correo.com">
+                </div>
+                <div>
+                    <label class="form-label">Empresa / institucion</label>
+                    <input id="docEncEmpresa" type="text" class="form-input" placeholder="Opcional">
+                </div>
+                <div>
+                    <label class="form-label">Direccion para documento</label>
+                    <input id="docEncDireccion" type="text" class="form-input" placeholder="Opcional">
+                </div>
+            </div>
+            <div style="margin-top:10px;">
+                <label class="form-label">Tipo de documento a emitir</label>
+                <select id="docEncTipoDocumento" class="form-input">
+                    <option value="factura">Factura</option>
+                    <option value="documento_venta">Documento de venta</option>
+                    <option value="remision">Remision</option>
+                </select>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="cerrarModalDocumentoEncargo()">Cancelar</button>
+            <button class="btn btn-primary" onclick="confirmarDocumentoEncargo()">Generar documento</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: crear cliente nuevo -->
+<div class="modal-overlay" id="modalNuevoCliente" style="display:none;" onclick="if(event.target===this)cerrarModalNuevoCliente()">
+    <div class="modal-card" style="max-width:480px;">
+        <div class="modal-header">
+            <h3>Nuevo cliente</h3>
+            <button class="modal-close" onclick="cerrarModalNuevoCliente()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="two-col-form">
+                <div>
+                    <label class="form-label">Nombre *</label>
+                    <input id="ncNombre" type="text" class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">Telefono</label>
+                    <input id="ncTelefono" type="tel" class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">Tipo documento</label>
+                    <select id="ncTipoDoc" class="form-input">
+                        <option value="">Sin documento</option>
+                        <option value="CC">Cedula (CC)</option>
+                        <option value="NIT">NIT</option>
+                        <option value="CE">Cedula extranjeria</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">Numero documento</label>
+                    <input id="ncNumeroDoc" type="text" class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">Empresa</label>
+                    <input id="ncEmpresa" type="text" class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">Email</label>
+                    <input id="ncEmail" type="email" class="form-input">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="cerrarModalNuevoCliente()">Cancelar</button>
+            <button class="btn btn-primary" onclick="guardarNuevoCliente()">Crear cliente</button>
+        </div>
+    </div>
+</div>
+
 <script>
 const PRODUCTOS_ENCARGO = {{ productos | tojson }};
+const ENCARGOS_DATA = {{ encargos | tojson }};
+let filasProducto = [];
+let _pagoEncId = null;
+let _docEncargoId = null;
+let _clientesBuscados = [];
+let _clienteDebounce = null;
 
 function money(v) {
     return '$' + Number(v || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 });
+}
+
+function obtenerEncargoData(encargoId) {
+    return (ENCARGOS_DATA || []).find(enc => Number(enc.id) === Number(encargoId)) || null;
 }
 
 function toggleEncargo(id) {
@@ -174,20 +506,24 @@ function filtrarEncargos() {
     });
 }
 
-// ── Formulario nuevo encargo ──────────────────
-
-let filasProducto = [];
+// ── Formulario nuevo encargo ──────────────────────────────────────────────────
 
 function abrirFormEncargo() {
     document.getElementById('formNuevoEncargo').style.display = '';
-    document.getElementById('encCliente').value = '';
-    document.getElementById('encEmpresa').value = '';
+    ['encCliente','encTelefono','encEmpresa','encNotas','encHora','encDireccion'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    document.getElementById('encClienteId').value = '';
     document.getElementById('encFecha').value = '';
-    document.getElementById('encNotas').value = '';
+    document.getElementById('encAnticipo').value = '';
+    document.getElementById('encCanal').value = 'tienda';
+    document.getElementById('encTipo').value = 'orden';
     document.getElementById('encProductRows').innerHTML = '';
     filasProducto = [];
     agregarFilaProducto();
     document.getElementById('encCliente').focus();
+    document.getElementById('formNuevoEncargo').scrollIntoView({ behavior: 'smooth' });
 }
 
 function cerrarFormEncargo() {
@@ -197,12 +533,10 @@ function cerrarFormEncargo() {
 function agregarFilaProducto() {
     const idx = filasProducto.length;
     filasProducto.push({ producto_id: null, producto: '', cantidad: 1, precio_unitario: 0 });
-
     const options = PRODUCTOS_ENCARGO
         .filter(p => p.activo !== 0)
-        .map(p => `<option value="${p.id}" data-precio="${p.precio}" data-nombre="${p.nombre}">${p.nombre} — $${Number(p.precio).toLocaleString('es-CO', {maximumFractionDigits:0})}</option>`)
+        .map(p => `<option value="${p.id}" data-precio="${p.precio}" data-nombre="${p.nombre}">${p.nombre} — ${money(p.precio)}</option>`)
         .join('');
-
     const row = document.createElement('div');
     row.className = 'encargo-product-row';
     row.id = 'encRow' + idx;
@@ -239,17 +573,16 @@ function onProductoChange(idx, sel) {
 }
 
 function onCantidadChange(idx, input) {
-    if (filasProducto[idx]) {
-        filasProducto[idx].cantidad = parseInt(input.value || 1);
-        recalcularTotal();
-    }
+    if (filasProducto[idx]) { filasProducto[idx].cantidad = parseInt(input.value || 1); recalcularTotal(); }
 }
 
 function recalcularTotal() {
-    const total = filasProducto
-        .filter(Boolean)
-        .reduce((s, f) => s + (f.precio_unitario * f.cantidad), 0);
+    const total = filasProducto.filter(Boolean).reduce((s, f) => s + (f.precio_unitario * f.cantidad), 0);
+    const anticipo = parseFloat(document.getElementById('encAnticipo')?.value || 0);
+    const saldo = Math.max(total - anticipo, 0);
     document.getElementById('encTotalPreview').textContent = total > 0 ? `Total: ${money(total)}` : '';
+    const saldoEl = document.getElementById('encSaldoPreview');
+    if (saldoEl) saldoEl.textContent = total > 0 && anticipo > 0 ? `Saldo: ${money(saldo)}` : '';
 }
 
 async function guardarEncargo() {
@@ -259,21 +592,29 @@ async function guardarEncargo() {
     if (!fecha) { Toast.warning('Selecciona la fecha de entrega.'); return; }
     const items = filasProducto.filter(Boolean).filter(f => f.producto_id && f.cantidad > 0);
     if (!items.length) { Toast.warning('Agrega al menos un producto.'); return; }
-
+    const anticipo = parseFloat(document.getElementById('encAnticipo')?.value || 0);
+    const clienteId = document.getElementById('encClienteId')?.value || null;
+    const tipoEnc = document.getElementById('encTipo')?.value || 'orden';
     try {
-        const res = await fetch('/api/encargo', {
+        const res = await fetch('/api/encargo/v2', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 cliente,
+                cliente_id: clienteId ? parseInt(clienteId) : null,
                 empresa: document.getElementById('encEmpresa').value.trim(),
+                telefono: document.getElementById('encTelefono').value.trim(),
                 fecha_entrega: fecha,
+                hora_entrega: document.getElementById('encHora').value.trim(),
                 notas: document.getElementById('encNotas').value.trim(),
+                canal_venta: document.getElementById('encCanal').value,
+                tipo_encargo: tipoEnc,
+                direccion_entrega: document.getElementById('encDireccion').value.trim(),
+                anticipo: anticipo,
+                estado_inicial: tipoEnc === 'cotizacion' ? 'cotizacion' : 'confirmado',
                 items: items.map(f => ({
-                    producto_id: f.producto_id,
-                    producto: f.producto,
-                    cantidad: f.cantidad,
-                    precio_unitario: f.precio_unitario,
+                    producto_id: f.producto_id, producto: f.producto,
+                    cantidad: f.cantidad, precio_unitario: f.precio_unitario,
                 })),
             }),
         });
@@ -281,18 +622,118 @@ async function guardarEncargo() {
         if (!data.ok) throw new Error(data.error || 'No se pudo guardar');
         Toast.success('Encargo registrado correctamente.');
         cerrarFormEncargo();
-        setTimeout(() => location.reload(), 800);
+        setTimeout(() => location.reload(), 700);
     } catch (err) {
         Toast.error(err.message || 'Error al guardar el encargo.');
     }
 }
 
-async function cambiarEstadoEncargo(id, estado) {
-    const etiquetas = { listo: 'marcar como listo', entregado: 'marcar como entregado', cancelado: 'cancelar', pendiente: 'revertir a pendiente' };
-    const ok = await appConfirm(`¿Deseas ${etiquetas[estado] || estado} este encargo?`, { title: 'Confirmar accion', type: 'warning' });
+// ── Búsqueda de clientes ──────────────────────────────────────────────────────
+
+function buscarClientes(query) {
+    clearTimeout(_clienteDebounce);
+    if (query.length < 2) { document.getElementById('clienteDropdown').style.display = 'none'; return; }
+    _clienteDebounce = setTimeout(async () => {
+        try {
+            const r = await fetch(`/api/clientes?q=${encodeURIComponent(query)}`);
+            const d = await r.json();
+            _clientesBuscados = d.clientes || [];
+            renderClienteDropdown();
+        } catch (e) {}
+    }, 220);
+}
+
+function renderClienteDropdown() {
+    const dd = document.getElementById('clienteDropdown');
+    if (!_clientesBuscados.length) {
+        dd.innerHTML = `<div class="cliente-option" onclick="abrirModalNuevoCliente()">
+            <strong>+ Crear nuevo cliente</strong>
+        </div>`;
+    } else {
+        dd.innerHTML = _clientesBuscados.map(c => `
+            <div class="cliente-option" onclick="seleccionarCliente(${c.id}, '${c.nombre.replace(/'/g,"\\'")}', '${(c.telefono||'').replace(/'/g,"\\'")}', '${(c.empresa||'').replace(/'/g,"\\'")}')">
+                <div>${c.nombre}</div>
+                <div class="cliente-option-meta">${[c.empresa, c.telefono, c.numero_doc].filter(Boolean).join(' · ')}</div>
+            </div>
+        `).join('') + `<div class="cliente-option" onclick="abrirModalNuevoCliente()" style="border-top:1px solid var(--border);color:var(--primary);">
+            + Crear nuevo cliente
+        </div>`;
+    }
+    dd.style.display = '';
+}
+
+function seleccionarCliente(id, nombre, telefono, empresa) {
+    document.getElementById('encCliente').value = nombre;
+    document.getElementById('encClienteId').value = id;
+    if (telefono) document.getElementById('encTelefono').value = telefono;
+    if (empresa) document.getElementById('encEmpresa').value = empresa;
+    document.getElementById('clienteDropdown').style.display = 'none';
+}
+
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.cliente-autocomplete')) {
+        document.getElementById('clienteDropdown').style.display = 'none';
+    }
+});
+
+// ── Modal nuevo cliente ────────────────────────────────────────────────────────
+
+function abrirModalNuevoCliente() {
+    document.getElementById('clienteDropdown').style.display = 'none';
+    ['ncNombre','ncTelefono','ncNumeroDoc','ncEmpresa','ncEmail'].forEach(id => {
+        const el = document.getElementById(id); if (el) el.value = '';
+    });
+    document.getElementById('ncTipoDoc').value = '';
+    document.getElementById('modalNuevoCliente').style.display = 'flex';
+}
+
+function cerrarModalNuevoCliente() {
+    document.getElementById('modalNuevoCliente').style.display = 'none';
+}
+
+async function guardarNuevoCliente() {
+    const nombre = document.getElementById('ncNombre').value.trim();
+    if (!nombre) { Toast.warning('El nombre es obligatorio.'); return; }
+    try {
+        const r = await fetch('/api/clientes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                nombre,
+                telefono: document.getElementById('ncTelefono').value.trim(),
+                tipo_doc: document.getElementById('ncTipoDoc').value,
+                numero_doc: document.getElementById('ncNumeroDoc').value.trim(),
+                empresa: document.getElementById('ncEmpresa').value.trim(),
+                email: document.getElementById('ncEmail').value.trim(),
+            }),
+        });
+        const d = await r.json();
+        if (!d.ok) throw new Error(d.error);
+        seleccionarCliente(d.cliente_id, nombre,
+            document.getElementById('ncTelefono').value.trim(),
+            document.getElementById('ncEmpresa').value.trim());
+        cerrarModalNuevoCliente();
+        Toast.success('Cliente creado y seleccionado.');
+    } catch (err) {
+        Toast.error(err.message || 'Error al crear cliente.');
+    }
+}
+
+// ── Estado encargo ────────────────────────────────────────────────────────────
+
+const ESTADO_LABELS = {
+    cotizacion: 'enviar cotizacion', confirmado: 'confirmar',
+    con_anticipo: 'registrar anticipo', programado: 'programar',
+    listo: 'marcar como listo', entregado: 'marcar como entregado',
+    cancelado: 'cancelar',
+};
+
+async function cambiarEstado(id, estado) {
+    const label = ESTADO_LABELS[estado] || estado;
+    const ok = await appConfirm(`¿Deseas ${label} este encargo?`, { title: 'Confirmar accion', type: 'warning' });
     if (!ok) return;
     try {
-        const res = await fetch(`/api/encargo/${id}/estado`, {
+        const res = await fetch(`/api/encargo/v2/${id}/estado`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ estado }),
@@ -307,7 +748,7 @@ async function cambiarEstadoEncargo(id, estado) {
 }
 
 async function eliminarEncargo(id) {
-    const ok = await appConfirm('¿Eliminar este encargo? Esta accion no se puede deshacer.', { title: 'Eliminar encargo', type: 'danger' });
+    const ok = await appConfirm('¿Eliminar este encargo? Solo se pueden eliminar cotizaciones y cancelados.', { title: 'Eliminar encargo', type: 'danger' });
     if (!ok) return;
     try {
         const res = await fetch(`/api/encargo/${id}`, { method: 'DELETE' });
@@ -319,5 +760,126 @@ async function eliminarEncargo(id) {
         Toast.error(err.message);
     }
 }
+
+// ── Pago de encargo ───────────────────────────────────────────────────────────
+
+function abrirModalPagoEncargo(encId, saldo) {
+    _pagoEncId = encId;
+    document.getElementById('pagoEncSaldo').textContent = money(saldo);
+    document.getElementById('pagoEncMonto').value = Math.ceil(saldo);
+    document.getElementById('pagoEncMetodo').value = 'efectivo';
+    document.getElementById('pagoEncReferencia').value = '';
+    document.getElementById('modalPagoEncargo').style.display = 'flex';
+}
+
+function cerrarModalPagoEncargo() {
+    _pagoEncId = null;
+    document.getElementById('modalPagoEncargo').style.display = 'none';
+}
+
+async function confirmarPagoEncargo() {
+    const monto = parseFloat(document.getElementById('pagoEncMonto').value || 0);
+    if (!monto || monto <= 0) { Toast.warning('Ingresa un monto valido.'); return; }
+    try {
+        const r = await fetch(`/api/encargo/v2/${_pagoEncId}/pago`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                metodo: document.getElementById('pagoEncMetodo').value,
+                monto,
+                referencia: document.getElementById('pagoEncReferencia').value.trim(),
+            }),
+        });
+        const d = await r.json();
+        if (!d.ok) throw new Error(d.error);
+        cerrarModalPagoEncargo();
+        Toast.success(d.saldo <= 0 ? 'Pago registrado. Encargo pagado completamente.' : `Pago registrado. Saldo: ${money(d.saldo)}`);
+        setTimeout(() => location.reload(), 700);
+    } catch (err) {
+        Toast.error(err.message || 'Error al registrar pago.');
+    }
+}
+
+function abrirModalDocumentoEncargo(encargoId) {
+    const encargo = obtenerEncargoData(encargoId);
+    if (!encargo) {
+        Toast.error('No encontramos la informacion del encargo.');
+        return;
+    }
+    _docEncargoId = encargoId;
+    document.getElementById('docEncargoId').textContent = '#' + encargoId;
+    document.getElementById('docEncargoTotal').textContent = money(encargo.total || 0);
+    document.getElementById('docEncargoSaldo').textContent = money(encargo.saldo_pendiente || 0);
+    document.getElementById('docEncNombre').value = encargo.cliente || '';
+    document.getElementById('docEncTipoDoc').value = encargo.tipo_doc || '';
+    document.getElementById('docEncNumeroDoc').value = encargo.numero_doc || '';
+    document.getElementById('docEncEmail').value = encargo.email || '';
+    document.getElementById('docEncEmpresa').value = encargo.empresa || '';
+    document.getElementById('docEncDireccion').value = encargo.direccion_documento || encargo.direccion_entrega || '';
+    document.getElementById('docEncTipoDocumento').value = 'factura';
+    document.getElementById('modalDocumentoEncargo').style.display = 'flex';
+}
+
+function cerrarModalDocumentoEncargo() {
+    _docEncargoId = null;
+    document.getElementById('modalDocumentoEncargo').style.display = 'none';
+}
+
+async function confirmarDocumentoEncargo() {
+    const payload = {
+        nombre: document.getElementById('docEncNombre').value.trim(),
+        tipo_doc: document.getElementById('docEncTipoDoc').value,
+        numero_doc: document.getElementById('docEncNumeroDoc').value.trim(),
+        email: document.getElementById('docEncEmail').value.trim(),
+        empresa: document.getElementById('docEncEmpresa').value.trim(),
+        direccion: document.getElementById('docEncDireccion').value.trim(),
+        tipo_documento: document.getElementById('docEncTipoDocumento').value,
+    };
+    if (!payload.nombre) {
+        Toast.warning('Ingresa el nombre o razon social para emitir el documento.');
+        return;
+    }
+    try {
+        const res = await fetch(`/api/documento/generar-desde-encargo/${_docEncargoId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'No se pudo generar el documento.');
+        cerrarModalDocumentoEncargo();
+        window.open(`/documento/${data.documento_id}/print?mode=imprimir&auto=1`, '_blank', 'noopener');
+        Toast.success('Documento generado para el encargo.');
+        setTimeout(() => location.reload(), 700);
+    } catch (err) {
+        Toast.error(err.message || 'No se pudo generar el documento.');
+    }
+}
+
+async function reenviarDocumentoEncargo(documentoId, emailActual) {
+    const email = window.prompt('Correo destino para enviar el documento:', emailActual || '');
+    if (email === null) return;
+    const limpio = String(email || '').trim();
+    if (!limpio) {
+        Toast.warning('Ingresa un correo valido para enviar el documento.');
+        return;
+    }
+    try {
+        const res = await fetch(`/api/documento/${documentoId}/enviar`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: limpio }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'No se pudo enviar el documento.');
+        Toast.success(`Documento enviado a ${limpio}.`);
+        setTimeout(() => location.reload(), 600);
+    } catch (err) {
+        Toast.error(err.message || 'No se pudo enviar el documento.');
+    }
+}
+
+// Mantener compatibilidad con botones legacy (estado viejo)
+async function cambiarEstadoEncargo(id, estado) { return cambiarEstado(id, estado); }
 </script>
 {% endblock %}

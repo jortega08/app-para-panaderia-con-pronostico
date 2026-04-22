@@ -1,6 +1,18 @@
 {% extends "base.html" %}
 {% block title_extra %} - Operaciones{% endblock %}
 {% block content %}
+{% set operations_help = {
+    'pedidos_mesas': 'Total de pedidos de mesas abiertos o gestionados hoy. Si sube rapido, revisa cola y capacidad de cocina.',
+    'pendientes': 'Pedidos que aun no salen totalmente del flujo operativo. Si crecen, prioriza cuellos de botella y tiempos de entrega.',
+    'total_cobrado': 'Dinero efectivamente cobrado en el dia. Si queda bajo frente al volumen de pedidos, revisa pedidos por cobrar.',
+    'ventas_pos': 'Transacciones directas registradas en POS. Si suben mucho, confirma que caja y mostrador tengan apoyo.',
+    'estado_mesas': 'Muestra mesas activas, estado y pedidos abiertos. Si hay muchas en pendiente o preparacion, redistribuye atencion.',
+    'ventas_pagadas': 'Resumen de lo ya cobrado por producto. Sirve para detectar que se mueve de verdad en caja hoy.',
+    'consumo_insumos': 'Cantidad consumida hoy por insumo. Si sube mas rapido que la venta, revisa desperdicio o merma.',
+    'existencias_restantes': 'Stock actual frente al minimo configurado. Si aparece en bajo o alerta, compra o ajusta produccion cuanto antes.',
+    'ventas_directas': 'Detalle de ventas POS ya cobradas. Sirve para validar carga de caja y patrones de compra en mostrador.',
+    'pedidos_dia': 'Cola completa de pedidos con estado, tiempos y cobro. Si se acumulan listos o pendientes, revisa servicio y caja.'
+} %}
 <div class="page-container">
     <div class="page-header">
         <h1 class="page-title"><span class="material-symbols-outlined">dashboard</span> Panel de Operaciones</h1>
@@ -13,21 +25,25 @@
     {# ── METRICAS PRINCIPALES ── #}
     <div class="metrics-row" style="grid-template-columns: repeat(4, 1fr);">
         <div class="metric-card">
+            <div class="card-help-corner">{% with help_text=operations_help.pedidos_mesas %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
             <div class="metric-icon"><span class="material-symbols-outlined">assignment</span></div>
             <div class="metric-label">Pedidos de Mesas</div>
             <div class="metric-value">{{ stats.total_pedidos }}</div>
         </div>
         <div class="metric-card">
+            <div class="card-help-corner">{% with help_text=operations_help.pendientes %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
             <div class="metric-icon"><span class="material-symbols-outlined">hourglass_bottom</span></div>
             <div class="metric-label">Pendientes</div>
             <div class="metric-value text-warning">{{ stats.pendientes + stats.en_preparacion + stats.listos }}</div>
         </div>
         <div class="metric-card">
+            <div class="card-help-corner">{% with help_text=operations_help.total_cobrado %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
             <div class="metric-icon"><span class="material-symbols-outlined">paid</span></div>
             <div class="metric-label">Total Cobrado</div>
             <div class="metric-value text-success">${{ '{:,.0f}'.format(stats.total_cobrado_global or 0) }}</div>
         </div>
         <div class="metric-card">
+            <div class="card-help-corner">{% with help_text=operations_help.ventas_pos %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
             <div class="metric-icon"><span class="material-symbols-outlined">point_of_sale</span></div>
             <div class="metric-label">Ventas POS</div>
             <div class="metric-value text-primary">{{ stats.ventas_pos or 0 }}</div>
@@ -37,7 +53,12 @@
     <div class="dashboard-row">
         {# ── MESAS ── #}
         <div class="card">
-            <div class="card-header"><span class="material-symbols-outlined">table_restaurant</span> Estado de Mesas</div>
+            <div class="card-header card-header-with-help">
+                <div class="card-header-copy">
+                    <div class="card-header-title"><span class="material-symbols-outlined">table_restaurant</span> Estado de Mesas</div>
+                </div>
+                <div class="card-help-inline">{% with help_text=operations_help.estado_mesas %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
+            </div>
             <div class="card-body">
                 <div class="config-add-row" style="padding-top: 0; margin-bottom: 10px;">
                     <input type="number" min="1" step="1" class="form-input form-input-sm"
@@ -51,22 +72,67 @@
                     </button>
                 </div>
                 <div class="text-muted" style="font-size: 13px; margin-bottom: 14px;">
-                    Puedes crear o reactivar mesas desde aqui. No hay un limite fijo de 10.
+                    Crea, edita, activa, desactiva o elimina mesas sin perder el historial operativo.
                 </div>
                 {% if mesas %}
                 <div class="mesas-grid" style="gap: 10px;">
                     {% for mesa in mesas %}
-                    <div class="mesa-card mesa-{{ mesa.estado_mesa }}" style="padding: 14px 10px;">
-                        <div class="mesa-numero" style="font-size: 24px;">{{ mesa.numero }}</div>
-                        <span class="mesa-badge mesa-badge-{% if mesa.estado_mesa == 'libre' %}libre{% elif mesa.estado_mesa == 'pendiente' %}pendiente{% elif mesa.estado_mesa == 'en_preparacion' %}preparacion{% else %}listo{% endif %}" style="font-size: 10px; padding: 2px 8px;">
-                            {% if mesa.estado_mesa == 'libre' %}Libre
-                            {% elif mesa.estado_mesa == 'pendiente' %}Pendiente
-                            {% elif mesa.estado_mesa == 'en_preparacion' %}Preparando
-                            {% else %}{{ mesa.estado_mesa|capitalize }}{% endif %}
-                        </span>
+                    <div class="mesa-card mesa-{{ mesa.estado_mesa }}{% if not mesa.activa %} row-muted{% endif %}"
+                         style="padding: 14px 10px; cursor: {% if mesa.pedido_activo_id %}pointer{% else %}default{% endif %};"
+                         {% if mesa.pedido_activo_id %}onclick="verMesaPedido({{ mesa.id }})"{% endif %}>
+                        <div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start;">
+                            <div>
+                                <div class="mesa-numero" style="font-size: 24px;">{{ mesa.numero }}</div>
+                                <div class="mesa-nombre" style="font-size: 13px;">{{ mesa.nombre }}</div>
+                            </div>
+                            <div style="display:grid; gap:6px; justify-items:end;">
+                                {% if mesa.activa %}
+                                <span class="badge badge-success">Activa</span>
+                                {% else %}
+                                <span class="badge badge-secondary">Inactiva</span>
+                                {% endif %}
+                                {% if mesa.pedido_activo_id %}
+                                <span class="badge badge-warning">Pedido abierto</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div style="margin-top: 10px;">
+                            <span class="mesa-badge mesa-badge-{% if mesa.estado_mesa == 'libre' %}libre{% elif mesa.estado_mesa == 'pendiente' %}pendiente{% elif mesa.estado_mesa == 'en_preparacion' %}preparacion{% elif mesa.estado_mesa == 'listo' %}listo{% else %}libre{% endif %}" style="font-size: 10px; padding: 2px 8px;">
+                                {% if mesa.estado_mesa == 'libre' %}Libre
+                                {% elif mesa.estado_mesa == 'pendiente' %}Pendiente
+                                {% elif mesa.estado_mesa == 'en_preparacion' %}Preparando
+                                {% elif mesa.estado_mesa == 'listo' %}Listo para caja
+                                {% else %}{{ mesa.estado_mesa|capitalize }}{% endif %}
+                            </span>
+                        </div>
+                        <div style="margin-top: 10px; font-size: 12px; color: var(--text-muted);">
+                            {{ mesa.num_pedidos or 0 }} pedido{{ 's' if (mesa.num_pedidos or 0) != 1 else '' }} activo{{ 's' if (mesa.num_pedidos or 0) != 1 else '' }}
+                        </div>
                         {% if mesa.total_mesa > 0 %}
-            <div class="mesa-total" style="font-size: 14px;">${{ '{:,.0f}'.format(mesa.total_mesa or 0) }}</div>
+                        <div class="mesa-total" style="font-size: 14px;">${{ '{:,.0f}'.format(mesa.total_mesa or 0) }}</div>
                         {% endif %}
+                        <div style="margin-top: 12px; display:flex; gap:6px; flex-wrap:wrap;">
+                            {% if mesa.pedido_activo_id %}
+                            <button class="btn btn-outline btn-sm" type="button" onclick="event.stopPropagation(); verMesaPedido({{ mesa.id }})">
+                                Ver pedido
+                            </button>
+                            {% endif %}
+                            <button class="btn btn-outline btn-sm" type="button" onclick="event.stopPropagation(); abrirModalMesa({{ mesa.id }}, {{ mesa.numero }}, {{ mesa.nombre|tojson }})">
+                                Editar
+                            </button>
+                            {% if mesa.activa %}
+                            <button class="btn btn-outline btn-sm" type="button" onclick="event.stopPropagation(); cambiarEstadoMesa({{ mesa.id }}, false)">
+                                Desactivar
+                            </button>
+                            {% else %}
+                            <button class="btn btn-outline btn-sm" type="button" onclick="event.stopPropagation(); cambiarEstadoMesa({{ mesa.id }}, true)">
+                                Activar
+                            </button>
+                            {% endif %}
+                            <button class="btn btn-danger-outline btn-sm" type="button" onclick="event.stopPropagation(); eliminarMesaOperacion({{ mesa.id }})">
+                                Eliminar
+                            </button>
+                        </div>
                     </div>
                     {% endfor %}
                 </div>
@@ -78,7 +144,12 @@
 
         {# ── VENTAS POR PRODUCTO ── #}
         <div class="card">
-            <div class="card-header"><span class="material-symbols-outlined">savings</span> Ventas Pagadas del Dia</div>
+            <div class="card-header card-header-with-help">
+                <div class="card-header-copy">
+                    <div class="card-header-title"><span class="material-symbols-outlined">savings</span> Ventas Pagadas del Dia</div>
+                </div>
+                <div class="card-help-inline">{% with help_text=operations_help.ventas_pagadas %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
+            </div>
             <div class="card-body">
                 {% if ventas_resumen %}
                 {% for r in ventas_resumen %}
@@ -103,7 +174,12 @@
     <div class="dashboard-row">
         {# ── CONSUMO DE INSUMOS ── #}
         <div class="card">
-            <div class="card-header"><span class="material-symbols-outlined">inventory_2</span> Consumo de Insumos Hoy</div>
+            <div class="card-header card-header-with-help">
+                <div class="card-header-copy">
+                    <div class="card-header-title"><span class="material-symbols-outlined">inventory_2</span> Consumo de Insumos Hoy</div>
+                </div>
+                <div class="card-help-inline">{% with help_text=operations_help.consumo_insumos %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
+            </div>
             <div class="card-body">
                 {% if consumo %}
                 <table class="table">
@@ -128,7 +204,12 @@
 
         {# ── ALERTAS DE STOCK ── #}
         <div class="card">
-            <div class="card-header"><span class="material-symbols-outlined">warning</span> Existencias Restantes</div>
+            <div class="card-header card-header-with-help">
+                <div class="card-header-copy">
+                    <div class="card-header-title"><span class="material-symbols-outlined">warning</span> Existencias Restantes</div>
+                </div>
+                <div class="card-help-inline">{% with help_text=operations_help.existencias_restantes %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
+            </div>
             <div class="card-body">
                 {% if alertas_stock %}
                 <div style="margin-bottom: 16px; padding: 10px; background: var(--danger-bg); border-radius: var(--radius-sm);">
@@ -164,12 +245,15 @@
 
     {# ── PEDIDOS DEL DIA ── #}
     <div class="card" style="margin-bottom: 18px;">
-        <div class="card-header">
-            <span class="material-symbols-outlined">point_of_sale</span> Ventas Directas de Caja
-            <span class="text-muted" style="font-weight: 400; font-size: 13px; margin-left: 12px;">
-                {{ stats.ventas_pos or 0 }} transacciones POS
-                {% if stats.transacciones_totales %} &middot; {{ stats.transacciones_totales }} transacciones totales del dia{% endif %}
-            </span>
+        <div class="card-header card-header-with-help">
+            <div class="card-header-copy">
+                <div class="card-header-title"><span class="material-symbols-outlined">point_of_sale</span> Ventas Directas de Caja</div>
+                <span class="card-header-meta">
+                    {{ stats.ventas_pos or 0 }} transacciones POS
+                    {% if stats.transacciones_totales %} &middot; {{ stats.transacciones_totales }} transacciones totales del dia{% endif %}
+                </span>
+            </div>
+            <div class="card-help-inline">{% with help_text=operations_help.ventas_directas %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
         </div>
         <div class="card-body">
             {% if ventas_pos %}
@@ -224,15 +308,18 @@
     </div>
 
     <div class="card">
-        <div class="card-header">
-            <span class="material-symbols-outlined">assignment</span> Pedidos del Dia
-            <span class="text-muted" style="font-weight: 400; font-size: 13px; margin-left: 12px;">
-                {{ stats.pendientes }} pendientes &middot;
-                {{ stats.en_preparacion }} en preparacion &middot;
-                {{ stats.listos }} listos &middot;
-                {{ stats.pagados }} pagados
-                {% if stats.cancelados %} &middot; {{ stats.cancelados }} cancelados{% endif %}
-            </span>
+        <div class="card-header card-header-with-help">
+            <div class="card-header-copy">
+                <div class="card-header-title"><span class="material-symbols-outlined">assignment</span> Pedidos del Dia</div>
+                <span class="card-header-meta">
+                    {{ stats.pendientes }} pendientes &middot;
+                    {{ stats.en_preparacion }} en preparacion &middot;
+                    {{ stats.listos }} listos &middot;
+                    {{ stats.pagados }} pagados
+                    {% if stats.cancelados %} &middot; {{ stats.cancelados }} cancelados{% endif %}
+                </span>
+            </div>
+            <div class="card-help-inline">{% with help_text=operations_help.pedidos_dia %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
         </div>
         <div class="card-body">
             {% if pedidos %}
@@ -338,7 +425,79 @@
     </div>
 </div>
 
+<div class="modal-overlay" id="mesaModal" style="display:none;" onclick="if(event.target===this) cerrarModalMesa()">
+    <div class="modal-card" style="max-width: 520px;">
+        <div class="modal-header">
+            <h3 id="mesaModalTitle">Editar mesa</h3>
+            <button class="modal-close" type="button" onclick="cerrarModalMesa()">&times;</button>
+        </div>
+        <div class="modal-body modal-stack">
+            <input type="hidden" id="mesaModalId" value="">
+            <div class="form-field">
+                <label class="form-label">Numero</label>
+                <input type="number" min="1" step="1" id="mesaModalNumero" class="form-input">
+            </div>
+            <div class="form-field">
+                <label class="form-label">Nombre</label>
+                <input type="text" id="mesaModalNombre" class="form-input" placeholder="Ej: Terraza 1">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" type="button" onclick="cerrarModalMesa()">Cancelar</button>
+            <button class="btn btn-primary" type="button" onclick="guardarMesaOperacion()">Guardar cambios</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="mesaPedidoModal" style="display:none;" onclick="if(event.target===this) cerrarMesaPedidoModal()">
+    <div class="modal-card" style="max-width: 960px;">
+        <div class="modal-header">
+            <h3 id="mesaPedidoModalTitle">Detalle operativo</h3>
+            <button class="modal-close" type="button" onclick="cerrarMesaPedidoModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div id="mesaPedidoModalContent" class="text-muted">Cargando detalle...</div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" type="button" onclick="cerrarMesaPedidoModal()">Cerrar</button>
+        </div>
+    </div>
+</div>
+
 <script>
+const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+
+function traceIcon(tipo) {
+    const icons = {
+        creado: 'shopping_bag',
+        actualizacion: 'edit_square',
+        cobrado: 'payments',
+        cancelado: 'cancel',
+        comanda_generada: 'receipt_long',
+        comanda_impresa: 'print',
+        comanda_reimpresa: 'print_connect',
+        estado: 'schedule',
+    };
+    return icons[tipo] || 'info';
+}
+
+function apiMesa(url, method, body) {
+    return fetch(url, {
+        method,
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': CSRF_TOKEN,
+        },
+        body: body ? JSON.stringify(body) : JSON.stringify({}),
+    }).then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) {
+            throw new Error(data.error || 'No se pudo completar la accion.');
+        }
+        return data;
+    });
+}
+
 function agregarMesaOperacion() {
     const numeroInput = document.getElementById('nuevaMesaNumero');
     const nombreInput = document.getElementById('nuevaMesaNombre');
@@ -351,18 +510,7 @@ function agregarMesaOperacion() {
         return;
     }
 
-    fetch('/api/mesa', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ numero, nombre })
-    })
-    .then(async response => {
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok || !data.ok) {
-            throw new Error(data.error || 'No se pudo registrar la mesa');
-        }
-        return data;
-    })
+    apiMesa('/api/mesa', 'POST', { numero, nombre })
     .then(() => {
         location.reload();
     })
@@ -371,7 +519,197 @@ function agregarMesaOperacion() {
     });
 }
 
-// Auto-refresh cada 60 segundos
-setTimeout(function() { location.reload(); }, 60000);
+function abrirModalMesa(id, numero, nombre) {
+    document.getElementById('mesaModalId').value = id;
+    document.getElementById('mesaModalNumero').value = numero || '';
+    document.getElementById('mesaModalNombre').value = nombre || '';
+    document.getElementById('mesaModal').style.display = 'flex';
+}
+
+function cerrarModalMesa() {
+    document.getElementById('mesaModal').style.display = 'none';
+}
+
+function guardarMesaOperacion() {
+    const mesaId = Number(document.getElementById('mesaModalId').value || 0);
+    const numero = Number(document.getElementById('mesaModalNumero').value || 0);
+    const nombre = document.getElementById('mesaModalNombre').value.trim();
+
+    if (!mesaId || numero <= 0) {
+        Toast.warning('Completa un numero de mesa valido.');
+        return;
+    }
+
+    apiMesa('/api/mesa/' + mesaId, 'PUT', { numero, nombre })
+        .then(() => location.reload())
+        .catch((error) => Toast.error(error.message));
+}
+
+async function cambiarEstadoMesa(mesaId, activar) {
+    const ok = await appConfirm(
+        activar ? 'Activar esta mesa para volver a recibir pedidos nuevos?' : 'Desactivar esta mesa para sacarla del flujo nuevo?',
+        {
+            type: activar ? 'info' : 'warning',
+            title: activar ? 'Activar mesa' : 'Desactivar mesa',
+            confirmText: activar ? 'Activar' : 'Desactivar',
+        }
+    );
+    if (!ok) return;
+
+    apiMesa('/api/mesa/' + mesaId + '/' + (activar ? 'activar' : 'desactivar'), 'POST', {})
+        .then(() => location.reload())
+        .catch((error) => Toast.error(error.message));
+}
+
+async function eliminarMesaOperacion(mesaId) {
+    const ok = await appConfirm(
+        'Eliminar esta mesa? Si tiene pedidos abiertos el sistema solo permitira desactivarla.',
+        {
+            type: 'danger',
+            title: 'Eliminar mesa',
+            confirmText: 'Eliminar',
+        }
+    );
+    if (!ok) return;
+
+    apiMesa('/api/mesa/' + mesaId, 'DELETE', {})
+        .then(() => location.reload())
+        .catch((error) => Toast.error(error.message));
+}
+
+function renderMesaTrace(events) {
+    if (!events || !events.length) {
+        return '<div class="text-muted">Todavia no hay eventos registrados para este pedido.</div>';
+    }
+    return events.map((event) => `
+        <div class="pedido-timeline-item">
+            <div class="pedido-timeline-dot"></div>
+            <div>
+                <div class="pedido-timeline-title"><span class="material-symbols-outlined" style="font-size:16px;vertical-align:middle;margin-right:6px;">${traceIcon(event.tipo)}</span>${AppUI.escapeHtml(event.titulo || 'Evento')}</div>
+                <div class="text-muted">${AppUI.escapeHtml(event.fecha_hora || '')}${event.usuario ? ' · ' + AppUI.escapeHtml(event.usuario) : ''}</div>
+                ${event.descripcion ? `<div class="pedido-timeline-note">${AppUI.escapeHtml(event.descripcion)}</div>` : ''}
+            </div>
+        </div>
+    `).join('');
+}
+
+async function verMesaPedido(mesaId) {
+    const modal = document.getElementById('mesaPedidoModal');
+    const content = document.getElementById('mesaPedidoModalContent');
+    modal.style.display = 'flex';
+    content.innerHTML = '<div class="text-muted">Cargando detalle...</div>';
+
+    try {
+        const response = await fetch('/api/mesa/' + mesaId + '/pedido-activo', { cache: 'no-store' });
+        const data = await response.json();
+        if (!response.ok || !data.ok) {
+            throw new Error(data.error || 'No se pudo cargar el pedido de la mesa');
+        }
+
+        const pedido = data.pedido || {};
+        const comanda = data.comanda || null;
+        const renderComandaItems = (comandaData) => {
+            if (!comandaData || !(comandaData.items || []).length) {
+                return '<div class="text-muted" style="padding-top:12px;">La comanda no tiene lineas registradas.</div>';
+            }
+            return `
+                <div class="pedido-items" style="padding: 12px 0 0;">
+                    ${(comandaData.items || []).map((item) => `
+                        <div style="padding:10px 0;border-bottom:1px solid rgba(0,0,0,0.08);">
+                            <div class="pedido-item-row" style="align-items:flex-start;">
+                                <span><strong>${AppUI.escapeHtml(String(item.cantidad || 0))}x</strong> ${AppUI.escapeHtml(item.producto_nombre_snapshot || '')}</span>
+                                <span class="text-muted">Linea</span>
+                            </div>
+                            ${(item.modificaciones || []).length ? `
+                                <div class="text-muted" style="margin-top:6px;padding-left:12px;display:grid;gap:4px;">
+                                    ${(item.modificaciones || []).map((mod) => `
+                                        <div>${AppUI.escapeHtml(mod.tipo === 'adicional'
+                                            ? ('+ ' + (mod.descripcion || '') + ((Number(mod.cantidad || 1) > 1) ? (' x' + Number(mod.cantidad || 1)) : ''))
+                                            : ('Sin ' + (mod.descripcion || '')))}</div>
+                                    `).join('')}
+                                </div>
+                            ` : ''}
+                            ${item.observacion ? `<div class="text-muted" style="margin-top:6px;padding-left:12px;"><em>Obs: ${AppUI.escapeHtml(item.observacion)}</em></div>` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        };
+        document.getElementById('mesaPedidoModalTitle').textContent = 'Mesa ' + (data.mesa?.numero || '?') + ' - Pedido #' + (pedido.id || '');
+        content.innerHTML = `
+            <div class="pedido-detail-grid">
+                <div class="pedido-detail-card">
+                    <div class="pedido-section-title">Resumen del pedido</div>
+                    <div class="pedido-meta-list">
+                        <div class="pedido-meta-row"><span>Estado</span><strong>${AppUI.escapeHtml((pedido.estado || '').replaceAll('_', ' '))}</strong></div>
+                        <div class="pedido-meta-row"><span>Mesero</span><strong>${AppUI.escapeHtml(pedido.mesero || '-')}</strong></div>
+                        <div class="pedido-meta-row"><span>Creado</span><strong>${AppUI.escapeHtml(pedido.creado_en || ((pedido.fecha || '') + ' ' + (pedido.hora || '')))}</strong></div>
+                        <div class="pedido-meta-row"><span>Total mesa</span><strong>${AppUI.formatMoney(pedido.total || 0, 0)}</strong></div>
+                    </div>
+                    <div class="pedido-items" style="padding: 12px 0 0;">
+                        ${(pedido.items || []).map((item) => `
+                            <div class="pedido-item-row">
+                                <span>${AppUI.escapeHtml(String(item.cantidad || 0))}x ${AppUI.escapeHtml(item.producto || '')}</span>
+                                <span class="text-muted">${AppUI.formatMoney(item.subtotal || 0, 0)}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                <div class="pedido-detail-card">
+                    <div class="pedido-section-title">Comanda asociada</div>
+                    ${
+                        comanda
+                            ? `<div class="pedido-meta-list">
+                                <div class="pedido-meta-row"><span>Comanda</span><strong>#${AppUI.escapeHtml(comanda.id)}</strong></div>
+                                <div class="pedido-meta-row"><span>Creada</span><strong>${AppUI.escapeHtml(comanda.created_at || '')}</strong></div>
+                                <div class="pedido-meta-row"><span>Mesa</span><strong>${AppUI.escapeHtml(comanda.mesa_numero ? ('Mesa ' + comanda.mesa_numero) : 'Sin mesa')}</strong></div>
+                                <div class="pedido-meta-row"><span>Mesero</span><strong>${AppUI.escapeHtml(comanda.creada_por_nombre_snapshot || comanda.pedido_mesero || '-')}</strong></div>
+                                <div class="pedido-meta-row"><span>Estado</span><strong>${AppUI.escapeHtml((comanda.estado || '').replaceAll('_', ' '))}</strong></div>
+                               </div>
+                               <div class="pedido-items" style="padding: 12px 0 0;">
+                                 ${(comanda.items || []).map((item) => `
+                                    <div class="pedido-item-row">
+                                        <span>${AppUI.escapeHtml(String(item.cantidad || 0))}x ${AppUI.escapeHtml(item.producto_nombre_snapshot || '')}</span>
+                                        <span class="text-muted">${(item.modificaciones || []).length ? AppUI.escapeHtml((item.modificaciones || []).map((mod) => mod.tipo === 'adicional' ? ('+ ' + (mod.descripcion || '')) : ('Sin ' + (mod.descripcion || '') )).join(' · ')) : ''}</span>
+                                    </div>
+                                 `).join('')}
+                               </div>
+                               <div style="margin-top: 12px; display:flex; gap:8px; flex-wrap:wrap;">
+                                 <a class="btn btn-outline btn-sm" href="/comanda/${comanda.id}/print" target="_blank" rel="noopener">Ver comanda</a>
+                                 <a class="btn btn-outline btn-sm" href="/comanda/${comanda.id}/print?mode=reimprimir&auto=1" target="_blank" rel="noopener">Reimprimir comanda</a>
+                               </div>`
+                            : '<div class="text-muted">No hay una comanda asociada a este pedido.</div>'
+                    }
+                </div>
+            </div>
+            <div class="pedido-detail-card" style="margin-top: 14px;">
+                <div class="pedido-section-title">Trazabilidad</div>
+                <div class="pedido-timeline">${renderMesaTrace(pedido.trazabilidad || [])}</div>
+            </div>
+        `;
+        if (comanda) {
+            const detailCards = content.querySelectorAll('.pedido-detail-card');
+            const comandaCard = detailCards.length > 1 ? detailCards[1] : null;
+            const resumenComanda = comandaCard ? comandaCard.querySelector('.pedido-items') : null;
+            if (resumenComanda) {
+                resumenComanda.outerHTML = renderComandaItems(comanda);
+            }
+        }
+    } catch (error) {
+        content.innerHTML = '<div class="text-danger">' + AppUI.escapeHtml(error.message || 'No se pudo cargar el detalle.') + '</div>';
+    }
+}
+
+function cerrarMesaPedidoModal() {
+    document.getElementById('mesaPedidoModal').style.display = 'none';
+}
+
+setTimeout(function() {
+    const mesaModalAbierto = document.getElementById('mesaModal').style.display !== 'none';
+    const pedidoModalAbierto = document.getElementById('mesaPedidoModal').style.display !== 'none';
+    if (!mesaModalAbierto && !pedidoModalAbierto) {
+        location.reload();
+    }
+}, 60000);
 </script>
 {% endblock %}

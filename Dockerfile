@@ -24,4 +24,4 @@ USER app
 
 EXPOSE 5000
 
-CMD ["gunicorn", "-c", "gunicorn.conf.py", "app:app"]
+CMD ["gunicorn", "-c", "gunicorn.conf.py", "wsgi:app"]

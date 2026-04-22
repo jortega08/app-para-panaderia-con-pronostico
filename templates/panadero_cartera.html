@@ -1,0 +1,334 @@
+{% extends "base.html" %}
+{% block title_extra %} - Cartera{% endblock %}
+{% block content %}
+<style>
+.cartera-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:14px; margin-bottom:18px; }
+.cartera-kpi { padding:18px; border-radius:18px; background:linear-gradient(180deg,#fff9f2 0%,#ffffff 100%); border:1px solid rgba(212,114,42,.14); }
+.cartera-kpi small { display:block; color:var(--text-muted); margin-bottom:8px; }
+.cartera-kpi strong { font-size:1.65rem; display:block; }
+.cartera-shell { display:grid; gap:18px; }
+.cartera-table-wrap { overflow:auto; }
+.cartera-table th, .cartera-table td { white-space:nowrap; }
+.estado-chip { display:inline-flex; align-items:center; padding:4px 10px; border-radius:999px; font-size:12px; font-weight:700; text-transform:capitalize; }
+.estado-abierta { background:#eef6ff; color:#1f4e8c; }
+.estado-parcial { background:#fff4d7; color:#8d5a00; }
+.estado-pagada { background:#e7f7ec; color:#146c43; }
+.estado-vencida { background:#fde4e1; color:#b42318; }
+.top-client-list { display:grid; gap:8px; }
+.top-client-row { display:flex; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid rgba(0,0,0,.06); }
+.top-client-row:last-child { border-bottom:none; }
+</style>
+
+<div class="page-container cartera-shell">
+    <section class="card">
+        <div class="card-header">
+            <div>
+                <h2 class="page-title" style="margin:0;">Cartera y cuentas por cobrar</h2>
+                <p class="text-muted" style="margin:6px 0 0;">Consulta saldos, vencimientos, abonos y clientes con deuda desde una sola pantalla.</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="cartera-grid">
+        <article class="cartera-kpi">
+            <small>Cartera abierta</small>
+            <strong>${{ '{:,.0f}'.format(resumen.total_abierta or 0) }}</strong>
+        </article>
+        <article class="cartera-kpi">
+            <small>Saldo parcial</small>
+            <strong>${{ '{:,.0f}'.format(resumen.total_parcial or 0) }}</strong>
+        </article>
+        <article class="cartera-kpi">
+            <small>Total vencido</small>
+            <strong>${{ '{:,.0f}'.format(resumen.total_vencida or 0) }}</strong>
+        </article>
+        <article class="cartera-kpi">
+            <small>Pagado historico</small>
+            <strong>${{ '{:,.0f}'.format(resumen.total_pagada or 0) }}</strong>
+        </article>
+        <article class="cartera-kpi">
+            <small>Clientes con saldo</small>
+            <strong>{{ resumen.clientes_con_saldo or 0 }}</strong>
+        </article>
+    </section>
+
+    <section class="card">
+        <div class="card-body">
+            <form method="get" class="filters-form" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;align-items:end;">
+                <div>
+                    <label class="form-label">Estado</label>
+                    <select class="form-input" name="estado">
+                        <option value="" {% if not filtro_estado %}selected{% endif %}>Todos</option>
+                        <option value="abierta" {% if filtro_estado == 'abierta' %}selected{% endif %}>Abiertas</option>
+                        <option value="parcial" {% if filtro_estado == 'parcial' %}selected{% endif %}>Parciales</option>
+                        <option value="pagada" {% if filtro_estado == 'pagada' %}selected{% endif %}>Pagadas</option>
+                        <option value="vencida" {% if filtro_estado == 'vencida' %}selected{% endif %}>Vencidas</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">Cliente</label>
+                    <input class="form-input" name="q" value="{{ filtro_busqueda }}" placeholder="Nombre, doc o telefono">
+                </div>
+                <div>
+                    <label class="form-label">Desde</label>
+                    <input class="form-input" type="date" name="fecha_desde" value="{{ filtro_fecha_desde }}">
+                </div>
+                <div>
+                    <label class="form-label">Hasta</label>
+                    <input class="form-input" type="date" name="fecha_hasta" value="{{ filtro_fecha_hasta }}">
+                </div>
+                <div>
+                    <label class="form-label">Tamano de pagina</label>
+                    <select class="form-input" name="size">
+                        {% for option in (25, 50, 100) %}
+                        <option value="{{ option }}" {% if pagination.size == option %}selected{% endif %}>{{ option }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div style="display:flex;gap:10px;">
+                    <button class="btn btn-accent" type="submit">Filtrar</button>
+                    <a class="btn btn-outline" href="{{ url_for('panadero_cartera') }}">Limpiar</a>
+                </div>
+            </form>
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="card-header">
+            <div>
+                <strong>Top clientes con mayor deuda</strong>
+                <span>Referencia rapida para priorizar recaudo.</span>
+            </div>
+        </div>
+        <div class="card-body top-client-list">
+            {% for top in resumen.top_clientes %}
+            <div class="top-client-row">
+                <div>
+                    <strong>{{ top.cliente }}</strong>
+                    {% if top.cliente_id %}
+                    <div><a href="{{ url_for('cliente_historial', cliente_id=top.cliente_id) }}">Abrir historial del cliente</a></div>
+                    {% endif %}
+                </div>
+                <strong>${{ '{:,.0f}'.format(top.saldo_pendiente or 0) }}</strong>
+            </div>
+            {% else %}
+            <div class="text-muted">Todavia no hay clientes con saldo pendiente.</div>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="card-header">
+            <div>
+                <strong>Listado de cartera</strong>
+                <span>{{ pagination.total_items }} cuenta{{ '' if pagination.total_items == 1 else 's' }} en el filtro actual.</span>
+            </div>
+        </div>
+        <div class="card-body cartera-table-wrap">
+            <table class="table table-compact cartera-table">
+                <thead>
+                    <tr>
+                        <th>Cliente</th>
+                        <th>Origen</th>
+                        <th>Documento</th>
+                        <th>Emision</th>
+                        <th>Vencimiento</th>
+                        <th>Estado</th>
+                        <th>Monto original</th>
+                        <th>Saldo</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for cuenta in cuentas %}
+                    <tr>
+                        <td>
+                            <div><strong>{{ cuenta.cliente_nombre or ('Cliente #' ~ cuenta.cliente_id) }}</strong></div>
+                            <div class="text-muted">{{ cuenta.cliente_numero_doc or cuenta.cliente_telefono or '' }}</div>
+                        </td>
+                        <td>{{ cuenta.origen_tipo|capitalize }} #{{ cuenta.origen_id }}</td>
+                        <td>{{ cuenta.documento_consecutivo or 'Sin documento' }}</td>
+                        <td>{{ cuenta.fecha_emision or '-' }}</td>
+                        <td>
+                            {{ cuenta.fecha_vencimiento or 'Sin definir' }}
+                            {% if cuenta.vencida %}
+                            <div class="text-danger" style="font-size:12px;">{{ cuenta.dias_vencida }} dia{{ '' if cuenta.dias_vencida == 1 else 's' }} vencida</div>
+                            {% endif %}
+                        </td>
+                        <td><span class="estado-chip estado-{{ cuenta.estado_actual }}">{{ cuenta.estado_actual }}</span></td>
+                        <td>${{ '{:,.0f}'.format(cuenta.monto_original or 0) }}</td>
+                        <td><strong>${{ '{:,.0f}'.format(cuenta.saldo_pendiente or 0) }}</strong></td>
+                        <td style="display:flex;gap:6px;flex-wrap:wrap;">
+                            <button class="btn btn-outline btn-sm" type="button" onclick="verDetalleCuenta({{ cuenta.id }})">Ver detalle</button>
+                            {% if cuenta.saldo_pendiente and cuenta.saldo_pendiente > 0 %}
+                            <button class="btn btn-success btn-sm" type="button" onclick="abrirAbono({{ cuenta.id }}, {{ cuenta.saldo_pendiente }})">Registrar abono</button>
+                            {% endif %}
+                            {% if cuenta.cliente_id %}
+                            <a class="btn btn-outline btn-sm" href="{{ url_for('cliente_historial', cliente_id=cuenta.cliente_id) }}">Abrir cliente</a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="9" class="text-center text-muted">No hay cuentas por cobrar para ese filtro.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% include "components/_pagination.html" %}
+        </div>
+    </section>
+</div>
+
+<div class="modal-overlay" id="modalDetalleCuenta" style="display:none;" onclick="if(event.target===this)cerrarDetalleCuenta()">
+    <div class="modal-card" style="max-width:760px;">
+        <div class="modal-header">
+            <h3>Detalle de cuenta</h3>
+            <button class="modal-close" onclick="cerrarDetalleCuenta()">&times;</button>
+        </div>
+        <div class="modal-body" id="detalleCuentaBody">
+            <div class="text-muted">Cargando...</div>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="modalAbonoCuenta" style="display:none;" onclick="if(event.target===this)cerrarAbono()">
+    <div class="modal-card" style="max-width:460px;">
+        <div class="modal-header">
+            <h3>Registrar abono</h3>
+            <button class="modal-close" onclick="cerrarAbono()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="payment-summary-box" style="margin-bottom:12px;">
+                <div class="payment-summary-row"><span>Saldo pendiente</span><strong id="abonoSaldoPendiente">$0</strong></div>
+            </div>
+            <div class="two-col-form">
+                <div>
+                    <label class="form-label">Monto</label>
+                    <input id="abonoMonto" type="number" min="1" step="1" class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">Metodo de pago</label>
+                    <select id="abonoMetodoPago" class="form-input">
+                        <option value="efectivo">Efectivo</option>
+                        <option value="transferencia">Transferencia</option>
+                        <option value="tarjeta">Tarjeta</option>
+                    </select>
+                </div>
+            </div>
+            <div style="margin-top:10px;">
+                <label class="form-label">Referencia</label>
+                <input id="abonoReferencia" class="form-input" placeholder="Opcional">
+            </div>
+            <div style="margin-top:10px;">
+                <label class="form-label">Nota</label>
+                <textarea id="abonoNota" class="form-input" rows="3" placeholder="Observacion opcional"></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" type="button" onclick="cerrarAbono()">Cancelar</button>
+            <button class="btn btn-success" type="button" onclick="guardarAbonoCuenta()">Guardar abono</button>
+        </div>
+    </div>
+</div>
+
+<script>
+let cuentaAbonoActual = null;
+let saldoAbonoActual = 0;
+
+function money(value) {
+    return window.AppUI
+        ? AppUI.formatMoney(value, 0)
+        : ('$' + Number(value || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 }));
+}
+
+function cerrarDetalleCuenta() {
+    document.getElementById('modalDetalleCuenta').style.display = 'none';
+}
+
+async function verDetalleCuenta(cuentaId) {
+    const body = document.getElementById('detalleCuentaBody');
+    body.innerHTML = '<div class="text-muted">Cargando...</div>';
+    document.getElementById('modalDetalleCuenta').style.display = 'flex';
+    try {
+        const res = await fetch(`/api/cartera/${cuentaId}`);
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'No se pudo cargar la cuenta.');
+        const cuenta = data.cuenta || {};
+        const abonos = cuenta.abonos || [];
+        body.innerHTML = `
+            <div class="payment-summary-box" style="margin-bottom:14px;">
+                <div class="payment-summary-row"><span>Cliente</span><strong>${cuenta.cliente_nombre || ('Cliente #' + cuenta.cliente_id)}</strong></div>
+                <div class="payment-summary-row"><span>Origen</span><strong>${cuenta.origen_tipo} #${cuenta.origen_id}</strong></div>
+                <div class="payment-summary-row"><span>Estado</span><strong>${cuenta.estado_actual}</strong></div>
+                <div class="payment-summary-row"><span>Monto original</span><strong>${money(cuenta.monto_original)}</strong></div>
+                <div class="payment-summary-row"><span>Saldo pendiente</span><strong>${money(cuenta.saldo_pendiente)}</strong></div>
+            </div>
+            <div>
+                <strong>Abonos registrados</strong>
+                <div style="display:grid;gap:8px;margin-top:10px;">
+                    ${abonos.length ? abonos.map(abono => `
+                        <div class="payment-summary-box payment-summary-box-soft">
+                            <div class="payment-summary-row"><span>${abono.created_at || ''}</span><strong>${money(abono.monto)}</strong></div>
+                            <div class="text-muted">${abono.metodo_pago || ''} · ${(abono.registrado_por_nombre_snapshot || abono.usuario_nombre || 'Sin usuario')}</div>
+                            ${(abono.referencia || abono.nota) ? `<div class="text-muted">${[abono.referencia, abono.nota].filter(Boolean).join(' · ')}</div>` : ''}
+                        </div>
+                    `).join('') : '<div class="text-muted">Todavia no hay abonos registrados.</div>'}
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        body.innerHTML = `<div class="text-danger">${error.message || 'No se pudo cargar la cuenta.'}</div>`;
+    }
+}
+
+function abrirAbono(cuentaId, saldo) {
+    cuentaAbonoActual = cuentaId;
+    saldoAbonoActual = Number(saldo || 0);
+    document.getElementById('abonoSaldoPendiente').textContent = money(saldoAbonoActual);
+    document.getElementById('abonoMonto').value = Math.ceil(saldoAbonoActual);
+    document.getElementById('abonoMetodoPago').value = 'efectivo';
+    document.getElementById('abonoReferencia').value = '';
+    document.getElementById('abonoNota').value = '';
+    document.getElementById('modalAbonoCuenta').style.display = 'flex';
+}
+
+function cerrarAbono() {
+    cuentaAbonoActual = null;
+    saldoAbonoActual = 0;
+    document.getElementById('modalAbonoCuenta').style.display = 'none';
+}
+
+async function guardarAbonoCuenta() {
+    const monto = Number(document.getElementById('abonoMonto').value || 0);
+    if (!cuentaAbonoActual) return;
+    if (monto <= 0) {
+        Toast.warning('Ingresa un monto valido para el abono.');
+        return;
+    }
+    if (monto - saldoAbonoActual > 0.001) {
+        Toast.warning('El abono no puede ser mayor al saldo pendiente.');
+        return;
+    }
+    try {
+        const res = await fetch(`/api/cartera/${cuentaAbonoActual}/abono`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                monto,
+                metodo_pago: document.getElementById('abonoMetodoPago').value,
+                referencia: document.getElementById('abonoReferencia').value.trim(),
+                nota: document.getElementById('abonoNota').value.trim(),
+            }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'No se pudo registrar el abono.');
+        Toast.success(data.estado === 'pagada' ? 'Abono registrado. La cuenta quedo pagada.' : 'Abono registrado correctamente.');
+        cerrarAbono();
+        setTimeout(() => window.location.reload(), 350);
+    } catch (error) {
+        Toast.error(error.message || 'No se pudo registrar el abono.');
+    }
+}
+</script>
+{% endblock %}

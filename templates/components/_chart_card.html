@@ -1,0 +1,14 @@
+<article class="card analytics-card">
+    <div class="card-header">
+        <div>
+            <strong>{{ title }}</strong>
+            {% if subtitle %}<span>{{ subtitle }}</span>{% endif %}
+        </div>
+        {% if help_text %}
+            {% include "components/_help_tooltip_trigger.html" %}
+        {% endif %}
+    </div>
+    <div class="card-body">
+        {{ caller() if caller else "" }}
+    </div>
+</article>

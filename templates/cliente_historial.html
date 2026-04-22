@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+{% block title_extra %} - Historial de Cliente{% endblock %}
+{% block content %}
+<style>
+.cliente-history-grid { display:grid; gap:18px; }
+.cliente-summary-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; }
+.cliente-summary-card { padding:16px; border-radius:18px; border:1px solid rgba(0,0,0,.06); background:#fff; }
+.cliente-summary-card small { display:block; color:var(--text-muted); margin-bottom:8px; }
+.cliente-summary-card strong { display:block; font-size:1.5rem; }
+.cliente-section { display:grid; gap:10px; }
+</style>
+
+<div class="page-container cliente-history-grid">
+    <section class="card">
+        <div class="card-header">
+            <div>
+                <h2 class="page-title" style="margin:0;">{{ cliente.nombre }}</h2>
+                <p class="text-muted" style="margin:6px 0 0;">
+                    {{ cliente.empresa or 'Cliente comercial' }}
+                    {% if cliente.numero_doc %} · {{ cliente.tipo_doc or 'Doc' }} {{ cliente.numero_doc }}{% endif %}
+                    {% if cliente.telefono %} · {{ cliente.telefono }}{% endif %}
+                </p>
+            </div>
+            <a class="btn btn-outline" href="{{ url_for('panadero_cartera') }}">Volver a cartera</a>
+        </div>
+    </section>
+
+    <section class="cliente-summary-grid">
+        <article class="cliente-summary-card">
+            <small>Saldo pendiente</small>
+            <strong>${{ '{:,.0f}'.format(resumen.saldo_total_pendiente or 0) }}</strong>
+        </article>
+        <article class="cliente-summary-card">
+            <small>Ventas asociadas</small>
+            <strong>{{ resumen.total_ventas or 0 }}</strong>
+        </article>
+        <article class="cliente-summary-card">
+            <small>Pedidos</small>
+            <strong>{{ resumen.total_pedidos or 0 }}</strong>
+        </article>
+        <article class="cliente-summary-card">
+            <small>Encargos</small>
+            <strong>{{ resumen.total_encargos or 0 }}</strong>
+        </article>
+        <article class="cliente-summary-card">
+            <small>Documentos</small>
+            <strong>{{ resumen.total_documentos or 0 }}</strong>
+        </article>
+        <article class="cliente-summary-card">
+            <small>Ultimo movimiento</small>
+            <strong style="font-size:1rem;">{{ resumen.ultimo_movimiento or 'Sin movimientos' }}</strong>
+        </article>
+    </section>
+
+    <section class="card">
+        <div class="card-body" style="display:flex;justify-content:space-between;align-items:end;gap:12px;flex-wrap:wrap;">
+            <div>
+                <strong>Lectura paginada del historial</strong>
+                <div class="text-muted" style="margin-top:6px;">Todas las tablas de esta vista respetan `page` y `size` con la misma pagina activa.</div>
+            </div>
+            <form method="get" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;">
+                <input type="hidden" name="page" value="1">
+                <div>
+                    <label class="form-label">Tamano de pagina</label>
+                    <select class="form-input" name="size">
+                        {% for option in (25, 50, 100) %}
+                        <option value="{{ option }}" {% if pagination.size == option %}selected{% endif %}>{{ option }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button class="btn btn-accent" type="submit">Aplicar</button>
+            </form>
+        </div>
+    </section>
+
+    <section class="card cliente-section">
+        <div class="card-header"><div><strong>Cuentas por cobrar</strong><span>{{ historial.pagination.cuentas.total_items }} registro{{ '' if historial.pagination.cuentas.total_items == 1 else 's' }}</span></div></div>
+        <div class="card-body">
+            <table class="table table-compact">
+                <thead>
+                    <tr>
+                        <th>Origen</th>
+                        <th>Estado</th>
+                        <th>Emision</th>
+                        <th>Vencimiento</th>
+                        <th>Monto</th>
+                        <th>Saldo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for cuenta in historial.cuentas %}
+                    <tr>
+                        <td>{{ cuenta.origen_tipo|capitalize }} #{{ cuenta.origen_id }}</td>
+                        <td>{{ cuenta.estado_actual }}</td>
+                        <td>{{ cuenta.fecha_emision or '-' }}</td>
+                        <td>{{ cuenta.fecha_vencimiento or 'Sin definir' }}</td>
+                        <td>${{ '{:,.0f}'.format(cuenta.monto_original or 0) }}</td>
+                        <td><strong>${{ '{:,.0f}'.format(cuenta.saldo_pendiente or 0) }}</strong></td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="6" class="text-center text-muted">No hay cuentas por cobrar asociadas.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="card cliente-section">
+        <div class="card-header"><div><strong>Abonos registrados</strong><span>{{ historial.pagination.abonos.total_items }} movimiento{{ '' if historial.pagination.abonos.total_items == 1 else 's' }}</span></div></div>
+        <div class="card-body">
+            <table class="table table-compact">
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Origen</th>
+                        <th>Metodo</th>
+                        <th>Monto</th>
+                        <th>Referencia</th>
+                        <th>Usuario</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for abono in historial.abonos %}
+                    <tr>
+                        <td>{{ abono.created_at }}</td>
+                        <td>{{ abono.origen_tipo|capitalize }} #{{ abono.origen_id }}</td>
+                        <td>{{ abono.metodo_pago|capitalize }}</td>
+                        <td>${{ '{:,.0f}'.format(abono.monto or 0) }}</td>
+                        <td>{{ abono.referencia or abono.nota or '-' }}</td>
+                        <td>{{ abono.registrado_por_nombre_snapshot or '-' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="6" class="text-center text-muted">No hay abonos registrados.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="card cliente-section">
+        <div class="card-header"><div><strong>Ventas y pedidos</strong><span>{{ historial.pagination.ventas.total_items + historial.pagination.pedidos.total_items }} registro{{ '' if (historial.pagination.ventas.total_items + historial.pagination.pedidos.total_items) == 1 else 's' }} relacionado{{ '' if (historial.pagination.ventas.total_items + historial.pagination.pedidos.total_items) == 1 else 's' }}.</span></div></div>
+        <div class="card-body">
+            <table class="table table-compact">
+                <thead>
+                    <tr>
+                        <th>Tipo</th>
+                        <th>Referencia</th>
+                        <th>Fecha</th>
+                        <th>Estado</th>
+                        <th>Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for venta in historial.ventas %}
+                    <tr>
+                        <td>Venta</td>
+                        <td>#{{ venta.id }}</td>
+                        <td>{{ venta.fecha }} {{ venta.hora }}</td>
+                        <td>{{ venta.estado }}</td>
+                        <td>${{ '{:,.0f}'.format(venta.total or 0) }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% for pedido in historial.pedidos %}
+                    <tr>
+                        <td>Pedido</td>
+                        <td>#{{ pedido.id }}{% if pedido.mesa_numero %} · Mesa {{ pedido.mesa_numero }}{% endif %}</td>
+                        <td>{{ pedido.pagado_en or pedido.fecha }}</td>
+                        <td>{{ pedido.estado }}</td>
+                        <td>${{ '{:,.0f}'.format(pedido.total or 0) }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% if not historial.ventas and not historial.pedidos %}
+                    <tr><td colspan="5" class="text-center text-muted">No hay ventas ni pedidos asociados.</td></tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="card cliente-section">
+        <div class="card-header"><div><strong>Encargos y documentos</strong><span>{{ historial.pagination.encargos.total_items + historial.pagination.documentos.total_items }} registro{{ '' if (historial.pagination.encargos.total_items + historial.pagination.documentos.total_items) == 1 else 's' }} documental{{ '' if (historial.pagination.encargos.total_items + historial.pagination.documentos.total_items) == 1 else 's' }}.</span></div></div>
+        <div class="card-body">
+            <div style="display:grid;gap:18px;">
+                <div>
+                    <strong>Encargos</strong>
+                    <table class="table table-compact" style="margin-top:8px;">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Entrega</th>
+                                <th>Estado</th>
+                                <th>Total</th>
+                                <th>Saldo</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for encargo in historial.encargos %}
+                            <tr>
+                                <td>#{{ encargo.id }}</td>
+                                <td>{{ encargo.fecha_entrega }} {{ encargo.hora_entrega or '' }}</td>
+                                <td>{{ encargo.estado }}</td>
+                                <td>${{ '{:,.0f}'.format(encargo.total or 0) }}</td>
+                                <td>${{ '{:,.0f}'.format(encargo.saldo_pendiente or 0) }}</td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="5" class="text-center text-muted">No hay encargos asociados.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div>
+                    <strong>Documentos emitidos</strong>
+                    <table class="table table-compact" style="margin-top:8px;">
+                        <thead>
+                            <tr>
+                                <th>Consecutivo</th>
+                                <th>Origen</th>
+                                <th>Fecha</th>
+                                <th>Estado</th>
+                                <th>Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for documento in historial.documentos %}
+                            <tr>
+                                <td><a href="{{ url_for('ver_documento_print', documento_id=documento.id) }}" target="_blank" rel="noopener">{{ documento.consecutivo }}</a></td>
+                                <td>{{ documento.origen_tipo|capitalize }} #{{ documento.origen_id }}</td>
+                                <td>{{ documento.created_at }}</td>
+                                <td>{{ documento.estado }}</td>
+                                <td>${{ '{:,.0f}'.format(documento.total or 0) }}</td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="5" class="text-center text-muted">No hay documentos asociados.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    {% include "components/_pagination.html" %}
+</div>
+{% endblock %}

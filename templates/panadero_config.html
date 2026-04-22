@@ -348,6 +348,12 @@ body.config-picker-open { overflow: hidden; }
                                     <option value="true" selected>Panaderia: Si</option>
                                     <option value="false">Panaderia: No</option>
                                 </select>
+                                <select class="form-input form-input-sm" id="newProdSurtido" style="width: 150px;">
+                                    <option value="none" selected>Surtido: No</option>
+                                    <option value="sal">Surtido: Sal</option>
+                                    <option value="dulce">Surtido: Dulce</option>
+                                    <option value="ambos">Surtido: Ambos</option>
+                                </select>
                                 <input type="number" step="0.5" min="0" class="form-input form-input-sm" placeholder="Precio"
                                        id="newProdPrice" value="10.0" style="width: 100px;">
                                 <button class="btn btn-accent" onclick="addProduct()">Agregar</button>
@@ -360,7 +366,12 @@ body.config-picker-open { overflow: hidden; }
                     </div>
 
                     <div class="card config-products-list-card">
-                        <div class="card-header">Productos y precios</div>
+                        <div class="card-header" style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+                            <span>Productos y precios</span>
+                            <button class="btn btn-primary btn-sm" id="saveAllProductsBtn" onclick="saveAllProducts()">
+                                Guardar cambios
+                            </button>
+                        </div>
                         <div class="product-search-wrap">
                             <span class="material-symbols-outlined">search</span>
                             <input type="text" id="productSearchInput"
@@ -383,6 +394,7 @@ body.config-picker-open { overflow: hidden; }
                         <div class="card-body config-scroll-list" id="productList">
                             {% for p in productos %}
                             <div class="config-row"
+                                 data-product-id="{{ p.id }}"
                                  data-prod-name="{{ p.nombre|lower }}"
                                  data-prod-price="{{ p.precio }}"
                                  data-prod-cat="{{ p.categoria|lower }}"
@@ -402,9 +414,12 @@ body.config-picker-open { overflow: hidden; }
                                     <option value="true" {% if p.es_panaderia %}selected{% endif %}>Panaderia: Si</option>
                                     <option value="false" {% if not p.es_panaderia %}selected{% endif %}>Panaderia: No</option>
                                 </select>
-                                <button class="btn btn-sm btn-primary" onclick="saveProduct({{ p.id }})">
-                                    Guardar
-                                </button>
+                                <select class="form-input form-input-sm" id="prod-surtido-{{ p.id }}" style="width: 150px;">
+                                    <option value="none" {% if (p.surtido_tipo or 'none') == 'none' %}selected{% endif %}>Surtido: No</option>
+                                    <option value="sal" {% if p.surtido_tipo == 'sal' %}selected{% endif %}>Surtido: Sal</option>
+                                    <option value="dulce" {% if p.surtido_tipo == 'dulce' %}selected{% endif %}>Surtido: Dulce</option>
+                                    <option value="ambos" {% if p.surtido_tipo == 'ambos' %}selected{% endif %}>Surtido: Ambos</option>
+                                </select>
                                 <button class="btn btn-sm btn-danger-outline" onclick='deleteProduct({{ p.id }}, {{ p.nombre|tojson }})'>
                                     Eliminar
                                 </button>
@@ -786,42 +801,108 @@ function applyProductFilters(queryOverride) {
     if (empty) empty.style.display = (visible === 0 && (q || onlyBakery)) ? 'block' : 'none';
 }
 
-function saveProduct(productId) {
+function collectProductRow(productId) {
     const nombre = document.getElementById('prod-name-' + productId).value.trim();
     const precio = parseFloat(document.getElementById('prod-price-' + productId).value);
     const categoria = document.getElementById('prod-category-' + productId).value;
     const esPanaderia = document.getElementById('prod-bakery-' + productId).value === 'true';
+    const surtidoTipo = document.getElementById('prod-surtido-' + productId).value;
 
-    if (!nombre) { Toast.warning('Escribe el nombre del producto'); return; }
-    if (isNaN(precio) || precio < 0) { Toast.warning('Precio invalido'); return; }
-    if (!categoria) { Toast.warning('Selecciona una categoria'); return; }
+    if (!nombre) throw new Error('Escribe el nombre de todos los productos antes de guardar.');
+    if (isNaN(precio) || precio < 0) throw new Error(`Precio invalido para "${nombre}".`);
+    if (!categoria) throw new Error(`Selecciona la categoria de "${nombre}".`);
 
-    fetch('/api/producto/' + productId, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ nombre, precio, categoria, es_panaderia: esPanaderia }),
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.ok) { Toast.success('Producto guardado'); setTimeout(() => location.reload(), 600); }
-        else Toast.error(data.error || 'No se pudo guardar el producto');
-    })
-    .catch(err => {
-        Toast.error(err.message || 'No se pudo guardar el producto');
-    });
+    return {
+        productId,
+        nombre,
+        precio,
+        categoria,
+        esPanaderia,
+        surtidoTipo,
+    };
+}
+
+async function saveAllProducts() {
+    const rows = Array.from(document.querySelectorAll('#productList .config-row[data-prod-name]'));
+    const button = document.getElementById('saveAllProductsBtn');
+    if (!rows.length) {
+        Toast.warning('No hay productos para guardar.');
+        return;
+    }
+
+    let payload = [];
+    try {
+        payload = rows.map((row) => {
+            const productId = Number(row.dataset.productId || 0);
+            if (!productId) {
+                throw new Error('No se pudo identificar uno de los productos de la lista.');
+            }
+            return collectProductRow(productId);
+        });
+    } catch (error) {
+        Toast.warning(error.message || 'Revisa los datos antes de guardar.');
+        return;
+    }
+
+    button.disabled = true;
+    button.textContent = 'Guardando...';
+    const errores = [];
+    let guardados = 0;
+
+    for (const item of payload) {
+        try {
+            const response = await fetch('/api/producto/' + item.productId, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    nombre: item.nombre,
+                    precio: item.precio,
+                    categoria: item.categoria,
+                    es_panaderia: item.esPanaderia,
+                    surtido_tipo: item.surtidoTipo,
+                }),
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) {
+                errores.push(`${item.nombre}: ${data.error || 'No se pudo guardar'}`);
+                continue;
+            }
+            guardados += 1;
+        } catch (error) {
+            errores.push(`${item.nombre}: ${error.message || 'Error de conexion'}`);
+        }
+    }
+
+    button.disabled = false;
+    button.textContent = 'Guardar cambios';
+
+    if (!errores.length) {
+        Toast.success(`Se guardaron ${guardados} productos.`);
+        setTimeout(() => location.reload(), 700);
+        return;
+    }
+
+    if (guardados > 0) {
+        Toast.warning(`Se guardaron ${guardados} productos, pero ${errores.length} quedaron con error.`);
+        console.warn('Errores guardando productos:', errores);
+        return;
+    }
+
+    Toast.error(errores[0] || 'No se pudieron guardar los cambios.');
 }
 
 function addProduct() {
     const nombre = document.getElementById('newProdName').value.trim();
     const categoria = document.getElementById('newProdCategory').value;
     const esPanaderia = document.getElementById('newProdBakery').value === 'true';
+    const surtidoTipo = document.getElementById('newProdSurtido').value;
     const precio = parseFloat(document.getElementById('newProdPrice').value);
     if (!nombre) { Toast.warning('Escribe el nombre'); return; }
     if (isNaN(precio)) { Toast.warning('Precio invalido'); return; }
     fetch('/api/producto', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ nombre: nombre, precio: precio, categoria: categoria, es_panaderia: esPanaderia }),
+        body: JSON.stringify({ nombre: nombre, precio: precio, categoria: categoria, es_panaderia: esPanaderia, surtido_tipo: surtidoTipo }),
     })
     .then(r => r.json())
     .then(data => {

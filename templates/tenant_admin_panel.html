@@ -1,0 +1,568 @@
+{% extends "base.html" %}
+{% block title_extra %} - Panel de administracion{% endblock %}
+{% block content %}
+{% set usuarios_activos = usuarios | selectattr('activo') | list | length %}
+{% set jornadas_activas = usuarios | selectattr('jornada_activa') | list | length %}
+
+<div class="page-header">
+  <div class="page-header-info">
+    <h1 class="page-title">Panel de administracion</h1>
+    <p class="page-subtitle">Controla usuarios, sedes, terminales y estado operativo sin exponer PINs.</p>
+  </div>
+  <div class="page-header-actions">
+    <a class="btn btn-outline" href="/panadero/jornada">
+      <span class="material-symbols-outlined">schedule</span> Jornada
+    </a>
+    <button class="btn btn-primary" type="button" onclick="abrirModalUsuario()">
+      <span class="material-symbols-outlined">person_add</span> Nuevo usuario
+    </button>
+  </div>
+</div>
+
+<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:24px;">
+  <div class="kpi-card">
+    <div class="kpi-label">Usuarios activos</div>
+    <div class="kpi-value">{{ usuarios_activos }}</div>
+    <div class="kpi-sub">Registrados: {{ usuarios | length }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Jornadas activas</div>
+    <div class="kpi-value">{{ jornadas_activas }}</div>
+    <div class="kpi-sub">Solo cajeros y meseros.</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Terminales activas</div>
+    <div class="kpi-value">{{ terminales | selectattr('activa') | list | length }}</div>
+    <div class="kpi-sub">Registradas: {{ terminales | length }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Modo login operativo</div>
+    <div class="kpi-value">{{ 'Solo PIN' if sedes | length == 1 else 'Usuario + PIN' }}</div>
+    <div class="kpi-sub">{{ sedes | length }} sede(s) activas.</div>
+  </div>
+</div>
+
+<div class="tab-bar" style="margin-bottom:20px;">
+  <button class="tab-btn tab-active" type="button" onclick="cambiarTab('usuarios', this)">
+    <span class="material-symbols-outlined">group</span> Usuarios
+  </button>
+  <button class="tab-btn" type="button" onclick="cambiarTab('terminales', this)">
+    <span class="material-symbols-outlined">point_of_sale</span> Terminales
+  </button>
+  <button class="tab-btn" type="button" onclick="cambiarTab('sedes', this)">
+    <span class="material-symbols-outlined">store</span> Sedes
+  </button>
+</div>
+
+<section id="tab-usuarios" class="tab-content">
+  <div class="card">
+    <div class="card-header card-header-inline">
+      <span><span class="material-symbols-outlined">badge</span> Usuarios operativos y administrativos</span>
+      <button class="btn btn-sm btn-outline" type="button" onclick="recargarVista()">
+        <span class="material-symbols-outlined">refresh</span> Actualizar
+      </button>
+    </div>
+    <div class="card-body" style="padding:0;">
+      <div style="overflow-x:auto;">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Usuario</th>
+              <th>Rol</th>
+              <th>Sede</th>
+              <th>Estado</th>
+              <th>Jornada</th>
+              <th>Ultimo acceso</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for u in usuarios %}
+            <tr class="{{ '' if u.activo else 'row-muted' }}">
+              <td>
+                <strong>{{ u.nombre }}</strong>
+                <div class="table-muted">@{{ u.username or '-' }}</div>
+              </td>
+              <td>
+                <span class="badge
+                  {% if u.rol == 'tenant_admin' %}badge-warning
+                  {% elif u.rol == 'panadero' %}badge-info
+                  {% elif u.rol == 'cajero' %}badge-success
+                  {% else %}badge-secondary{% endif %}">
+                  {{ u.rol }}
+                </span>
+              </td>
+              <td>{{ u.sede_nombre or '-' }}</td>
+              <td>
+                {% if u.activo %}
+                  <span class="badge badge-success">Activo</span>
+                {% else %}
+                  <span class="badge badge-danger">Inactivo</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if u.rol in ('cajero', 'mesero') %}
+                  {% if u.jornada_activa %}
+                    <span class="badge badge-success">Abierta</span>
+                  {% else %}
+                    <span class="badge badge-secondary">Cerrada</span>
+                  {% endif %}
+                {% else %}
+                  <span class="table-muted">No aplica</span>
+                {% endif %}
+              </td>
+              <td>
+                <div>{{ u.ultimo_acceso_en[:16] if u.ultimo_acceso_en else '-' }}</div>
+                <div class="table-muted">{{ u.ultimo_acceso_terminal_nombre or 'Sin terminal' }}</div>
+              </td>
+              <td>
+                <div class="row-actions">
+                  <button class="btn btn-sm btn-secondary" type="button" onclick="editarUsuario({{ u.id }})">
+                    <span class="material-symbols-outlined">edit</span>
+                  </button>
+                  <button class="btn btn-sm btn-outline" type="button" onclick="abrirModalResetPin({{ u.id }})">
+                    <span class="material-symbols-outlined">password</span>
+                  </button>
+                  {% if u.rol in ('cajero', 'mesero') %}
+                  <button class="btn btn-sm btn-outline" type="button" onclick="toggleJornada({{ u.id }}, {{ 'true' if u.jornada_activa else 'false' }})">
+                    <span class="material-symbols-outlined">{{ 'lock' if u.jornada_activa else 'lock_open' }}</span>
+                  </button>
+                  {% endif %}
+                  <button class="btn btn-sm {{ 'btn-danger' if u.activo else 'btn-success' }}" type="button" onclick="toggleActivo({{ u.id }}, {{ 'true' if u.activo else 'false' }})">
+                    <span class="material-symbols-outlined">{{ 'person_off' if u.activo else 'person' }}</span>
+                  </button>
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="7" style="text-align:center;padding:32px;color:#9ca3af;">No hay usuarios registrados.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="tab-terminales" class="tab-content" style="display:none;">
+  <div class="card">
+    <div class="card-body" style="padding:0;">
+      <div style="overflow-x:auto;">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Codigo</th>
+              <th>Nombre</th>
+              <th>Tipo</th>
+              <th>Sede</th>
+              <th>Estado</th>
+              <th>Ultimo uso</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in terminales %}
+            <tr>
+              <td><code>{{ t.codigo }}</code></td>
+              <td>{{ t.nombre }}</td>
+              <td><span class="badge badge-secondary">{{ t.tipo }}</span></td>
+              <td>{{ t.sede_nombre or '-' }}</td>
+              <td>
+                {% if t.activa %}
+                  <span class="badge badge-success">Activa</span>
+                {% else %}
+                  <span class="badge badge-danger">Inactiva</span>
+                {% endif %}
+              </td>
+              <td>{{ t.last_seen_at[:16] if t.last_seen_at else '-' }}</td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="6" style="text-align:center;padding:32px;color:#9ca3af;">No hay terminales registradas.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="tab-sedes" class="tab-content" style="display:none;">
+  <div class="card">
+    <div class="card-body" style="padding:0;">
+      <div style="overflow-x:auto;">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Nombre</th>
+              <th>Codigo</th>
+              <th>Slug</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for s in sedes %}
+            <tr>
+              <td><strong>{{ s.nombre }}</strong></td>
+              <td><code>{{ s.codigo or '-' }}</code></td>
+              <td><code>{{ s.slug }}</code></td>
+              <td><span class="badge badge-success">Activa</span></td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="4" style="text-align:center;padding:32px;color:#9ca3af;">No hay sedes registradas.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div id="modalUsuario" class="modal-overlay" style="display:none;" onclick="cerrarModalSiOverlay(event, 'modalUsuario', cerrarModalUsuario)">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3 id="modalUsuarioTitulo" class="modal-title">Nuevo usuario</h3>
+      <button class="modal-close" type="button" onclick="cerrarModalUsuario()">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </div>
+    <div class="modal-body modal-stack">
+      <input type="hidden" id="modalUid" value="">
+      <div class="form-field">
+        <label class="form-label">Nombre visible</label>
+        <input type="text" id="modalNombre" class="form-input" placeholder="Ej: Juan Garcia">
+      </div>
+      <div class="form-field">
+        <label class="form-label">Username operativo</label>
+        <input type="text" id="modalUsername" class="form-input" placeholder="Ej: juan.garcia">
+      </div>
+      <div class="two-col-form">
+        <div class="form-field">
+          <label class="form-label">Rol</label>
+          <select id="modalRol" class="form-input">
+            <option value="cajero">Cajero</option>
+            <option value="mesero">Mesero</option>
+            <option value="panadero">Panadero</option>
+            <option value="tenant_admin">Administrador</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label class="form-label">Sede por defecto</label>
+          <select id="modalSede" class="form-input">
+            {% for s in sedes %}
+            <option value="{{ s.id }}">{{ s.nombre }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="form-field">
+        <label class="form-label">PIN operativo <span id="pinHint" class="table-muted">Obligatorio al crear. Opcional al editar.</span></label>
+        <input type="password" id="modalPin" class="form-input" placeholder="Nuevo PIN" maxlength="8" inputmode="numeric">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" type="button" onclick="cerrarModalUsuario()">Cancelar</button>
+      <button class="btn btn-primary" type="button" onclick="guardarUsuario()">
+        <span class="material-symbols-outlined">save</span> Guardar
+      </button>
+    </div>
+  </div>
+</div>
+
+<div id="modalResetPin" class="modal-overlay" style="display:none;" onclick="cerrarModalSiOverlay(event, 'modalResetPin', cerrarModalResetPin)">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3 class="modal-title">Resetear PIN</h3>
+      <button class="modal-close" type="button" onclick="cerrarModalResetPin()">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </div>
+    <div class="modal-body modal-stack">
+      <input type="hidden" id="resetPinUid" value="">
+      <p class="table-muted" id="resetPinDescripcion">Se invalidara la sesion actual del usuario.</p>
+      <div class="form-field">
+        <label class="form-label">Nuevo PIN (opcional)</label>
+        <input type="password" id="resetPinInput" class="form-input" maxlength="8" inputmode="numeric" placeholder="Dejalo vacio para generar uno temporal">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" type="button" onclick="cerrarModalResetPin()">Cancelar</button>
+      <button class="btn btn-warning" type="button" onclick="confirmarResetPin()">
+        <span class="material-symbols-outlined">lock_reset</span> Resetear PIN
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+const CSRF_TOKEN = {{ g.csrf_token|tojson }};
+const USUARIOS = {{ usuarios|tojson }};
+const USUARIOS_MAP = Object.fromEntries((USUARIOS || []).map((usuario) => [String(usuario.id), usuario]));
+
+function cambiarTab(id, btn) {
+  document.querySelectorAll('.tab-content').forEach((el) => { el.style.display = 'none'; });
+  document.querySelectorAll('.tab-btn').forEach((el) => { el.classList.remove('tab-active'); });
+  document.getElementById('tab-' + id).style.display = '';
+  btn.classList.add('tab-active');
+}
+
+function notifySuccess(message) {
+  if (window.Toast?.success) {
+    Toast.success(message);
+    return;
+  }
+  alert(message);
+}
+
+function notifyError(message) {
+  if (window.Toast?.error) {
+    Toast.error(message);
+    return;
+  }
+  alert(message);
+}
+
+async function apiJson(url, method = 'GET', body = null) {
+  const response = await fetch(url, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': CSRF_TOKEN,
+    },
+    body: body ? JSON.stringify(body) : null,
+  });
+  const data = await response.json();
+  if (!response.ok || !data.ok) {
+    throw new Error(data.error || 'No se pudo completar la accion.');
+  }
+  return data;
+}
+
+function cerrarModalSiOverlay(event, id, callback) {
+  if (event.target.id === id) callback();
+}
+
+function abrirModalUsuario() {
+  document.getElementById('modalUid').value = '';
+  document.getElementById('modalUsuarioTitulo').textContent = 'Nuevo usuario';
+  document.getElementById('modalNombre').value = '';
+  document.getElementById('modalUsername').value = '';
+  document.getElementById('modalRol').value = 'cajero';
+  document.getElementById('modalSede').value = document.getElementById('modalSede').options[0]?.value || '';
+  document.getElementById('modalPin').value = '';
+  document.getElementById('pinHint').textContent = 'Obligatorio al crear. Opcional al editar.';
+  document.getElementById('modalUsuario').style.display = 'flex';
+  setTimeout(() => document.getElementById('modalNombre').focus(), 60);
+}
+
+function editarUsuario(uid) {
+  const usuario = USUARIOS_MAP[String(uid)];
+  if (!usuario) return;
+  document.getElementById('modalUid').value = String(uid);
+  document.getElementById('modalUsuarioTitulo').textContent = 'Editar usuario';
+  document.getElementById('modalNombre').value = usuario.nombre || '';
+  document.getElementById('modalUsername').value = usuario.username || '';
+  document.getElementById('modalRol').value = usuario.rol || 'cajero';
+  document.getElementById('modalSede').value = usuario.sede_id || document.getElementById('modalSede').options[0]?.value || '';
+  document.getElementById('modalPin').value = '';
+  document.getElementById('pinHint').textContent = 'Dejalo vacio para conservar el PIN actual.';
+  document.getElementById('modalUsuario').style.display = 'flex';
+  setTimeout(() => document.getElementById('modalNombre').focus(), 60);
+}
+
+function cerrarModalUsuario() {
+  document.getElementById('modalUsuario').style.display = 'none';
+}
+
+async function guardarUsuario() {
+  const uid = document.getElementById('modalUid').value.trim();
+  const nombre = document.getElementById('modalNombre').value.trim();
+  const username = document.getElementById('modalUsername').value.trim();
+  const rol = document.getElementById('modalRol').value;
+  const sedeId = Number(document.getElementById('modalSede').value || 0);
+  const pin = document.getElementById('modalPin').value.trim();
+
+  if (!nombre) {
+    notifyError('El nombre es obligatorio.');
+    return;
+  }
+  if (!username) {
+    notifyError('El username es obligatorio.');
+    return;
+  }
+  if (!uid && pin.length < 4) {
+    notifyError('El PIN es obligatorio al crear y debe tener al menos 4 digitos.');
+    return;
+  }
+  if (pin && pin.length < 4) {
+    notifyError('El PIN debe tener al menos 4 digitos.');
+    return;
+  }
+
+  const esNuevo = !uid;
+  const url = esNuevo ? '/api/usuario' : `/api/usuario/${uid}`;
+  const method = esNuevo ? 'POST' : 'PUT';
+  const body = { nombre, username, rol, sede_id: sedeId };
+  if (pin) body.pin = pin;
+
+  try {
+    const data = await apiJson(url, method, body);
+    cerrarModalUsuario();
+    notifySuccess(esNuevo ? `Usuario creado: @${data.username || username}` : 'Usuario actualizado.');
+    recargarVista();
+  } catch (error) {
+    notifyError(error.message);
+  }
+}
+
+function abrirModalResetPin(uid) {
+  const usuario = USUARIOS_MAP[String(uid)];
+  if (!usuario) return;
+  document.getElementById('resetPinUid').value = String(uid);
+  document.getElementById('resetPinInput').value = '';
+  document.getElementById('resetPinDescripcion').textContent = `Se reseteara el PIN de ${usuario.nombre}. Su sesion operativa se cerrara en la siguiente request.`;
+  document.getElementById('modalResetPin').style.display = 'flex';
+  setTimeout(() => document.getElementById('resetPinInput').focus(), 60);
+}
+
+function cerrarModalResetPin() {
+  document.getElementById('modalResetPin').style.display = 'none';
+}
+
+async function confirmarResetPin() {
+  const uid = document.getElementById('resetPinUid').value.trim();
+  const pin = document.getElementById('resetPinInput').value.trim();
+  if (pin && pin.length < 4) {
+    notifyError('El PIN debe tener al menos 4 digitos.');
+    return;
+  }
+  try {
+    const data = await apiJson(`/api/usuario/${uid}/reset-pin`, 'POST', { pin });
+    cerrarModalResetPin();
+    if (data.generado && data.pin_temporal) {
+      notifySuccess(`PIN temporal generado: ${data.pin_temporal}`);
+    } else {
+      notifySuccess('PIN reseteado correctamente.');
+    }
+    recargarVista();
+  } catch (error) {
+    notifyError(error.message);
+  }
+}
+
+async function toggleActivo(uid, estaActivo) {
+  const nuevoEstado = !estaActivo;
+  const accion = nuevoEstado ? 'activar' : 'desactivar';
+  const aviso = nuevoEstado ? '' : ' Sus sesiones se invalidaran inmediatamente.';
+  if (!confirm(`Deseas ${accion} este usuario?${aviso}`)) return;
+  try {
+    await apiJson(`/api/usuario/${uid}/toggle-activo`, 'POST', { activo: nuevoEstado });
+    notifySuccess(`Usuario ${nuevoEstado ? 'activado' : 'desactivado'}.`);
+    recargarVista();
+  } catch (error) {
+    notifyError(error.message);
+  }
+}
+
+async function toggleJornada(uid, estaActiva) {
+  const accion = estaActiva ? 'desactivar' : 'activar';
+  try {
+    await apiJson(`/api/jornada/usuario/${uid}/${accion}`, 'POST');
+    notifySuccess(`Jornada ${estaActiva ? 'cerrada' : 'abierta'} para el usuario.`);
+    recargarVista();
+  } catch (error) {
+    notifyError(error.message);
+  }
+}
+
+function recargarVista() {
+  window.location.reload();
+}
+</script>
+
+<style>
+.row-muted { opacity: .55; }
+.table-muted { color: #6b7280; font-size: .82rem; }
+.tab-bar { display: flex; gap: 8px; border-bottom: 2px solid #e5e7eb; }
+.tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: .92rem;
+  font-weight: 600;
+  color: #6b7280;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+}
+.tab-btn .material-symbols-outlined { font-size: 18px; }
+.tab-active { color: var(--color-primary, #8b5513) !important; border-bottom-color: var(--color-primary, #8b5513) !important; }
+.card-header-inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.row-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.row-actions .btn .material-symbols-outlined { font-size: 16px; }
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal-card {
+  background: #fff;
+  border-radius: 16px;
+  width: min(92vw, 520px);
+  box-shadow: 0 20px 60px rgba(0,0,0,.2);
+  overflow: hidden;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px 14px;
+  border-bottom: 1px solid #f3f4f6;
+}
+.modal-title { margin: 0; font-size: 1.1rem; font-weight: 700; }
+.modal-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #9ca3af;
+  padding: 4px;
+  display: flex;
+}
+.modal-body { padding: 20px 24px; }
+.modal-footer {
+  padding: 0 24px 20px;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+.modal-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+@media (max-width: 900px) {
+  .page-header-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .row-actions { min-width: 180px; }
+}
+</style>
+{% endblock %}

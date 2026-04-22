@@ -1,0 +1,5 @@
+<article class="metric-card">
+    {% if label %}<div class="metric-label">{{ label }}</div>{% endif %}
+    {% if value is not none %}<div class="metric-value">{{ value }}</div>{% endif %}
+    {% if meta %}<div class="metric-meta">{{ meta }}</div>{% endif %}
+</article>

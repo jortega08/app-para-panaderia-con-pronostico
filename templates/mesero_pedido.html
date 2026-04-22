@@ -283,6 +283,7 @@
             </div>
             <div class="cart-actions">
                 <a href="{{ pedido_return_url }}" class="btn btn-outline">{{ pedido_return_label or 'Salir del pedido' }}</a>
+                <button class="btn btn-outline" type="button" onclick="abrirModalSurtido()">Elegir surtido</button>
                 <button class="btn btn-success btn-lg" id="submitPedidoBtn" onclick="enviarPedido()">
                     {{ pedido_submit_label or ('Guardar cambios' if pedido_editable else 'Enviar pedido') }}
                 </button>
@@ -312,6 +313,13 @@
                 <p class="text-muted" style="margin-bottom: 10px;">Los adicionales son opcionales. Ajusta solo los que necesites para este producto.</p>
                 <div class="mod-options" id="modAdicionales"></div>
             </div>
+            <div class="mod-section" id="modApplyScopeWrap" style="display:none;">
+                <h4>Aplicar a</h4>
+                <select id="modApplyScope" class="form-input">
+                    <option value="one">Solo una unidad de esta linea</option>
+                    <option value="all">Toda la linea actual</option>
+                </select>
+            </div>
             <div class="mod-section">
                 <h4>Exclusiones</h4>
                 <input type="text" id="modExclusion" class="form-input" placeholder="Ej: sin salchicha, sin cebolla...">
@@ -326,11 +334,39 @@
     </div>
 </div>
 
+<div class="modal-overlay" id="surtidoModal" style="display:none;" onclick="if (event.target === this) cerrarModalSurtido()">
+    <div class="modal-card" style="max-width:520px;">
+        <div class="modal-header">
+            <div>
+                <h3>Elegir surtido</h3>
+                <p class="text-muted" style="margin:6px 0 0;">Calcula una mezcla editable de panes segun el valor objetivo.</p>
+            </div>
+            <button class="modal-close" onclick="cerrarModalSurtido()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <label class="form-label" for="surtidoValorInput">Valor objetivo</label>
+            <div style="display:flex; gap:10px; align-items:center; margin-bottom:14px;">
+                <input id="surtidoValorInput" type="number" min="500" step="100" class="form-input" placeholder="Ej: 5000" style="flex:1;">
+                <button type="button" class="btn btn-accent" id="surtidoSugerirBtn" onclick="solicitarSurtido()">Sugerir</button>
+            </div>
+            <div id="surtidoResumen" class="text-muted" style="font-size:13px; margin-bottom:10px;">
+                Te mostramos el valor objetivo, el valor propuesto y la diferencia antes de agregarlo al pedido.
+            </div>
+            <div id="surtidoPreview" class="cart-item-mods" style="display:grid; gap:8px;"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="cerrarModalSurtido()">Cancelar</button>
+            <button class="btn btn-success" id="surtidoAplicarBtn" onclick="aplicarSurtidoPropuesto()" disabled>Agregar al pedido</button>
+        </div>
+    </div>
+</div>
+
 <script>
 let cart = [];
 let currentModItem = null;
 let tempExclusiones = [];
 let selectedCategory = 'todos';
+let surtidoPropuesto = null;
 const MESA_ID = {{ mesa.id }};
 const ADICIONALES = {{ adicionales | tojson }};
 const ADICIONALES_DISPONIBLES = ADICIONALES || [];
@@ -341,34 +377,125 @@ const UPDATE_REASON_MIN = 10;
 const PRODUCT_META = {{ productos|tojson }};
 const PRODUCT_META_BY_NAME = Object.fromEntries((PRODUCT_META || []).map(p => [String(p.nombre || ''), p]));
 const PRODUCT_META_BY_ID = Object.fromEntries((PRODUCT_META || []).map(p => [String(p.id || ''), p]));
+const PRODUCT_META_BY_NAME_NORMALIZED = Object.fromEntries((PRODUCT_META || []).map(p => [String((p.nombre || '')).trim().toLowerCase(), p]));
 let pedidoEditableId = PEDIDO_EDITABLE ? Number(PEDIDO_EDITABLE.id) : null;
 let mobileOrderPanelOpen = false;
+
+function abrirComanda(comandaId, mode = 'imprimir', auto = true) {
+    if (!comandaId) return;
+    const query = new URLSearchParams();
+    query.set('mode', mode);
+    if (auto) query.set('auto', '1');
+    window.open(`/comanda/${comandaId}/print?${query.toString()}`, '_blank', 'noopener');
+}
 
 // Stock disponible por producto (se carga al inicio y se actualiza)
 let stockDisponible = {};
 
+function canonicalLineText(value) {
+    return String(value || '').trim().toLowerCase();
+}
+
+function cloneMods(mods) {
+    return (mods || []).map((mod) => ({
+        tipo: mod.tipo,
+        descripcion: String(mod.descripcion || '').trim(),
+        cantidad: Number(mod.cantidad || 1),
+        precio_extra: Number(mod.precio_extra || 0),
+    }));
+}
+
+function normalizeModsForKey(mods) {
+    return cloneMods(mods)
+        .map((mod) => ({
+            tipo: canonicalLineText(mod.tipo),
+            descripcion: canonicalLineText(mod.descripcion),
+            cantidad: Number(mod.cantidad || 1),
+            precio_extra: Number(mod.precio_extra || 0).toFixed(2),
+        }))
+        .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+}
+
+function buildCartLineKey(item) {
+    return JSON.stringify({
+        productId: Number(item.productId || 0),
+        nombre: canonicalLineText(item.nombre),
+        precio: Number(item.precio || 0).toFixed(2),
+        notas: canonicalLineText(item.notas),
+        modificaciones: normalizeModsForKey(item.modificaciones),
+    });
+}
+
+function nextCartItemId() {
+    return Date.now() + Math.random();
+}
+
+function buildCartItem(data) {
+    return {
+        id: data.id ?? nextCartItemId(),
+        productId: data.productId || null,
+        nombre: data.nombre,
+        precio: Number(data.precio || 0),
+        icono: data.icono || 'restaurant',
+        cantidad: Math.max(1, Number(data.cantidad || 1)),
+        stockMinimo: Number(data.stockMinimo || 0),
+        modificaciones: cloneMods(data.modificaciones),
+        notas: String(data.notas || '').trim(),
+    };
+}
+
+function compactCartItems(items) {
+    const agrupados = [];
+    (items || []).forEach((rawItem) => {
+        const item = buildCartItem(rawItem);
+        const existente = agrupados.find((entry) => buildCartLineKey(entry) === buildCartLineKey(item));
+        if (existente) {
+            existente.cantidad += Number(item.cantidad || 0);
+        } else {
+            agrupados.push(item);
+        }
+    });
+    return agrupados.filter((item) => Number(item.cantidad || 0) > 0);
+}
+
+function upsertCartItem(item, excludeId = null) {
+    const linea = buildCartItem(item);
+    const existente = cart.find((entry) => entry.id !== excludeId && buildCartLineKey(entry) === buildCartLineKey(linea));
+    if (existente) {
+        existente.cantidad += Number(linea.cantidad || 0);
+        return existente;
+    }
+    cart.push(linea);
+    return linea;
+}
+
+function applyLinePatch(item, patch, scope = 'all') {
+    if (!item) return null;
+    if (scope === 'one' && Number(item.cantidad || 0) > 1) {
+        item.cantidad -= 1;
+        upsertCartItem({...item, ...patch, id: nextCartItemId(), cantidad: 1}, item.id);
+    } else {
+        Object.assign(item, patch);
+    }
+    cart = compactCartItems(cart);
+    return cart;
+}
+
 function inicializarPedidoEditable() {
     if (!PEDIDO_EDITABLE || !Array.isArray(PEDIDO_EDITABLE.items)) return;
-    cart = PEDIDO_EDITABLE.items.map((item, idx) => {
-        const meta = PRODUCT_META_BY_ID[String(item.product_id || '')] || PRODUCT_META_BY_NAME[String(item.producto || '')] || {};
-        return {
+    cart = compactCartItems(PEDIDO_EDITABLE.items.map((item, idx) => {
+        const meta = PRODUCT_META_BY_ID[String(item.producto_id || item.product_id || '')] || PRODUCT_META_BY_NAME[String(item.producto || '')] || {};
+        return buildCartItem({
             id: Number(item.id || 0) || (Date.now() + idx),
-            productId: meta.id || null,
+            productId: meta.id || item.producto_id || item.product_id || null,
             nombre: item.producto,
             precio: Number(item.precio_unitario || meta.precio || 0),
             icono: meta.icono || 'restaurant',
             cantidad: Number(item.cantidad || 1),
             stockMinimo: Number(meta.stock_minimo || 0),
-            modificaciones: Array.isArray(item.modificaciones)
-                ? item.modificaciones.map(mod => ({
-                    tipo: mod.tipo,
-                    descripcion: mod.descripcion,
-                    cantidad: Number(mod.cantidad || 1),
-                    precio_extra: Number(mod.precio_extra || 0),
-                }))
-                : [],
-        };
-    });
+            modificaciones: item.modificaciones,
+        });
+    }));
     document.getElementById('notasPedido').value = PEDIDO_EDITABLE.notas || '';
 }
 
@@ -515,15 +642,143 @@ function getStockRestante(nombre, excluirItemId = null) {
     return stockDisponible[nombre] - enCarrito;
 }
 
+function buildCurrentCartPayload() {
+    return cart.map((item) => ({
+        producto_id: item.productId,
+        producto: item.nombre,
+        cantidad: Number(item.cantidad || 0),
+    }));
+}
+
+function abrirModalSurtido() {
+    surtidoPropuesto = null;
+    document.getElementById('surtidoValorInput').value = '';
+    document.getElementById('surtidoResumen').textContent = 'Te mostramos el valor objetivo, el valor propuesto y la diferencia antes de agregarlo al pedido.';
+    document.getElementById('surtidoPreview').innerHTML = '';
+    document.getElementById('surtidoAplicarBtn').disabled = true;
+    document.getElementById('surtidoModal').style.display = 'flex';
+}
+
+function cerrarModalSurtido() {
+    document.getElementById('surtidoModal').style.display = 'none';
+}
+
+function renderSurtidoPreview(resultado) {
+    const preview = document.getElementById('surtidoPreview');
+    const resumen = document.getElementById('surtidoResumen');
+    const aplicarBtn = document.getElementById('surtidoAplicarBtn');
+    if (!preview || !resumen || !aplicarBtn) return;
+
+    if (!resultado || !resultado.ok) {
+        surtidoPropuesto = null;
+        preview.innerHTML = '';
+        resumen.textContent = resultado?.error || 'No fue posible generar una propuesta.';
+        aplicarBtn.disabled = true;
+        return;
+    }
+
+    surtidoPropuesto = resultado;
+    const objetivo = Number(resultado.objetivo || 0);
+    const propuesto = Number(resultado.propuesto || 0);
+    const diferencia = Number(resultado.diferencia || 0);
+    const diferenciaLabel = diferencia === 0
+        ? 'Exacto'
+        : (diferencia > 0 ? `Faltan ${money(diferencia)}` : `Excede ${money(Math.abs(diferencia))}`);
+    resumen.innerHTML = `
+        <strong>Objetivo:</strong> ${money(objetivo)} ·
+        <strong>Propuesto:</strong> ${money(propuesto)} ·
+        <strong>Diferencia:</strong> ${diferenciaLabel} ·
+        <strong>Unidades:</strong> ${resultado.total_unidades || 0}
+    `;
+    preview.innerHTML = (resultado.items || []).map((item) => {
+        const producto = PRODUCT_META_BY_ID[String(item.producto_id || '')] || PRODUCT_META_BY_NAME_NORMALIZED[String(item.producto || '').trim().toLowerCase()] || {};
+        const categoriaBadge = item.categoria_surtido === 'dulce' ? 'Dulce' : item.categoria_surtido === 'sal' ? 'Sal' : 'Mixto';
+        return `
+            <div class="mod-option" style="justify-content:space-between; gap:14px;">
+                <div style="display:grid; gap:2px;">
+                    <strong>${escapeHtml(item.producto)}</strong>
+                    <span class="text-muted" style="font-size:12px;">${item.cantidad} unidad(es) · ${escapeHtml(categoriaBadge)} · stock ${item.disponible}</span>
+                </div>
+                <div style="text-align:right;">
+                    <strong>${money((Number(item.precio_unitario || 0) * Number(item.cantidad || 0)))}</strong>
+                    <div class="text-muted" style="font-size:12px;">${escapeHtml(producto.categoria || item.categoria || '')}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+    aplicarBtn.disabled = !(resultado.items || []).length;
+}
+
+async function solicitarSurtido() {
+    const input = document.getElementById('surtidoValorInput');
+    const btn = document.getElementById('surtidoSugerirBtn');
+    const valorObjetivo = Number(input?.value || 0);
+    if (!valorObjetivo || valorObjetivo <= 0) {
+        Toast.warning('Ingresa un valor objetivo valido.');
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Buscando...';
+    try {
+        const res = await fetch('/api/surtido/sugerir', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                valor_objetivo: valorObjetivo,
+                pedido_id: pedidoEditableId,
+                items_actuales: buildCurrentCartPayload(),
+            }),
+        });
+        const data = await res.json();
+        renderSurtidoPreview(data);
+        if (!res.ok || !data.ok) {
+            Toast.warning(data.error || 'No se pudo generar el surtido.');
+            return;
+        }
+        Toast.success('Surtido sugerido. Puedes revisarlo antes de agregarlo.');
+    } catch (error) {
+        renderSurtidoPreview({ok: false, error: error.message || 'No se pudo generar el surtido.'});
+        Toast.error(error.message || 'No se pudo generar el surtido.');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Sugerir';
+    }
+}
+
+function aplicarSurtidoPropuesto() {
+    if (!surtidoPropuesto || !Array.isArray(surtidoPropuesto.items) || !surtidoPropuesto.items.length) {
+        Toast.warning('Primero genera una propuesta de surtido.');
+        return;
+    }
+
+    surtidoPropuesto.items.forEach((item) => {
+        const producto = PRODUCT_META_BY_ID[String(item.producto_id || '')] || PRODUCT_META_BY_NAME_NORMALIZED[String(item.producto || '').trim().toLowerCase()];
+        if (!producto) return;
+        upsertCartItem({
+            productId: producto.id,
+            nombre: producto.nombre,
+            precio: Number(producto.precio || item.precio_unitario || 0),
+            icono: producto.icono || 'bakery_dining',
+            cantidad: Number(item.cantidad || 1),
+            stockMinimo: Number(producto.stock_minimo || producto.stockMinimo || 0),
+            modificaciones: [],
+        });
+    });
+    cart = compactCartItems(cart);
+    cerrarModalSurtido();
+    renderCart();
+    actualizarBadgesStock();
+    Toast.success('Surtido agregado. Puedes quitar lineas o ajustar cantidades antes de enviar.');
+}
+
 function addToCart(nombre, precio, icono, productId, stockMinimo) {
     const restante = getStockRestante(nombre);
     if (restante <= 0) {
         Toast.warning(`${nombre} no tiene stock disponible en este momento.`);
         return;
     }
-    const id = Date.now() + Math.random();
-    cart.push({
-        id,
+    upsertCartItem({
         productId,
         nombre,
         precio,
@@ -532,6 +787,7 @@ function addToCart(nombre, precio, icono, productId, stockMinimo) {
         stockMinimo: Number(stockMinimo || 0),
         modificaciones: [],
     });
+    cart = compactCartItems(cart);
     renderCart();
     actualizarBadgesStock();
 }
@@ -557,6 +813,7 @@ function updateQty(itemId, qty) {
         }
         item.cantidad = qty;
     }
+    cart = compactCartItems(cart);
     renderCart();
     actualizarBadgesStock();
 }
@@ -628,6 +885,9 @@ function renderCart() {
                 <span class="cart-empty-icon">Pedido</span>
                 <p>El pedido esta vacio</p>
                 <p class="text-muted">Toca un producto para agregarlo</p>
+                <div class="cart-empty-actions" style="margin-top:12px;">
+                    <button type="button" class="btn btn-outline btn-sm" onclick="abrirModalSurtido()">Elegir surtido</button>
+                </div>
             </div>`;
         countEl.textContent = '0 items';
         totalEl.textContent = money(0);
@@ -704,6 +964,8 @@ function abrirModal(itemId) {
         .map(m => m.descripcion);
 
     document.getElementById('modModalTitle').textContent = 'Personalizar: ' + item.nombre;
+    document.getElementById('modApplyScope').value = Number(item.cantidad || 0) > 1 ? 'one' : 'all';
+    document.getElementById('modApplyScopeWrap').style.display = Number(item.cantidad || 0) > 1 ? '' : 'none';
     renderAdicionalesModal(item);
 
     document.getElementById('modExclusion').value = '';
@@ -788,6 +1050,7 @@ function cambiarCantidadAdicional(adicionalId, delta) {
 function guardarMods() {
     const item = cart.find(i => i.id === currentModItem);
     if (!item) return;
+    const scope = document.getElementById('modApplyScope').value || 'all';
 
     const mods = [];
 
@@ -813,9 +1076,10 @@ function guardarMods() {
         });
     });
 
-    item.modificaciones = mods;
+    applyLinePatch(item, {modificaciones: mods}, scope);
     cerrarModal();
     renderCart();
+    actualizarBadgesStock();
 }
 
 async function enviarPedido() {
@@ -884,10 +1148,14 @@ async function enviarPedido() {
         const data = await res.json();
         if (data.ok) {
             closeMobileOrderPanel();
+            if (data.comanda_id) {
+                abrirComanda(data.comanda_id, 'imprimir', true);
+            }
             if (data.accion === 'agregado') {
-                Toast.success('Productos agregados al pedido existente de esta mesa.');
+                Toast.success('Pedido actualizado y comanda lista para cocina.');
                 setTimeout(() => { window.location.href = PEDIDO_RETURN_URL; }, 900);
             } else {
+                Toast.success('Pedido enviado a cocina.');
                 window.location.href = PEDIDO_RETURN_URL;
             }
             return;

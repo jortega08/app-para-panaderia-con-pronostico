@@ -1,15 +1,18 @@
 import csv
+import base64
 import io
+import json
 import os
 import re
 import secrets
+import smtplib
 import socket
 import time
 import unicodedata
 import zipfile
 from collections import defaultdict
 from datetime import datetime, timedelta
-from functools import wraps
+from email.message import EmailMessage
 from io import BytesIO
 from xml.etree import ElementTree as ET
 
@@ -23,8 +26,9 @@ except ImportError:
 
 from flask import (
     Flask, render_template, request, redirect,
-    url_for, session, jsonify, flash, Response,
+    url_for, session, jsonify, flash, Response, g, abort,
 )
+from werkzeug.middleware.proxy_fix import ProxyFix
 from data.db_adapter import get_database_info
 
 from data.database import (
@@ -55,6 +59,7 @@ from data.database import (
     obtener_productos_panaderia,
     obtener_productos_con_precio,
     obtener_producto_por_id,
+    generar_surtido_por_valor,
     obtener_categorias_producto,
     obtener_categoria_producto_nombre,
     agregar_producto,
@@ -67,10 +72,21 @@ from data.database import (
     guardar_catalogo_insumos,
     actualizar_precio,
     verificar_pin,
+    verificar_password,
+    cambiar_password_usuario,
+    set_query_context,
     obtener_usuarios,
     agregar_usuario,
     actualizar_usuario,
+    resetear_pin_usuario,
     eliminar_usuario,
+    set_usuario_activo,
+    obtener_panaderia_principal,
+    obtener_sede_principal,
+    obtener_branding_panaderia,
+    obtener_estado_login_attempts,
+    limpiar_login_attempts,
+    registrar_login_attempts_fallido,
     registrar_venta,
     registrar_venta_lote,
     obtener_ventas_dia,
@@ -98,13 +114,38 @@ from data.database import (
     obtener_codigo_verificacion_caja,
     guardar_codigo_verificacion_caja,
     obtener_mesas,
+    obtener_mesa,
     agregar_mesa,
+    actualizar_mesa,
+    activar_mesa,
+    desactivar_mesa,
     eliminar_mesa,
     crear_pedido,
     actualizar_pedido,
     obtener_pedidos,
     obtener_pedidos_con_detalle,
+    obtener_pedidos_con_detalle_paginados,
     obtener_pedido,
+    crear_comanda_desde_pedido,
+    obtener_comanda,
+    obtener_comandas_por_pedido,
+    obtener_items_comanda,
+    marcar_comanda_impresa,
+    marcar_comanda_reimpresa,
+    build_documento_payload_desde_encargo,
+    build_documento_payload_desde_pedido,
+    build_documento_payload_desde_venta,
+    crear_documento_emitido,
+    generar_consecutivo_documento,
+    marcar_documento_impreso,
+    marcar_documento_reimpreso,
+    obtener_documento_emitido,
+    obtener_documentos_por_origen,
+    obtener_documentos_recientes,
+    obtener_documentos_recientes_paginados,
+    obtener_envios_documento,
+    obtener_trazabilidad_pedido,
+    obtener_pedido_activo_mesa,
     obtener_pedido_activo_mesa_mesero,
     cambiar_estado_pedido,
     dividir_pedido_y_cobrar,
@@ -137,6 +178,37 @@ from data.database import (
     obtener_estadisticas_pedidos,
     _consumo_producto,
     es_categoria_panaderia,
+    crear_cliente,
+    obtener_clientes,
+    obtener_cliente,
+    actualizar_cliente,
+    obtener_historial_cliente,
+    crear_encargo_v2,
+    actualizar_encargo,
+    actualizar_estado_encargo_v2,
+    registrar_pago_encargo,
+    obtener_pagos_encargo,
+    obtener_encargos_v2,
+    obtener_encargo_v2,
+    obtener_cuenta_por_cobrar,
+    obtener_cuentas_por_cobrar,
+    obtener_cuentas_por_cobrar_paginadas,
+    obtener_resumen_cartera,
+    registrar_abono_cuenta,
+    crear_venta_header,
+    actualizar_items_venta,
+    actualizar_comprador_venta,
+    actualizar_cliente_venta,
+    actualizar_cliente_pedido,
+    registrar_pago_venta,
+    cerrar_venta,
+    suspender_venta,
+    reanudar_venta,
+    anular_venta,
+    obtener_ventas_suspendidas,
+    obtener_venta_header,
+    registrar_envio_documento,
+    obtener_session_version_usuario,
 )
 from backup import (
     crear_backup,
@@ -152,12 +224,60 @@ from logic.pronostico import (
     analizar_tendencia,
     obtener_historial_pronostico,
     obtener_resumen_pronostico_por_dia_semana,
+    calcular_backtesting,
+    obtener_encargos_confirmados_para_fecha,
+    generar_lectura_operativa,
     TIPO_DIA,
+)
+from app.context import SedeContext, SubscriptionContext, TenantContext, TerminalContext
+from app.tenant_service import TenantService, TenantSuspendedError, SubscriptionExpiredError
+from app.logging_utils import configure_app_logging, generate_request_id
+from app.responses import json_error, wants_json_response
+from app.security import CSRF_SESSION_KEY, PLATFORM_ADMIN_ROLE, VALID_ROLES
+from app.web.auth import auth_bp
+from app.web.decorators import (
+    admin_required,
+    login_required,
+    roles_required,
+    sede_scope_required,
+    tenant_scope_required,
+)
+from app.web.utils import (
+    COLORES_PROD,
+    ICONOS_CATEGORIA,
+    MENUS_PREFERIDOS,
+    _MAX_ATTEMPTS,
+    _LOCKOUT_MINUTES,
+    _build_brand_context,
+    _client_ip,
+    _crear_notificacion,
+    _csrf_invalid_response,
+    _current_csrf_token,
+    _iso_datetime,
+    _nombre_usuario_actual,
+    _normalizar_texto,
+    _obtener_adicionales_operativos,
+    _parse_fecha_iso,
+    _panaderia_actual_id,
+    _pedido_visible_para_usuario,
+    _registrar_sesion,
+    _resolver_filtro_historial,
+    _rol_es_admin,
+    _rol_usuario_actual,
+    _sede_actual_id,
+    _usuario_actual,
+    _usuario_actual_id,
+    _usuario_puede_registrar_produccion,
+    color_prod,
+    icono,
+    icono_categoria,
 )
 
 app = Flask(__name__)
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 app.jinja_env.auto_reload = True
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+configure_app_logging(app)
 
 # ── Seguridad: secret key desde variable de entorno ──────────────────────────
 _secret_key = os.environ.get("FLASK_SECRET_KEY", "").strip()
@@ -178,11 +298,85 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return bool(default)
+    return str(value).strip().lower() in {"1", "true", "yes", "on", "si", "sí"}
+
+
+_session_cookie_secure = _env_bool(
+    "SESSION_COOKIE_SECURE",
+    default=(
+        _env_bool("FORCE_HTTPS")
+        or _env_bool("COOKIE_SECURE")
+        or str(os.environ.get("PREFERRED_URL_SCHEME", "") or "").strip().lower() == "https"
+        or bool(os.environ.get("RAILWAY_ENVIRONMENT"))
+    ),
+)
+app.config['SESSION_COOKIE_SECURE'] = _session_cookie_secure
+app.logger.info(
+    "SESSION_COOKIE_SECURE configurado en %s (override=%s, preferred_scheme=%s, railway=%s)",
+    app.config["SESSION_COOKIE_SECURE"],
+    os.environ.get("SESSION_COOKIE_SECURE"),
+    os.environ.get("PREFERRED_URL_SCHEME"),
+    bool(os.environ.get("RAILWAY_ENVIRONMENT")),
+)
+
+
 def _safe_display_number(value):
     try:
         return float(value or 0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _parse_pagination_args(default_size: int = 50, max_size: int = 100) -> dict:
+    try:
+        page = int(request.args.get("page", 1) or 1)
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        size = int(request.args.get("size", default_size) or default_size)
+    except (TypeError, ValueError):
+        size = default_size
+    return {
+        "page": max(page, 1),
+        "size": max(1, min(size, max_size)),
+    }
+
+
+def _build_pagination_links(endpoint: str, pagination: dict, **params) -> dict:
+    page = int((pagination or {}).get("page", 1) or 1)
+    size = int((pagination or {}).get("size", 50) or 50)
+    prev_page = pagination.get("prev_page") if pagination else None
+    next_page = pagination.get("next_page") if pagination else None
+    return {
+        "prev": url_for(endpoint, **params, page=prev_page, size=size) if prev_page else None,
+        "next": url_for(endpoint, **params, page=next_page, size=size) if next_page else None,
+        "current": url_for(endpoint, **params, page=page, size=size),
+    }
+
+
+def _log_event(evento: str, level: str = "info", **fields) -> None:
+    payload = " ".join(
+        f"{key}={json.dumps(value, ensure_ascii=True)}"
+        for key, value in fields.items()
+        if value not in (None, "", [], {})
+    )
+    getattr(app.logger, level, app.logger.info)(f"{evento} {payload}".strip())
+
+
+def _log_exception(evento: str, exc: Exception, **fields) -> None:
+    payload = " ".join(
+        f"{key}={json.dumps(value, ensure_ascii=True)}"
+        for key, value in fields.items()
+        if value not in (None, "", [], {})
+    )
+    app.logger.error(
+        f"{evento} {payload}".strip(),
+        exc_info=(type(exc), exc, exc.__traceback__),
+    )
 
 
 def _format_display_number(value, decimals=0):
@@ -200,116 +394,54 @@ def display_integer_filter(value):
 def display_decimal1_filter(value):
     return _format_display_number(value, 1)
 
-# ── Rate limiting (en memoria, simple) ──────────────────────────────────────────
-_MAX_ATTEMPTS = int(os.environ.get("MAX_LOGIN_ATTEMPTS", "5"))
-_LOCKOUT_MINUTES = int(os.environ.get("LOGIN_LOCKOUT_MINUTES", "5"))
-_login_attempts: dict = defaultdict(lambda: {"count": 0, "until": None})
+def _resolver_contextos_request() -> tuple:
+    session_user = _usuario_actual()
+    session_panaderia_id = session_user.get("panaderia_id")
+    session_sede_id = session_user.get("sede_id")
+    rol = str(session_user.get("rol", "") or "")
+    tenant_context = TenantService.resolve_current_panaderia()
 
-# ── Iconos y colores por categoria/producto ──
-ICONOS_CATEGORIA = {
-    "Panaderia": "bakery_dining",
-    "Bebidas Calientes": "local_cafe",
-    "Bebidas Frias": "local_bar",
-    "Bebidas Frías": "local_bar",
-    "Desayunos": "breakfast_dining",
-    "Almuerzos": "lunch_dining",
-    "Acompañamientos": "bakery_dining",
-    "Cacerola de Huevos": "egg",
-    "Caldos": "soup_kitchen",
-    "Changua": "breakfast_dining",
-    "Clásicos de Queso": "bakery_dining",
-    "De la Casa": "restaurant_menu",
-    "Dulcería": "cookie",
-    "Galletas": "cookie",
-    "Hojaldre": "bakery_dining",
-    "Huevos Florentinos": "egg_alt",
-    "Huevos Rancheros": "egg_alt",
-    "Huevos Richs": "egg_alt",
-    "Omelettes": "egg_alt",
-    "Pastelería Casera": "cake",
-    "Sándwiches": "lunch_dining",
-    "Sándwiches - Croissant": "breakfast_dining",
-    "Sándwiches - Pan Saludable": "sandwich",
-    "Típico": "skillet",
-}
+    # La instalación opera con una sola panadería. Si una sesión antigua apunta
+    # a otro tenant, se invalida para evitar seguir usando resolución SaaS.
+    if (
+        session_panaderia_id
+        and rol != PLATFORM_ADMIN_ROLE
+        and int(session_panaderia_id) != int(tenant_context.id)
+    ):
+        session.clear()
+        session_user = {}
+        session_sede_id = None
+        rol = ""
 
-MENUS_PREFERIDOS = ["Desayunos", "Tardes"]
-COLORES_PROD = {
-    "Pan Frances": "#E8B44D",
-    "Pan Dulce": "#E07A5F",
-    "Croissant": "#81B29A",
-    "Integral": "#9B8EA0",
-}
+    tenant_context = TenantContext(
+        id=tenant_context.id,
+        slug=tenant_context.slug,
+        nombre=tenant_context.nombre,
+        activa=tenant_context.activa,
+        is_platform=rol == "platform_superadmin",
+        estado_operativo=tenant_context.estado_operativo,
+    )
 
+    # Resolver sede: primero desde la sesión del usuario, luego la principal
+    sede_context: SedeContext | None = None
+    if session_sede_id:
+        sede_context = TenantService.resolve_sede_by_id(int(session_sede_id))
+        if sede_context is not None and int(sede_context.panaderia_id or 0) != int(tenant_context.id):
+            sede_context = None
+    if sede_context is None:
+        sede_context = TenantService.resolve_sede_default(tenant_context.id)
 
-def icono_categoria(categoria):
-    return ICONOS_CATEGORIA.get(categoria, "restaurant")
+    subscription_context = TenantService.get_subscription(tenant_context.id)
 
+    # Resolver terminal desde sesión (login operativo la guarda en session)
+    terminal_context: TerminalContext | None = None
+    session_terminal_id = session_user.get("terminal_id")
+    if session_terminal_id:
+        terminal_context = TenantService.resolve_terminal_by_id(int(session_terminal_id))
 
-def icono(nombre, categoria=None):
-    categoria_real = categoria or obtener_categoria_producto_nombre(nombre)
-    return icono_categoria(categoria_real)
+    return tenant_context, sede_context, TenantService.get_branding(tenant_context.id), subscription_context, terminal_context
 
 
-def color_prod(nombre):
-    return COLORES_PROD.get(nombre, "#B0BEC5")
-
-
-def _usuario_actual() -> dict:
-    return session.get("usuario", {}) if "usuario" in session else {}
-
-
-def _nombre_usuario_actual() -> str:
-    return str(_usuario_actual().get("nombre", "") or "").strip()
-
-
-def _rol_usuario_actual() -> str:
-    return str(_usuario_actual().get("rol", "") or "").strip()
-
-
-def _usuario_puede_registrar_produccion() -> bool:
-    return _rol_usuario_actual() in ("panadero", "cajero")
-
-
-def _pedido_visible_para_usuario(pedido: dict | None) -> bool:
-    if not pedido:
-        return False
-    if _rol_usuario_actual() != "mesero":
-        return True
-    return str(pedido.get("mesero", "") or "").strip() == _nombre_usuario_actual()
-
-
-def _iso_datetime(fecha: str | None, hora: str | None = None) -> str:
-    fecha_txt = str(fecha or "").strip()
-    hora_txt = str(hora or "").strip()
-    if fecha_txt:
-        if "T" in fecha_txt:
-            return fecha_txt
-        if " " in fecha_txt:
-            return fecha_txt.replace(" ", "T")
-        if hora_txt:
-            return f"{fecha_txt}T{hora_txt}"
-        return f"{fecha_txt}T00:00:00"
-    return datetime.now().isoformat(timespec="seconds")
-
-
-def _crear_notificacion(
-    notif_id: str,
-    title: str,
-    description: str,
-    notif_type: str,
-    when_iso: str,
-    sound: str = "",
-) -> dict:
-    return {
-        "id": notif_id,
-        "title": title,
-        "description": description,
-        "type": notif_type,
-        "time": when_iso,
-        "sound": sound,
-        "source": "server",
-    }
 
 
 def _obtener_ventas_pos_operaciones(fecha: str | None = None, limite: int = 12) -> list[dict]:
@@ -594,88 +726,99 @@ def _obtener_notificaciones_operativas(rol: str, usuario: str = "", limite: int 
     ]
 
 
+@app.before_request
+def _resolve_request_context():
+    g.request_id = generate_request_id()
+    g.client_ip = _client_ip()
+    g.request_started_at = time.perf_counter()
+    tenant_context, sede_context, brand_context, subscription_context, terminal_context = _resolver_contextos_request()
+    g.tenant_context = tenant_context
+    g.sede_context = sede_context
+    g.brand_context = brand_context
+    g.subscription_context = subscription_context
+    g.terminal_context = terminal_context
+    g.csrf_token = _current_csrf_token()
+    set_query_context(tenant_context.id, sede_context.id)
+
+    # Registrar actividad del terminal activo
+    if terminal_context is not None and terminal_context.available:
+        TenantService.touch_terminal(terminal_context.id)
+
+    session_user = session.get("usuario", {})
+    session_panaderia_id = session_user.get("panaderia_id")
+    session_rol = str(session_user.get("rol", "") or "")
+    _is_platform_admin = session_rol == "platform_superadmin"
+
+    # platform_superadmin opera sin tenant/sede fijos — saltear ambas guardas
+    if not _is_platform_admin:
+        # Bloquear acceso si el tenant está suspendido
+        if session_panaderia_id and not tenant_context.is_active:
+            try:
+                TenantService.assert_tenant_active(tenant_context)
+            except TenantSuspendedError:
+                abort(503)
+        # Bloquear acceso si la suscripción venció
+        if session_panaderia_id and subscription_context.is_expired:
+            try:
+                TenantService.assert_subscription_active(subscription_context)
+            except SubscriptionExpiredError:
+                abort(402)
+
+    # Invalidación server-side: si session_version en sesión no coincide con el de la BD,
+    # la sesión fue revocada (usuario desactivado, membresía eliminada, etc.).
+    if "usuario" in session and request.endpoint not in ("auth.login", "auth.logout", "static"):
+        _uid = session["usuario"].get("id")
+        _sv_session = session["usuario"].get("session_version", 0)
+        if _uid:
+            _sv_db = obtener_session_version_usuario(int(_uid))
+            if _sv_db >= 0 and int(_sv_session or 0) != _sv_db:
+                session.clear()
+                if wants_json_response():
+                    return json_error("Sesión expirada. Vuelve a iniciar sesión.", 401)
+                return redirect(url_for("auth.login"))
+
+    # El endpoint /login crea/reemplaza la sesión por sí mismo; no necesita CSRF.
+    if request.endpoint != "auth.login" and \
+            request.method in {"POST", "PUT", "PATCH", "DELETE"} and "usuario" in session:
+        csrf_token = str(request.headers.get("X-CSRF-Token", "") or "").strip()
+        if not csrf_token and request.form:
+            csrf_token = str(request.form.get("_csrf_token", "") or "").strip()
+        if csrf_token != session.get(CSRF_SESSION_KEY):
+            return _csrf_invalid_response()
+
+
 @app.after_request
 def _set_security_headers(response):
+    duration_ms = None
+    started_at = getattr(g, "request_started_at", None)
+    if started_at is not None:
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+    response.headers["X-Request-Id"] = getattr(g, "request_id", "")
+    if duration_ms is not None:
+        response.headers["X-Response-Time-ms"] = str(duration_ms)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     if request.is_secure:
         response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+    if duration_ms is not None and (
+        request.method in {"POST", "PUT", "PATCH", "DELETE"}
+        or response.status_code >= 400
+        or duration_ms >= 1000
+    ):
+        _log_event(
+            "request_complete",
+            request_id=getattr(g, "request_id", ""),
+            method=request.method,
+            path=request.path,
+            status=response.status_code,
+            duration_ms=duration_ms,
+            usuario=_nombre_usuario_actual(),
+            panaderia_id=_panaderia_actual_id(),
+            sede_id=_sede_actual_id(),
+        )
     return response
-
-
-def _normalizar_texto(texto):
-    base = unicodedata.normalize("NFKD", str(texto or ""))
-    base = "".join(ch for ch in base if not unicodedata.combining(ch))
-    base = base.strip().lower()
-    return re.sub(r"[^a-z0-9]+", " ", base).strip()
-
-
-def _obtener_adicionales_operativos():
-    return list(obtener_adicionales())
-
-
-def _parse_fecha_iso(fecha: str | None = None) -> str:
-    fecha_str = str(fecha or "").strip() or datetime.now().strftime("%Y-%m-%d")
-    datetime.strptime(fecha_str, "%Y-%m-%d")
-    return fecha_str
-
-
-def _resolver_filtro_historial(default_days: int = 30) -> dict:
-    hoy = datetime.now().date()
-    hoy_str = hoy.strftime("%Y-%m-%d")
-
-    try:
-        dias = int(request.args.get("dias", default_days))
-    except (TypeError, ValueError):
-        dias = default_days
-    dias = max(1, min(dias, 365))
-
-    fecha_inicio_raw = str(request.args.get("fecha_inicio", "") or "").strip()
-    fecha_fin_raw = str(request.args.get("fecha_fin", "") or "").strip()
-    filtro_personalizado = bool(fecha_inicio_raw or fecha_fin_raw)
-
-    try:
-        fecha_inicio = _parse_fecha_iso(fecha_inicio_raw) if fecha_inicio_raw else None
-    except ValueError:
-        fecha_inicio = None
-    try:
-        fecha_fin = _parse_fecha_iso(fecha_fin_raw) if fecha_fin_raw else None
-    except ValueError:
-        fecha_fin = None
-
-    if fecha_inicio and fecha_inicio > hoy_str:
-        fecha_inicio = hoy_str
-    if fecha_fin and fecha_fin > hoy_str:
-        fecha_fin = hoy_str
-
-    if fecha_fin and not fecha_inicio:
-        fecha_fin_dt = datetime.strptime(fecha_fin, "%Y-%m-%d").date()
-        fecha_inicio = (fecha_fin_dt - timedelta(days=dias - 1)).strftime("%Y-%m-%d")
-    elif fecha_inicio and not fecha_fin:
-        fecha_fin = hoy_str
-
-    if fecha_inicio and fecha_fin and fecha_inicio > fecha_fin:
-        fecha_inicio, fecha_fin = fecha_fin, fecha_inicio
-
-    if not fecha_inicio or not fecha_fin:
-        fecha_fin = hoy_str
-        fecha_inicio = (hoy - timedelta(days=dias - 1)).strftime("%Y-%m-%d")
-
-    dias = max(
-        (datetime.strptime(fecha_fin, "%Y-%m-%d").date() -
-         datetime.strptime(fecha_inicio, "%Y-%m-%d").date()).days + 1,
-        1,
-    )
-
-    return {
-        "dias": dias,
-        "fecha_inicio": fecha_inicio,
-        "fecha_fin": fecha_fin,
-        "hoy_str": hoy_str,
-        "filtro_personalizado": filtro_personalizado,
-    }
 
 
 def _etiqueta_modelo(modelo: str) -> str:
@@ -776,7 +919,12 @@ def _construir_contexto_produccion_producto(
     )
     stock_total = max(sobrante_inicial_actual + producido_actual, 0)
 
-    resultado = calcular_pronostico(producto, fecha_objetivo=fecha_str)
+    encargos_confirmados = obtener_encargos_confirmados_para_fecha(producto, fecha_str)
+    resultado = calcular_pronostico(
+        producto, fecha_objetivo=fecha_str,
+        stock_actual=disponible_actual,
+        encargos_confirmados=encargos_confirmados,
+    )
     detalles = getattr(resultado, "detalles", {}) or {}
     ajuste = obtener_ajuste_pronostico(fecha_str, producto) or {}
 
@@ -811,6 +959,9 @@ def _construir_contexto_produccion_producto(
         "producto": producto,
         "sugerencia": {
             "sugerido": sugerido,
+            "demanda_estimada": int(resultado.demanda_estimada or 0),
+            "demanda_comprometida": int(resultado.demanda_comprometida or 0),
+            "produccion_recomendada": int(resultado.produccion_recomendada or 0),
             "promedio": float(resultado.promedio_ventas or 0),
             "modelo": resultado.modelo_usado,
             "modelo_label": _etiqueta_modelo(resultado.modelo_usado),
@@ -1113,6 +1264,11 @@ def _parsear_numero_positivo(valor, etiqueta="Valor"):
         raise ValueError(mensaje) from exc
 
 
+def _parsear_surtido_tipo(valor) -> str:
+    surtido_tipo = str(valor or "").strip().lower()
+    return surtido_tipo if surtido_tipo in {"none", "sal", "dulce", "ambos"} else "none"
+
+
 def _ordenar_menus_catalogo(menus: set[str]) -> list[str]:
     resto = sorted(menu for menu in menus if menu not in MENUS_PREFERIDOS)
     return [menu for menu in MENUS_PREFERIDOS if menu in menus] + resto
@@ -1359,62 +1515,74 @@ def _extraer_catalogo_insumos(archivo):
     return insumos, errores
 
 
-# ── Decoradores ──
+def _puede_gestionar_mesas() -> bool:
+    return _rol_usuario_actual() in {"panadero", "tenant_admin", PLATFORM_ADMIN_ROLE}
 
-def login_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if "usuario" not in session:
-            if request.is_json:
-                return jsonify({"ok": False, "error": "No autenticado"}), 401
-            return redirect(url_for("login"))
-        # Verificar expiración de sesión
-        login_ts = session.get("_login_ts")
-        if login_ts:
-            age = datetime.now().timestamp() - float(login_ts)
-            if age > _SESSION_HOURS * 3600:
-                session.clear()
-                if request.is_json:
-                    return jsonify({"ok": False, "error": "Sesion expirada"}), 401
-                flash("Tu sesion expiró. Inicia sesion de nuevo.", "info")
-                return redirect(url_for("login"))
-        return f(*args, **kwargs)
-    return decorated
+
+def _registrar_auditoria_mesa(resultado: dict, accion: str, detalle: str) -> None:
+    mesa = (resultado or {}).get("mesa") or {}
+    mesa_antes = (resultado or {}).get("mesa_antes") or {}
+    mesa_id = mesa.get("id") or mesa_antes.get("id")
+    registrar_audit(
+        usuario=_nombre_usuario_actual(),
+        usuario_id=_usuario_actual_id(),
+        panaderia_id=_panaderia_actual_id(),
+        sede_id=_sede_actual_id(),
+        ip=request.remote_addr or "",
+        user_agent=request.headers.get("User-Agent", ""),
+        request_id=getattr(g, "request_id", ""),
+        accion=accion,
+        entidad="mesa",
+        entidad_id=str(mesa_id or ""),
+        detalle=detalle,
+        valor_antes=json.dumps(mesa_antes, ensure_ascii=True),
+        valor_nuevo=json.dumps(mesa, ensure_ascii=True),
+    )
+
+
+def _pedido_pertenece_filtro_mesero(pedido: dict, filtro: str) -> bool:
+    estado = str((pedido or {}).get("estado", "") or "").strip().lower()
+    if filtro == "cancelado":
+        return estado == "cancelado"
+    if filtro == "pendiente":
+        return estado in {"pendiente", "en_preparacion"}
+    return estado == "listo"
+
+
+def _meta_filtros_mesero(pedidos: list[dict], filtro_actual: str) -> list[dict]:
+    filtros = [
+        {
+            "key": "listo",
+            "label": "Listos para caja",
+            "copy": "Pedidos que ya pueden pasar a cobro.",
+        },
+        {
+            "key": "pendiente",
+            "label": "Pendientes",
+            "copy": "Incluye pedidos recibidos y en preparacion.",
+        },
+        {
+            "key": "cancelado",
+            "label": "Cancelados",
+            "copy": "Pedidos anulados por operacion o por el cliente.",
+        },
+    ]
+    for filtro in filtros:
+        filtro["count"] = sum(1 for pedido in pedidos if _pedido_pertenece_filtro_mesero(pedido, filtro["key"]))
+        filtro["active"] = filtro["key"] == filtro_actual
+    return filtros
+
+
+# ── Decoradores: importados de app.web.decorators ────────────────────────────
+# login_required, tenant_scope_required, sede_scope_required,
+# roles_required, admin_required — ver app/web/decorators.py
 
 
 # ══════════════════════════════════════════════
 # RUTAS DE PAGINAS
 # ══════════════════════════════════════════════
-
-@app.route("/")
-def index():
-    if "usuario" not in session:
-        return redirect(url_for("login"))
-    rol = session["usuario"]["rol"]
-    if rol == "cajero":
-        return redirect(url_for("cajero_pos"))
-    if rol == "mesero":
-        return redirect(url_for("mesero_mesas"))
-    return redirect(url_for("panadero_pronostico"))
-
-
-@app.route("/health")
-def health_check():
-    return jsonify({"status": "healthy"}), 200
-
-@app.route("/favicon.ico")
-def favicon():
-    return redirect(url_for("static", filename="brand/richs-logo.svg", v="20260327-ui"))
-
-@app.route("/ready")
-def readiness_check():
-    try:
-        from data.database import get_connection
-        with get_connection() as conn:
-            conn.execute("SELECT 1")
-        return jsonify({"status": "ready"}), 200
-    except Exception as e:
-        return jsonify({"status": "not_ready", "error": str(e)}), 503
+# Rutas de autenticación (/, /login, /logout, /health, /ready,
+# /favicon.ico, /cambiar-password) → app/web/auth.py (auth_bp)
 
 @app.errorhandler(404)
 def pagina_no_encontrada(e):
@@ -1424,72 +1592,38 @@ def pagina_no_encontrada(e):
 
 @app.errorhandler(500)
 def error_interno(e):
-    app.logger.error(f"Error interno: {e}")
+    exc = getattr(e, "original_exception", e)
+    if isinstance(exc, Exception):
+        _log_exception(
+            "request_error",
+            exc,
+            request_id=getattr(g, "request_id", ""),
+            method=request.method,
+            path=request.path,
+            usuario=_nombre_usuario_actual(),
+        )
+    else:
+        _log_event(
+            "request_error",
+            level="error",
+            request_id=getattr(g, "request_id", ""),
+            method=request.method,
+            path=request.path,
+            error=str(e),
+            usuario=_nombre_usuario_actual(),
+        )
     if request.path.startswith('/api/'):
         return jsonify({"ok": False, "error": "Error interno del servidor"}), 500
     return render_template("error.html", codigo=500, mensaje="Error interno del servidor"), 500
 
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        pin = request.form.get("pin", "").strip()
-        ip = request.remote_addr or "unknown"
-
-        if not pin:
-            flash("Escribe tu PIN", "error")
-            return render_template("login.html")
-
-        # ── Rate limiting por IP ──────────────────────────────────────────────
-        entry = _login_attempts[ip]
-        if entry["until"] and datetime.now() < entry["until"]:
-            restante = int((entry["until"] - datetime.now()).total_seconds() / 60) + 1
-            flash(f"Demasiados intentos. Espera {restante} minuto(s).", "error")
-            return render_template("login.html")
-
-        usuario = verificar_pin(pin)
-        if usuario:
-            # Login exitoso: limpiar contador
-            _login_attempts.pop(ip, None)
-            session.clear()
-            session.permanent = True
-            session["usuario"] = usuario
-            session["_login_ts"] = datetime.now().timestamp()
-            registrar_audit(
-                usuario=usuario["nombre"],
-                accion="login",
-                entidad="usuario",
-                entidad_id=str(usuario.get("id", "")),
-                detalle=f"Login exitoso - rol: {usuario['rol']}",
-            )
-            if usuario["rol"] == "cajero":
-                return redirect(url_for("cajero_pos"))
-            if usuario["rol"] == "mesero":
-                return redirect(url_for("mesero_mesas"))
-            return redirect(url_for("panadero_pronostico"))
-
-        # PIN incorrecto: incrementar contador
-        entry["count"] = entry.get("count", 0) + 1
-        if entry["count"] >= _MAX_ATTEMPTS:
-            entry["until"] = datetime.now() + timedelta(minutes=_LOCKOUT_MINUTES)
-            entry["count"] = 0
-            flash(f"Demasiados intentos fallidos. Espera {_LOCKOUT_MINUTES} minutos.", "error")
-        else:
-            restantes = _MAX_ATTEMPTS - entry["count"]
-            flash(f"PIN incorrecto. Intentos restantes: {restantes}", "error")
-
-    return render_template("login.html")
-
-
-@app.route("/logout")
-def logout():
-    session.clear()
-    return redirect(url_for("login"))
+# Login / logout / cambiar-password → auth_bp (app/web/auth.py)
 
 
 # ── Cajero ──
 
 @app.route("/cajero/pos")
 @login_required
+@roles_required("cajero", "tenant_admin", "platform_superadmin")
 def cajero_pos():
     productos = obtener_productos_con_precio()
     categorias = obtener_categorias_producto()
@@ -1508,6 +1642,7 @@ def cajero_pos():
 
 @app.route("/cajero/ventas")
 @login_required
+@roles_required("cajero", "tenant_admin", "platform_superadmin")
 def cajero_ventas():
     caja = obtener_resumen_caja_dia()
     historial_arqueos = obtener_historial_arqueos(8)
@@ -1521,8 +1656,20 @@ def cajero_ventas():
 
 @app.route("/cajero/pedidos")
 @login_required
+@roles_required("cajero", "tenant_admin", "platform_superadmin")
 def cajero_pedidos():
-    pedidos = obtener_pedidos_con_detalle()
+    pagination_args = _parse_pagination_args()
+    pedidos_data = obtener_pedidos_con_detalle_paginados(
+        page=pagination_args["page"],
+        size=pagination_args["size"],
+    )
+    pedidos = pedidos_data["items"]
+    pagination = pedidos_data["pagination"]
+    for pedido in pedidos:
+        pedido["comandas"] = obtener_comandas_por_pedido(int(pedido.get("id", 0) or 0))
+        pedido["ultima_comanda"] = pedido["comandas"][0] if pedido["comandas"] else None
+        pedido["documentos"] = obtener_documentos_por_origen("pedido", int(pedido.get("id", 0) or 0))
+        pedido["ultimo_documento"] = pedido["documentos"][0] if pedido["documentos"] else None
     caja = obtener_resumen_caja_dia()
     mesas_index: dict[int, dict] = {}
     for pedido in pedidos:
@@ -1541,6 +1688,8 @@ def cajero_pedidos():
     mesas_filtro = [mesas_index[key] for key in sorted(mesas_index)]
     return render_template("cajero_pedidos.html",
                            pedidos=pedidos,
+                           pagination=pagination,
+                           pagination_links=_build_pagination_links("cajero_pedidos", pagination),
                            mesas_filtro=mesas_filtro,
                            caja=caja,
                            layout="cajero", active_page="pedidos")
@@ -1548,6 +1697,7 @@ def cajero_pedidos():
 
 @app.route("/cajero/pedido/<int:pedido_id>/editar")
 @login_required
+@roles_required("cajero", "tenant_admin", "platform_superadmin")
 def cajero_editar_pedido(pedido_id):
     if _rol_usuario_actual() != "cajero":
         flash("Solo caja puede editar pedidos", "error")
@@ -1583,7 +1733,7 @@ def cajero_editar_pedido(pedido_id):
         editor_role="cajero",
         pedido_page_title=f"Mesa {mesa['numero']} · Editar pedido",
         pedido_page_copy="Ajusta el pedido antes de cobrarlo. Cada cambio exige un motivo y queda notificado al admin.",
-        pedido_submit_label="Guardar ajuste",
+        pedido_submit_label="Guardar ajuste y regenerar comanda",
         pedido_return_url=url_for("cajero_pedidos"),
         pedido_return_label="Salir a pedidos",
         layout="cajero",
@@ -1595,6 +1745,7 @@ def cajero_editar_pedido(pedido_id):
 
 @app.route("/mesero/mesas")
 @login_required
+@roles_required("mesero", "tenant_admin", "platform_superadmin")
 def mesero_mesas():
     mesas = obtener_resumen_mesas()
     menu_qr_options = [
@@ -1619,6 +1770,7 @@ def mesero_mesas():
 
 @app.route("/mesero/pedido/<int:mesa_id>")
 @login_required
+@roles_required("mesero", "tenant_admin", "platform_superadmin")
 def mesero_pedido(mesa_id):
     productos = obtener_productos_con_precio()
     categorias = obtener_categorias_producto()
@@ -1638,8 +1790,8 @@ def mesero_pedido(mesa_id):
                            pedido_editable=None,
                            editor_role="mesero",
                            pedido_page_title=f"Mesa {mesa['numero']} - {mesa['nombre']}",
-                           pedido_page_copy="Toca productos para crear un nuevo pedido para esta mesa. Si ya existe uno y hay algo adicional, envialo como un pedido nuevo.",
-                           pedido_submit_label="Enviar pedido",
+                           pedido_page_copy="Toca productos para crear el pedido de esta mesa. Si ya existe uno activo, se generara una nueva comanda completa para cocina.",
+                           pedido_submit_label="Enviar a cocina",
                            pedido_return_url=url_for("mesero_mesas"),
                            pedido_return_label="Salir a mesas",
                            layout="mesero", active_page="mesas")
@@ -1647,8 +1799,17 @@ def mesero_pedido(mesa_id):
 
 @app.route("/mesero/pedidos")
 @login_required
+@roles_required("mesero", "tenant_admin", "platform_superadmin")
 def mesero_pedidos():
-    pedidos = obtener_pedidos_con_detalle(mesero=_nombre_usuario_actual())
+    filtro_estado = str(request.args.get("estado", "listo") or "listo").strip().lower()
+    if filtro_estado not in {"listo", "pendiente", "cancelado"}:
+        filtro_estado = "listo"
+
+    pedidos_todos = obtener_pedidos_con_detalle(mesero=_nombre_usuario_actual())
+    for pedido in pedidos_todos:
+        pedido["comandas"] = obtener_comandas_por_pedido(int(pedido.get("id", 0) or 0))
+        pedido["ultima_comanda"] = pedido["comandas"][0] if pedido["comandas"] else None
+    pedidos = [pedido for pedido in pedidos_todos if _pedido_pertenece_filtro_mesero(pedido, filtro_estado)]
     mesas_index: dict[int, dict] = {}
     for pedido in pedidos:
         mesa_numero = pedido.get("mesa_numero")
@@ -1664,8 +1825,11 @@ def mesero_pedidos():
         })
         entry["total"] += 1
     mesas_filtro = [mesas_index[key] for key in sorted(mesas_index)]
+    filtros_estado = _meta_filtros_mesero(pedidos_todos, filtro_estado)
     return render_template("mesero_pedidos.html",
                            pedidos=pedidos,
+                           filtro_estado=filtro_estado,
+                           filtros_estado=filtros_estado,
                            mesas_filtro=mesas_filtro,
                            layout="mesero", active_page="pedidos")
 
@@ -1674,6 +1838,7 @@ def mesero_pedidos():
 
 @app.route("/panadero/pronostico")
 @login_required
+@roles_required("panadero", "tenant_admin", "platform_superadmin")
 def panadero_pronostico():
     productos = obtener_productos_panaderia()
     producto_default = productos[0] if productos else ""
@@ -1685,11 +1850,12 @@ def panadero_pronostico():
 
 @app.route("/panadero/produccion", methods=["GET", "POST"])
 @login_required
+@roles_required("panadero", "cajero", "tenant_admin", "platform_superadmin")
 def panadero_produccion():
     rol_actual = _rol_usuario_actual()
     if rol_actual not in ("panadero", "cajero"):
         flash("No tienes permiso para registrar produccion", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("auth.index"))
 
     productos = obtener_productos_panaderia()
     producto_default = productos[0] if productos else ""
@@ -1747,6 +1913,7 @@ def panadero_produccion():
 
 @app.route("/panadero/ventas")
 @login_required
+@roles_required("panadero", "tenant_admin", "platform_superadmin")
 def panadero_ventas():
     caja = obtener_resumen_caja_dia()
     historial_arqueos = obtener_historial_arqueos(8)
@@ -1760,6 +1927,7 @@ def panadero_ventas():
 
 @app.route("/panadero/historial")
 @login_required
+@roles_required("panadero", "tenant_admin", "platform_superadmin")
 def panadero_historial():
     producto = request.args.get("producto", "Todos")
     productos = obtener_productos()
@@ -1776,14 +1944,151 @@ def panadero_historial():
                            layout="panadero", active_page="historial")
 
 
+@app.route("/panadero/cartera")
+@login_required
+@roles_required("cajero", "panadero", "tenant_admin", "platform_superadmin")
+def panadero_cartera():
+    estado = request.args.get("estado", "").strip().lower()
+    busqueda = request.args.get("q", "").strip()
+    fecha_desde = request.args.get("fecha_desde", "").strip()
+    fecha_hasta = request.args.get("fecha_hasta", "").strip()
+    pagination_args = _parse_pagination_args()
+    cuentas_data = obtener_cuentas_por_cobrar_paginadas(
+        estado=estado or None,
+        busqueda_cliente=busqueda,
+        fecha_desde=fecha_desde or None,
+        fecha_hasta=fecha_hasta or None,
+        page=pagination_args["page"],
+        size=pagination_args["size"],
+    )
+    cuentas = cuentas_data["items"]
+    pagination = cuentas_data["pagination"]
+    resumen = obtener_resumen_cartera()
+    layout = "cajero" if _rol_usuario_actual() == "cajero" else "panadero"
+    return render_template(
+        "panadero_cartera.html",
+        cuentas=cuentas,
+        pagination=pagination,
+        pagination_links=_build_pagination_links(
+            "panadero_cartera",
+            pagination,
+            estado=estado,
+            q=busqueda,
+            fecha_desde=fecha_desde,
+            fecha_hasta=fecha_hasta,
+        ),
+        resumen=resumen,
+        filtro_estado=estado,
+        filtro_busqueda=busqueda,
+        filtro_fecha_desde=fecha_desde,
+        filtro_fecha_hasta=fecha_hasta,
+        layout=layout,
+        active_page="cartera",
+    )
+
+
+@app.route("/clientes/<int:cliente_id>/historial")
+@login_required
+@roles_required("cajero", "panadero", "tenant_admin", "platform_superadmin")
+def cliente_historial(cliente_id: int):
+    pagination_args = _parse_pagination_args()
+    historial = obtener_historial_cliente(
+        cliente_id,
+        page=pagination_args["page"],
+        size=pagination_args["size"],
+    )
+    if not historial.get("ok"):
+        return render_template("error.html", codigo=404, mensaje=historial.get("error") or "Cliente no encontrado"), 404
+    layout = "cajero" if _rol_usuario_actual() == "cajero" else "panadero"
+    pagination = (historial.get("pagination") or {}).get("global", {})
+    return render_template(
+        "cliente_historial.html",
+        historial=historial,
+        cliente=historial.get("cliente") or {},
+        resumen=historial.get("resumen") or {},
+        pagination=pagination,
+        pagination_links=_build_pagination_links(
+            "cliente_historial",
+            pagination,
+            cliente_id=cliente_id,
+        ),
+        layout=layout,
+        active_page="cartera",
+    )
+
+
+@app.route("/panadero/documentos")
+@login_required
+@roles_required("cajero", "panadero", "tenant_admin", "platform_superadmin")
+def panadero_documentos():
+    pagination_args = _parse_pagination_args()
+    origen_tipo = request.args.get("origen_tipo", "").strip().lower()
+    estado_documento = request.args.get("estado", "").strip().lower()
+    tipo_documento = request.args.get("tipo_documento", "").strip().lower()
+    estado_envio = request.args.get("estado_envio", "").strip().lower()
+    filtro_cliente = request.args.get("cliente", "").strip()
+    filtro_fecha_desde = request.args.get("fecha_desde", "").strip()
+    filtro_fecha_hasta = request.args.get("fecha_hasta", "").strip()
+    try:
+        filtro_fecha_desde = _parse_fecha_iso(filtro_fecha_desde) if filtro_fecha_desde else ""
+    except ValueError:
+        filtro_fecha_desde = ""
+    try:
+        filtro_fecha_hasta = _parse_fecha_iso(filtro_fecha_hasta) if filtro_fecha_hasta else ""
+    except ValueError:
+        filtro_fecha_hasta = ""
+    documentos_data = obtener_documentos_recientes_paginados(
+        page=pagination_args["page"],
+        size=pagination_args["size"],
+        origen_tipo=origen_tipo or None,
+        estado=estado_documento or None,
+        tipo_documento=tipo_documento or None,
+        cliente=filtro_cliente or None,
+        fecha_desde=filtro_fecha_desde or None,
+        fecha_hasta=filtro_fecha_hasta or None,
+        estado_envio=estado_envio or None,
+    )
+    documentos = [doc for doc in documentos_data["items"] if _documento_visible_para_usuario(doc)]
+    pagination = dict(documentos_data["pagination"])
+    pagination["items_count"] = len(documentos)
+    layout = "cajero" if _rol_usuario_actual() == "cajero" else "panadero"
+    return render_template(
+        "panadero_documentos.html",
+        documentos=documentos,
+        pagination=pagination,
+        pagination_links=_build_pagination_links(
+            "panadero_documentos",
+            pagination,
+            origen_tipo=origen_tipo,
+            estado=estado_documento,
+            tipo_documento=tipo_documento,
+            estado_envio=estado_envio,
+            cliente=filtro_cliente,
+            fecha_desde=filtro_fecha_desde,
+            fecha_hasta=filtro_fecha_hasta,
+        ),
+        filtro_origen_tipo=origen_tipo,
+        filtro_estado_documento=estado_documento,
+        filtro_tipo_documento=tipo_documento,
+        filtro_estado_envio=estado_envio,
+        filtro_cliente=filtro_cliente,
+        filtro_fecha_desde=filtro_fecha_desde,
+        filtro_fecha_hasta=filtro_fecha_hasta,
+        smtp_ready=_smtp_disponible(),
+        layout=layout,
+        active_page="documentos",
+    )
+
+
 @app.route("/panadero/operaciones")
 @login_required
+@roles_required("panadero", "tenant_admin", "platform_superadmin")
 def panadero_operaciones():
     stats = obtener_estadisticas_pedidos()
     consumo = obtener_consumo_diario()
     insumos = obtener_insumos()
     alertas_stock = obtener_insumos_bajo_stock()
-    mesas = obtener_resumen_mesas()
+    mesas = obtener_resumen_mesas(include_inactive=True)
     ventas_resumen = obtener_resumen_ventas_dia()
     ventas_total = obtener_total_ventas_dia()
     pedidos = obtener_pedidos_con_detalle()
@@ -1794,7 +2099,7 @@ def panadero_operaciones():
         "total_cobrado_global": float((ventas_total or {}).get("dinero", 0) or 0),
         "transacciones_totales": int((ventas_total or {}).get("transacciones", 0) or 0),
     }
-    proxima_mesa = (max((mesa["numero"] for mesa in mesas), default=0) + 1) if mesas else 1
+    proxima_mesa = (max((mesa["numero"] for mesa in mesas if not mesa.get("eliminada")), default=0) + 1) if mesas else 1
     return render_template("panadero_operaciones.html",
                            stats=stats,
                            consumo=consumo,
@@ -1811,6 +2116,7 @@ def panadero_operaciones():
 
 @app.route("/panadero/inventario")
 @login_required
+@roles_required("panadero", "tenant_admin", "platform_superadmin")
 def panadero_inventario():
     insumos = obtener_insumos()
     productos_catalogo = obtener_productos_con_precio()
@@ -1830,8 +2136,17 @@ def panadero_inventario():
                            layout="panadero", active_page="inventario")
 
 
+@app.route("/panadero/jornada")
+@login_required
+@roles_required("panadero", "tenant_admin", "platform_superadmin")
+def panadero_jornada():
+    return render_template("panadero_jornada.html",
+                           layout="panadero", active_page="jornada")
+
+
 @app.route("/panadero/backups")
 @login_required
+@admin_required
 def panadero_backups():
     info = obtener_info_backup()
     backups = listar_backups()
@@ -1842,16 +2157,22 @@ def panadero_backups():
 
 @app.route("/panadero/config")
 @login_required
+@admin_required
 def panadero_config():
+    from data.database import obtener_usuarios_panaderia
+
     productos = obtener_productos_con_precio()
     categorias = obtener_categorias_producto()
     for p in productos:
         p["icono"] = icono(p["nombre"], p.get("categoria"))
         p["color"] = color_prod(p["nombre"])
 
-    usuarios = obtener_usuarios()
+    panaderia_id = _panaderia_actual_id()
+    usuarios = obtener_usuarios_panaderia(int(panaderia_id)) if panaderia_id else obtener_usuarios()
     local_ip = _get_local_ip()
-    qr_url = f"http://{local_ip}:5000/cliente/pedido"
+    tenant_slug = getattr(g, "tenant_context", TenantContext()).slug or "principal"
+    sede_slug = getattr(g, "sede_context", SedeContext()).slug or "principal"
+    qr_url = f"http://{local_ip}:5000/public/{tenant_slug}/{sede_slug}/cliente/pedido"
     codigo_caja = obtener_codigo_verificacion_caja()
 
     return render_template("panadero_config.html",
@@ -1864,6 +2185,15 @@ def panadero_config():
 
 
 # ── Cliente (publico, sin login) ──
+
+@app.route("/public/<panaderia_slug>/<sede_slug>/cliente/pedido")
+def public_cliente_pedido(panaderia_slug: str, sede_slug: str):
+    tenant = getattr(g, "tenant_context", TenantContext())
+    sede = getattr(g, "sede_context", SedeContext())
+    if tenant.slug and sede.slug and (panaderia_slug != tenant.slug or sede_slug != sede.slug):
+        return render_template("error.html", codigo=404, mensaje="Recurso no encontrado"), 404
+    return cliente_pedido()
+
 
 @app.route("/cliente/pedido")
 def cliente_pedido():
@@ -1888,6 +2218,9 @@ def api_productos():
 
 
 @app.route("/api/pronostico/dashboard")
+@login_required
+@tenant_scope_required
+@sede_scope_required
 def api_pronostico_dashboard():
     """API compatible con el dashboard de pronostico actual del frontend."""
     productos = obtener_productos_panaderia()
@@ -1900,14 +2233,41 @@ def api_pronostico_dashboard():
             "serie_ventas_producto": [],
             "ranking_productos": [],
             "resumen": {},
+            "lectura_operativa": generar_lectura_operativa(None, producto_seleccionado=False),
         })
 
-    producto = request.args.get("producto", productos[0])
+    producto_query = request.args.get("producto")
+    if producto_query is None:
+        producto = productos[0]
+    else:
+        producto = str(producto_query or "").strip()
+        if not producto:
+            return jsonify({
+                "producto": "",
+                "productos": productos,
+                "prediccion_semana": [],
+                "historial_producto": [],
+                "serie_ventas_producto": [],
+                "ranking_productos": [],
+                "resumen": {},
+                "prediccion_semanal": {},
+                "insights": {},
+                "periodo": {"dias": 0, "desde": "", "hasta": "", "muestras": 0},
+                "matriz_semana": [],
+                "backtesting": None,
+                "lectura_operativa": generar_lectura_operativa(None, producto_seleccionado=False),
+            })
     dias = int(request.args.get("dias", 30))
     if producto not in productos:
         producto = productos[0]
 
     hoy = datetime.now().date()
+    hoy_str = hoy.strftime("%Y-%m-%d")
+    try:
+        stock_detalle_hoy = obtener_stock_operativo_detalle(hoy_str)
+    except Exception:
+        app.logger.exception("Error obteniendo stock operativo para pronostico de %s", producto)
+        stock_detalle_hoy = {}
     dias_es = {
         "Monday": "Lunes",
         "Tuesday": "Martes",
@@ -1919,23 +2279,47 @@ def api_pronostico_dashboard():
     }
 
     prediccion_semana = []
+    lectura_operativa = generar_lectura_operativa(None, producto_seleccionado=bool(producto))
     for i in range(7):
         fecha = hoy + timedelta(days=i)
         fecha_str = fecha.strftime("%Y-%m-%d")
         dia_es = dias_es.get(fecha.strftime("%A"), fecha.strftime("%A"))
         try:
-            resultado = calcular_pronostico(producto, fecha_objetivo=fecha_str)
+            enc_conf = obtener_encargos_confirmados_para_fecha(producto, fecha_str)
+            stock_actual = None
+            if fecha_str == hoy_str:
+                detalle_stock = (stock_detalle_hoy or {}).get(producto, {}) or {}
+                stock_actual = int(detalle_stock.get("disponible_bruto", 0) or 0)
+            resultado = calcular_pronostico(
+                producto, fecha_objetivo=fecha_str,
+                stock_actual=stock_actual,
+                encargos_confirmados=enc_conf,
+            )
+            if fecha_str == hoy_str:
+                lectura_operativa = generar_lectura_operativa(resultado, producto_seleccionado=True)
+            detalles = getattr(resultado, "detalles", {}) or {}
             prediccion_semana.append({
                 "fecha": fecha_str,
                 "dia": dia_es,
-                "sugerido": resultado.produccion_sugerida,
+                "sugerido": resultado.produccion_recomendada,
+                "venta_estimada": resultado.demanda_estimada,
+                "demanda_estimada": resultado.demanda_estimada,
+                "demanda_comprometida": resultado.demanda_comprometida,
+                "produccion_recomendada": resultado.produccion_recomendada,
                 "promedio": round(resultado.promedio_ventas, 1),
-                "delta": round(resultado.produccion_sugerida - resultado.promedio_ventas, 1),
+                "delta": round(resultado.produccion_recomendada - resultado.promedio_ventas, 1),
                 "tipo_dia": TIPO_DIA.get(dia_es, "laboral"),
                 "estado": resultado.estado,
                 "confianza": resultado.confianza,
                 "modelo": resultado.modelo_usado,
                 "mensaje": resultado.mensaje,
+                "nivel_calidad": resultado.nivel_calidad,
+                "encargos_confirmados": enc_conf,
+                "stock_actual": int(detalles.get("stock_actual", 0) or 0),
+                "stock_actual_disponible": bool(detalles.get("stock_actual_disponible")),
+                "produccion_pendiente": int(detalles.get("produccion_pendiente", 0) or 0),
+                "produccion_pendiente_disponible": bool(detalles.get("produccion_pendiente_disponible")),
+                "detalles": detalles,
             })
         except Exception:
             app.logger.exception("Error calculando pronostico semanal para %s", producto)
@@ -1943,6 +2327,10 @@ def api_pronostico_dashboard():
                 "fecha": fecha_str,
                 "dia": dia_es,
                 "sugerido": 0,
+                "venta_estimada": 0,
+                "demanda_estimada": 0,
+                "demanda_comprometida": 0,
+                "produccion_recomendada": 0,
                 "promedio": 0,
                 "delta": 0,
                 "tipo_dia": TIPO_DIA.get(dia_es, "laboral"),
@@ -1950,6 +2338,9 @@ def api_pronostico_dashboard():
                 "confianza": "poca",
                 "modelo": "error",
                 "mensaje": "Error al calcular el pronóstico para este día.",
+                "nivel_calidad": 0,
+                "encargos_confirmados": 0,
+                "detalles": {},
             })
 
     historial = list(reversed(obtener_historial_pronostico(producto, dias=dias)))
@@ -2023,7 +2414,6 @@ def api_pronostico_dashboard():
     }
 
     # periodo
-    hoy_str = hoy.strftime("%Y-%m-%d")
     desde_str = historial[-1]["fecha"] if historial else hoy_str
     periodo = {
         "dias": dias,
@@ -2054,6 +2444,14 @@ def api_pronostico_dashboard():
             "participacion": round(_sug / _total_sug * 100, 1),
         })
 
+    # Backtesting (solo si el cliente lo pide explícitamente para no ralentizar la carga inicial)
+    backtesting = None
+    if request.args.get("backtesting") == "1":
+        try:
+            backtesting = calcular_backtesting(producto)
+        except Exception:
+            backtesting = {"ok": False, "error": "Error calculando backtesting"}
+
     return jsonify({
         "producto": producto,
         "productos": productos,
@@ -2066,6 +2464,8 @@ def api_pronostico_dashboard():
         "insights": insights,
         "periodo": periodo,
         "matriz_semana": matriz_semana,
+        "backtesting": backtesting,
+        "lectura_operativa": lectura_operativa,
     })
 
 
@@ -2094,7 +2494,10 @@ def api_pronostico_sugerencia():
         "ok": True,
         "producto": producto,
         "fecha": fecha,
-        "sugerido": resultado.produccion_sugerida,
+        "sugerido": resultado.produccion_recomendada,
+        "demanda_estimada": resultado.demanda_estimada,
+        "demanda_comprometida": resultado.demanda_comprometida,
+        "produccion_recomendada": resultado.produccion_recomendada,
         "modelo": resultado.modelo_usado,
         "modelo_label": resultado.modelo_usado.replace("_", " ").capitalize(),
         "confianza": resultado.confianza,
@@ -2103,6 +2506,7 @@ def api_pronostico_sugerencia():
         "estado": resultado.estado,
         "tendencia": resultado.detalles.get("tendencia", "sin datos"),
         "dia_objetivo": resultado.detalles.get("dia_objetivo", fecha),
+        "lectura_operativa": generar_lectura_operativa(resultado, producto_seleccionado=True),
     })
 
 
@@ -2321,6 +2725,9 @@ def api_proyeccion_insumos():
 
 
 @app.route("/api/historial/dashboard")
+@login_required
+@tenant_scope_required
+@sede_scope_required
 def api_historial_dashboard():
     """API compatible con el dashboard contable/historico del frontend."""
     filtros = _resolver_filtro_historial(default_days=30)
@@ -2354,6 +2761,13 @@ def api_historial_dashboard():
         fecha_inicio=fecha_inicio,
         fecha_fin=fecha_fin,
         limite=25,
+    )
+    ventas_detalle = obtener_ventas_rango(
+        dias=dias,
+        producto=producto_filtro,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+        limite=None,
     )
     serie_pago = obtener_serie_medios_pago_diaria_rango(
         dias=dias,
@@ -2610,6 +3024,7 @@ def api_historial_dashboard():
         "medios_pago": medios_pago,
         "resumen_productos": resumen_productos,
         "ventas_recientes": ventas_recientes,
+        "ventas_detalle": ventas_detalle,
         "serie_horaria": serie_horaria,
         "serie_dia_semana": serie_dia_semana,
         "caja_periodo": {
@@ -2640,6 +3055,9 @@ def api_historial_dashboard():
 
 
 @app.route("/api/venta", methods=["POST"])
+@login_required
+@tenant_scope_required
+@sede_scope_required
 def api_venta():
     data = request.json
     if not data or "items" not in data:
@@ -2724,11 +3142,21 @@ def api_venta():
 
 
 @app.route("/api/ventas/hoy")
+@login_required
+@tenant_scope_required
+@sede_scope_required
 def api_ventas_hoy():
     try:
+        hoy = datetime.now().strftime("%Y-%m-%d")
         caja = obtener_resumen_caja_dia()
+        totales = obtener_total_ventas_dia()
+        ventas_hora = obtener_serie_ventas_horaria_rango(dias=1, fecha_inicio=hoy, fecha_fin=hoy)
+        # ticket promedio: total / transacciones
+        _trans = int(totales.get("transacciones", 0) or 0)
+        _total = float(totales.get("total", 0) or 0)
+        totales["ticket_promedio"] = round(_total / _trans, 0) if _trans else 0.0
         return jsonify({
-            "totales": obtener_total_ventas_dia(),
+            "totales": totales,
             "resumen": obtener_resumen_ventas_dia(),
             "ventas": obtener_ventas_dia(),
             "ventas_por_responsable": obtener_resumen_ventas_por_responsable(),
@@ -2736,6 +3164,7 @@ def api_ventas_hoy():
             "arqueos": obtener_historial_arqueos(6),
             "movimientos": obtener_movimientos_caja(limite=20),
             "metodos_pago": caja.get("metodos_pago", []),
+            "ventas_por_hora": ventas_hora,
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -2835,6 +3264,9 @@ def api_cerrar_caja():
 
 
 @app.route("/api/ventas/vendido")
+@login_required
+@tenant_scope_required
+@sede_scope_required
 def api_vendido_dia():
     fecha = request.args.get("fecha", datetime.now().strftime("%Y-%m-%d"))
     producto = request.args.get("producto", "")
@@ -2851,6 +3283,7 @@ def api_agregar_producto():
     nombre = str(data.get("nombre", "") or "").strip()
     categoria = str(data.get("categoria", "Panaderia") or "").strip() or "Panaderia"
     es_adicional = bool(data.get("es_adicional", False))
+    surtido_tipo = _parsear_surtido_tipo(data.get("surtido_tipo"))
     raw_es_panaderia = data.get("es_panaderia")
     es_panaderia = None if raw_es_panaderia in (None, "") else str(raw_es_panaderia).strip().lower() in {
         "1", "true", "si", "sí", "yes", "on"
@@ -2861,7 +3294,28 @@ def api_agregar_producto():
         precio = float(data.get("precio", 0) or 0)
     except (TypeError, ValueError):
         return jsonify({"ok": False, "error": "Precio invalido"}), 400
-    ok = agregar_producto(nombre, precio, categoria, es_adicional=es_adicional, es_panaderia=es_panaderia)
+
+    # Verificar límite de productos del plan (platform_superadmin no tiene límite)
+    if _rol_usuario_actual() != PLATFORM_ADMIN_ROLE:
+        panaderia_id = _panaderia_actual_id()
+        if panaderia_id:
+            limite = TenantService.check_limite_productos(int(panaderia_id))
+            if not limite.get("puede_agregar", True):
+                return jsonify({
+                    "ok": False,
+                    "error": f"Límite de productos alcanzado ({limite['actual']}/{limite['maximo']}). "
+                             "Actualiza tu plan para agregar más.",
+                    "code": "plan_limit_productos",
+                }), 402
+
+    ok = agregar_producto(
+        nombre,
+        precio,
+        categoria,
+        es_adicional=es_adicional,
+        es_panaderia=es_panaderia,
+        surtido_tipo=surtido_tipo,
+    )
     status = 200 if ok else 409
     return jsonify({"ok": ok, "error": None if ok else "Ese producto ya existe en esa categoria"}), status
 
@@ -2873,6 +3327,7 @@ def api_actualizar_producto_completo(producto_id):
     nombre = str(data.get("nombre", "") or "").strip()
     categoria = str(data.get("categoria", "Panaderia") or "").strip() or "Panaderia"
     es_adicional = bool(data.get("es_adicional", False))
+    surtido_tipo = _parsear_surtido_tipo(data.get("surtido_tipo"))
     raw_es_panaderia = data.get("es_panaderia")
     es_panaderia = None if raw_es_panaderia in (None, "") else str(raw_es_panaderia).strip().lower() in {
         "1", "true", "si", "sí", "yes", "on"
@@ -2893,6 +3348,7 @@ def api_actualizar_producto_completo(producto_id):
         categoria,
         es_adicional,
         es_panaderia=es_panaderia,
+        surtido_tipo=surtido_tipo,
     )
     return jsonify({"ok": ok, "error": None if ok else "No se pudo actualizar el producto"})
 
@@ -3018,6 +3474,7 @@ def api_unir_cuentas_mesa(mesa_id):
 
 @app.route("/api/config/codigo-caja", methods=["PUT"])
 @login_required
+@admin_required
 def api_guardar_codigo_caja():
     data = request.get_json(silent=True) or {}
     codigo = str(data.get("codigo", "") or "").strip()
@@ -3030,56 +3487,176 @@ def api_guardar_codigo_caja():
 @app.route("/api/usuario", methods=["POST"])
 @login_required
 def api_agregar_usuario():
-    if _rol_usuario_actual() != "panadero":
+    if not _rol_es_admin():
         return jsonify({"ok": False, "error": "Sin permiso"}), 403
     data = request.get_json(silent=True) or {}
     nombre = str(data.get("nombre", "") or "").strip()
     pin = str(data.get("pin", "") or "").strip()
+    username = str(data.get("username", "") or "").strip()
     rol = str(data.get("rol", "cajero") or "cajero").strip().lower()
+    sede_id = data.get("sede_id")
     if not nombre or not pin:
         return jsonify({"ok": False, "error": "Llena nombre y PIN"}), 400
+    if rol not in VALID_ROLES:
+        return jsonify({"ok": False, "error": "Rol invalido"}), 400
     if len(pin) < 4:
         return jsonify({"ok": False, "error": "El PIN debe tener al menos 4 caracteres"}), 400
-    ok = agregar_usuario(
+
+    resultado = agregar_usuario(
         nombre,
         pin,
         rol,
+        username=username,
+        sede_id=sede_id,
     )
-    if not ok:
-        return jsonify({"ok": False, "error": "No se pudo agregar el usuario"}), 400
-    return jsonify({"ok": True})
+    if not resultado.get("ok"):
+        error_text = str(resultado.get("error", "")).lower()
+        status = 409 if "pin" in error_text or "username" in error_text else 400
+        return jsonify(resultado), status
+    registrar_audit(
+        usuario=_nombre_usuario_actual(),
+        usuario_id=_usuario_actual_id(),
+        panaderia_id=_panaderia_actual_id(),
+        sede_id=_sede_actual_id(),
+        ip=request.remote_addr or "",
+        user_agent=request.headers.get("User-Agent", ""),
+        request_id=getattr(g, "request_id", ""),
+        accion="crear_usuario",
+        entidad="usuario",
+        detalle=f"Usuario creado: {nombre} ({rol}) @ {resultado.get('username')}",
+        resultado="ok",
+    )
+    return jsonify(resultado)
 
 
 @app.route("/api/usuario/<int:uid>", methods=["PUT"])
 @login_required
 def api_actualizar_usuario(uid):
-    if _rol_usuario_actual() != "panadero":
+    if not _rol_es_admin():
         return jsonify({"ok": False, "error": "Sin permiso"}), 403
     data = request.get_json(silent=True) or {}
     nombre = str(data.get("nombre", "") or "").strip()
     rol = str(data.get("rol", "") or "").strip().lower()
     pin = str(data.get("pin", "") or "").strip()
+    username = str(data.get("username", "") or "").strip()
+    sede_id = data.get("sede_id")
     if not nombre:
         return jsonify({"ok": False, "error": "El nombre es obligatorio"}), 400
-    if rol not in ("panadero", "cajero", "mesero"):
+    if rol not in VALID_ROLES:
         return jsonify({"ok": False, "error": "Rol invalido"}), 400
+    if not username:
+        return jsonify({"ok": False, "error": "El username es obligatorio"}), 400
     if pin and len(pin) < 4:
         return jsonify({"ok": False, "error": "El PIN debe tener al menos 4 caracteres"}), 400
-    ok = actualizar_usuario(uid, nombre, rol, pin)
-    if not ok:
-        return jsonify({"ok": False, "error": "No se pudo actualizar el usuario"}), 400
-    return jsonify({"ok": True})
+    resultado = actualizar_usuario(uid, nombre, rol, pin, username=username, sede_id=sede_id)
+    if not resultado.get("ok"):
+        error_text = str(resultado.get("error", "")).lower()
+        status = 409 if "pin" in error_text or "username" in error_text else 400
+        return jsonify(resultado), status
+    registrar_audit(
+        usuario=_nombre_usuario_actual(),
+        usuario_id=_usuario_actual_id(),
+        panaderia_id=_panaderia_actual_id(),
+        sede_id=_sede_actual_id(),
+        ip=request.remote_addr or "",
+        user_agent=request.headers.get("User-Agent", ""),
+        request_id=getattr(g, "request_id", ""),
+        accion="editar_usuario",
+        entidad="usuario",
+        entidad_id=str(uid),
+        detalle=f"Usuario actualizado: {nombre} ({rol}) @ {resultado.get('username')}",
+        resultado="ok",
+    )
+    return jsonify(resultado)
+
+
+@app.route("/api/usuario/<int:uid>/reset-pin", methods=["POST"])
+@login_required
+def api_resetear_pin_usuario(uid):
+    if not _rol_es_admin():
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    panaderia_id = _panaderia_actual_id()
+    if not panaderia_id:
+        return jsonify({"ok": False, "error": "Sin contexto de panaderia"}), 400
+    data = request.get_json(silent=True) or {}
+    nuevo_pin = str(data.get("pin", "") or "").strip()
+    if nuevo_pin and len(nuevo_pin) < 4:
+        return jsonify({"ok": False, "error": "El PIN debe tener al menos 4 caracteres"}), 400
+    resultado = resetear_pin_usuario(uid, int(panaderia_id), nuevo_pin=nuevo_pin)
+    if not resultado.get("ok"):
+        error_text = str(resultado.get("error", "")).lower()
+        status = 409 if "pin" in error_text else 400
+        return jsonify(resultado), status
+    registrar_audit(
+        usuario=_nombre_usuario_actual(),
+        usuario_id=_usuario_actual_id(),
+        panaderia_id=panaderia_id,
+        sede_id=_sede_actual_id(),
+        ip=request.remote_addr or "",
+        user_agent=request.headers.get("User-Agent", ""),
+        request_id=getattr(g, "request_id", ""),
+        accion="reset_pin_usuario",
+        entidad="usuario",
+        entidad_id=str(uid),
+        detalle="PIN operativo reseteado e invalida sesion previa",
+        resultado="ok",
+    )
+    return jsonify(resultado)
 
 
 @app.route("/api/usuario/<int:uid>", methods=["DELETE"])
 @login_required
 def api_eliminar_usuario(uid):
-    if _rol_usuario_actual() != "panadero":
+    if not _rol_es_admin():
         return jsonify({"ok": False, "error": "Sin permiso"}), 403
-    ok = eliminar_usuario(uid)
+    # Desactivar en vez de eliminar para preservar historial y auditoría.
+    # La desactivación invalida inmediatamente todas las sesiones del usuario.
+    ok = set_usuario_activo(uid, False)
     if not ok:
-        return jsonify({"ok": False, "error": "No se pudo eliminar el usuario"}), 400
+        return jsonify({"ok": False, "error": "No se pudo desactivar el usuario"}), 400
+    registrar_audit(
+        usuario=_nombre_usuario_actual(),
+        usuario_id=_usuario_actual_id(),
+        panaderia_id=_panaderia_actual_id(),
+        sede_id=_sede_actual_id(),
+        ip=request.remote_addr or "",
+        user_agent=request.headers.get("User-Agent", ""),
+        request_id=getattr(g, "request_id", ""),
+        accion="desactivar_usuario",
+        entidad="usuario",
+        entidad_id=str(uid),
+        detalle="Usuario desactivado — sesiones invalidadas",
+        resultado="ok",
+    )
     return jsonify({"ok": True})
+
+
+@app.route("/api/usuario/<int:uid>/toggle-activo", methods=["POST"])
+@login_required
+def api_toggle_usuario_activo(uid):
+    """Activa o desactiva un usuario. Desactivar invalida sus sesiones inmediatamente."""
+    if not _rol_es_admin():
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    activo = bool(data.get("activo", False))
+    ok = set_usuario_activo(uid, activo)
+    if not ok:
+        return jsonify({"ok": False, "error": "No se pudo actualizar el estado"}), 400
+    registrar_audit(
+        usuario=_nombre_usuario_actual(),
+        usuario_id=_usuario_actual_id(),
+        panaderia_id=_panaderia_actual_id(),
+        sede_id=_sede_actual_id(),
+        ip=request.remote_addr or "",
+        user_agent=request.headers.get("User-Agent", ""),
+        request_id=getattr(g, "request_id", ""),
+        accion="activar_usuario" if activo else "desactivar_usuario",
+        entidad="usuario",
+        entidad_id=str(uid),
+        detalle=f"Usuario {'activado' if activo else 'desactivado — sesiones invalidadas'}",
+        resultado="ok",
+    )
+    return jsonify({"ok": True, "activo": activo})
 
 
 # ── API Pedidos ──
@@ -3224,7 +3801,8 @@ def api_crear_pedido():
 
     resultado = crear_pedido(mesa_id, usuario_actual, items, notas)
     if not resultado.get("ok"):
-        return jsonify(resultado), 500
+        status = 400 if "mesa" in str(resultado.get("error", "")).lower() else 500
+        return jsonify(resultado), status
     return jsonify(resultado)
 
 
@@ -3281,6 +3859,10 @@ def api_cambiar_estado(pedido_id):
             monto_recibido=monto_recibido,
             metodo_pago_2=metodo_pago_2,
             monto_pago_2=monto_pago_2,
+            cliente_id=data.get("cliente_id"),
+            cliente_nombre_snapshot=data.get("cliente_nombre_snapshot", ""),
+            fecha_vencimiento_credito=data.get("fecha_vencimiento_credito"),
+            usuario_id=_usuario_actual_id(),
         )
         status = 200 if resultado.get("ok") else 400
         if resultado.get("ok"):
@@ -3312,7 +3894,12 @@ def api_cambiar_estado(pedido_id):
                 entidad_id=str(pedido_id),
                 detalle=detalle_audit,
             )
-    return jsonify({"ok": ok})
+    respuesta = {"ok": ok}
+    if ok and nuevo_estado == "listo":
+        comandas = obtener_comandas_por_pedido(pedido_id)
+        if comandas:
+            respuesta["comanda_id"] = comandas[0].get("id")
+    return jsonify(respuesta)
 
 
 @app.route("/api/pedido/<int:pedido_id>/split-pay", methods=["POST"])
@@ -3329,6 +3916,13 @@ def api_dividir_y_cobrar_pedido(pedido_id):
             monto_recibido = float(monto_recibido)
         except (TypeError, ValueError):
             return jsonify({"ok": False, "error": "Monto recibido invalido"}), 400
+    raw_mp2 = data.get("metodo_pago_2")
+    raw_monto2 = data.get("monto_pago_2")
+    metodo_pago_2 = str(raw_mp2).strip().lower() if raw_mp2 else None
+    try:
+        monto_pago_2 = float(raw_monto2) if raw_monto2 not in (None, "", "null") else None
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Monto del segundo metodo invalido"}), 400
 
     resultado = dividir_pedido_y_cobrar(
         pedido_id,
@@ -3336,6 +3930,12 @@ def api_dividir_y_cobrar_pedido(pedido_id):
         registrado_por=_nombre_usuario_actual(),
         metodo_pago=metodo_pago,
         monto_recibido=monto_recibido,
+        metodo_pago_2=metodo_pago_2,
+        monto_pago_2=monto_pago_2,
+        cliente_id=data.get("cliente_id"),
+        cliente_nombre_snapshot=data.get("cliente_nombre_snapshot", ""),
+        fecha_vencimiento_credito=data.get("fecha_vencimiento_credito"),
+        usuario_id=_usuario_actual_id(),
     )
     status = 200 if resultado.get("ok") else 400
     if resultado.get("ok"):
@@ -3350,8 +3950,542 @@ def api_obtener_pedido(pedido_id):
     if pedido and not _pedido_visible_para_usuario(pedido):
         return jsonify({"error": "No autorizado"}), 403
     if pedido:
+        pedido["comandas"] = obtener_comandas_por_pedido(pedido_id)
+        ultima_comanda_resumen = pedido["comandas"][0] if pedido["comandas"] else None
+        pedido["ultima_comanda"] = (
+            obtener_comanda(int(ultima_comanda_resumen.get("id", 0) or 0))
+            if ultima_comanda_resumen
+            else None
+        )
+        pedido["trazabilidad"] = pedido.get("trazabilidad") or obtener_trazabilidad_pedido(pedido_id)
         return jsonify(pedido)
     return jsonify({"error": "Pedido no encontrado"}), 404
+
+
+@app.route("/api/pedido/<int:pedido_id>/comandas")
+@login_required
+def api_obtener_comandas_pedido(pedido_id):
+    pedido = obtener_pedido(pedido_id)
+    if not pedido:
+        return jsonify({"ok": False, "error": "Pedido no encontrado"}), 404
+    if not _pedido_visible_para_usuario(pedido):
+        return jsonify({"ok": False, "error": "No autorizado"}), 403
+    return jsonify({
+        "ok": True,
+        "pedido_id": pedido_id,
+        "comandas": obtener_comandas_por_pedido(pedido_id),
+    })
+
+
+@app.route("/api/mesa/<int:mesa_id>/pedido-activo")
+@login_required
+def api_obtener_pedido_activo_mesa(mesa_id: int):
+    if not _puede_gestionar_mesas():
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+
+    mesa = obtener_mesa(mesa_id)
+    if not mesa:
+        return jsonify({"ok": False, "error": "Mesa no encontrada"}), 404
+
+    pedido = obtener_pedido_activo_mesa(mesa_id)
+    if not pedido:
+        return jsonify({"ok": False, "error": "La mesa no tiene un pedido activo"}), 404
+    if not _pedido_visible_para_usuario(pedido):
+        return jsonify({"ok": False, "error": "No autorizado"}), 403
+
+    comandas = obtener_comandas_por_pedido(int(pedido.get("id", 0) or 0))
+    ultima_comanda = obtener_comanda(int(comandas[0]["id"])) if comandas else None
+    pedido["comandas"] = comandas
+    pedido["ultima_comanda"] = ultima_comanda
+    pedido["trazabilidad"] = pedido.get("trazabilidad") or obtener_trazabilidad_pedido(int(pedido.get("id", 0) or 0))
+    return jsonify({
+        "ok": True,
+        "mesa": mesa,
+        "pedido": pedido,
+        "comanda": ultima_comanda,
+    })
+
+
+@app.route("/comanda/<int:comanda_id>/print")
+@login_required
+def ver_comanda_print(comanda_id):
+    comanda = obtener_comanda(comanda_id)
+    if not comanda:
+        abort(404)
+    pedido = obtener_pedido(int(comanda.get("pedido_id", 0) or 0))
+    if not pedido:
+        abort(404)
+    if not _pedido_visible_para_usuario(pedido):
+        abort(403)
+
+    branding = obtener_branding_panaderia(comanda.get("panaderia_id"))
+    auto_print = str(request.args.get("auto", "") or "").strip().lower() in {"1", "true", "si", "sí", "yes"}
+    print_mode = str(request.args.get("mode", "imprimir") or "imprimir").strip().lower()
+    if print_mode not in {"imprimir", "reimprimir"}:
+        print_mode = "imprimir"
+
+    return render_template(
+        "comanda_print.html",
+        comanda=comanda,
+        branding=branding,
+        auto_print=auto_print,
+        print_mode=print_mode,
+        layout="standalone",
+    )
+
+
+@app.route("/api/comanda/<int:comanda_id>/imprimir", methods=["POST"])
+@login_required
+def api_imprimir_comanda(comanda_id):
+    comanda = obtener_comanda(comanda_id)
+    if not comanda:
+        return jsonify({"ok": False, "error": "Comanda no encontrada"}), 404
+    pedido = obtener_pedido(int(comanda.get("pedido_id", 0) or 0))
+    if not pedido or not _pedido_visible_para_usuario(pedido):
+        return jsonify({"ok": False, "error": "No autorizado"}), 403
+    ok = marcar_comanda_impresa(
+        comanda_id,
+        actor_nombre=_nombre_usuario_actual(),
+        actor_id=_usuario_actual_id(),
+    )
+    return jsonify({"ok": ok, "estado": "impresa" if ok else "error"}), (200 if ok else 500)
+
+
+@app.route("/api/comanda/<int:comanda_id>/reimprimir", methods=["POST"])
+@login_required
+def api_reimprimir_comanda(comanda_id):
+    comanda = obtener_comanda(comanda_id)
+    if not comanda:
+        return jsonify({"ok": False, "error": "Comanda no encontrada"}), 404
+    pedido = obtener_pedido(int(comanda.get("pedido_id", 0) or 0))
+    if not pedido or not _pedido_visible_para_usuario(pedido):
+        return jsonify({"ok": False, "error": "No autorizado"}), 403
+    ok = marcar_comanda_reimpresa(
+        comanda_id,
+        actor_nombre=_nombre_usuario_actual(),
+        actor_id=_usuario_actual_id(),
+    )
+    return jsonify({"ok": ok, "estado": "reimpresa" if ok else "error"}), (200 if ok else 500)
+
+
+def _roles_documento_ok() -> set[str]:
+    return {"cajero", "panadero", "tenant_admin", "platform_superadmin"}
+
+
+def _datos_documentales_desde_request(data: dict | None = None) -> dict:
+    data = data or {}
+    return {
+        "cliente_id": data.get("cliente_id"),
+        "nombre": str(data.get("nombre") or data.get("nombre_comprador") or "").strip(),
+        "tipo_doc": str(data.get("tipo_doc") or "").strip(),
+        "numero_doc": str(data.get("numero_doc") or "").strip(),
+        "email": str(data.get("email") or data.get("email_comprador") or "").strip(),
+        "direccion": str(data.get("direccion") or "").strip(),
+        "empresa": str(data.get("empresa") or "").strip(),
+        "tipo_documento": str(data.get("tipo_documento") or "factura").strip().lower() or "factura",
+    }
+
+
+def _documento_visible_para_usuario(documento: dict | None) -> bool:
+    if not documento:
+        return False
+    panaderia_id = int(documento.get("panaderia_id") or 0)
+    if panaderia_id and panaderia_id != int(_panaderia_actual_id() or 0):
+        return False
+
+    origen_tipo = str(documento.get("origen_tipo") or "").strip().lower()
+    origen_id = int(documento.get("origen_id") or 0)
+    if origen_tipo == "pedido":
+        pedido = obtener_pedido(origen_id)
+        return bool(pedido and _pedido_visible_para_usuario(pedido))
+
+    return _rol_usuario_actual() in _roles_documento_ok()
+
+
+def _build_documento_payload(origen_tipo: str, origen_id: int, datos_documentales: dict) -> dict:
+    tipo_documento = datos_documentales.get("tipo_documento") or "factura"
+    if origen_tipo == "venta":
+        return build_documento_payload_desde_venta(
+            venta_id=origen_id,
+            datos_cliente=datos_documentales,
+            tipo_documento=tipo_documento,
+        )
+    if origen_tipo == "pedido":
+        return build_documento_payload_desde_pedido(
+            pedido_id=origen_id,
+            datos_cliente=datos_documentales,
+            tipo_documento=tipo_documento,
+        )
+    if origen_tipo == "encargo":
+        return build_documento_payload_desde_encargo(
+            encargo_id=origen_id,
+            datos_cliente=datos_documentales,
+            tipo_documento=tipo_documento,
+        )
+    raise ValueError("Origen de documento no soportado")
+
+
+def _crear_documento_desde_origen(origen_tipo: str, origen_id: int, datos_documentales: dict) -> dict:
+    payload = _build_documento_payload(origen_tipo, origen_id, datos_documentales)
+    usuario_id = _usuario_actual_id()
+    resultado = crear_documento_emitido(
+        origen_tipo=origen_tipo,
+        origen_id=origen_id,
+        payload=payload,
+        usuario_id=usuario_id,
+    )
+    documento = obtener_documento_emitido(resultado["documento_id"])
+    _log_event(
+        "documento_generado",
+        request_id=getattr(g, "request_id", ""),
+        origen_tipo=origen_tipo,
+        origen_id=origen_id,
+        documento_id=resultado["documento_id"],
+        consecutivo=resultado.get("consecutivo"),
+        usuario=_nombre_usuario_actual(),
+    )
+    return {
+        "ok": True,
+        "documento_id": resultado["documento_id"],
+        "consecutivo": resultado["consecutivo"],
+        "documento": documento,
+        "print_url": url_for("ver_documento_print", documento_id=resultado["documento_id"]),
+    }
+
+
+def _smtp_config() -> dict:
+    return {
+        "host": str(os.environ.get("SMTP_HOST", "") or "").strip(),
+        "port": int(os.environ.get("SMTP_PORT", "587") or 587),
+        "user": str(os.environ.get("SMTP_USER", "") or "").strip(),
+        "password": str(os.environ.get("SMTP_PASSWORD", "") or "").strip(),
+        "from": str(os.environ.get("SMTP_FROM", "") or "").strip(),
+        "use_tls": str(os.environ.get("SMTP_USE_TLS", "true") or "true").strip().lower() not in {"0", "false", "no"},
+    }
+
+
+def _smtp_disponible() -> bool:
+    config = _smtp_config()
+    return bool(config["host"] and config["from"])
+
+
+def _documento_logo_data_uri(payload: dict) -> str:
+    negocio = payload.get("negocio") or {}
+    logo_path = str(negocio.get("logo_path") or "").strip()
+    if not logo_path:
+        return ""
+    abs_path = os.path.join(app.static_folder or "", logo_path.replace("/", os.sep))
+    if not os.path.isfile(abs_path):
+        return ""
+    ext = os.path.splitext(abs_path)[1].lower()
+    mime = {
+        ".svg": "image/svg+xml",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+    }.get(ext)
+    if not mime:
+        return ""
+    try:
+        with open(abs_path, "rb") as fh:
+            encoded = base64.b64encode(fh.read()).decode("ascii")
+        return f"data:{mime};base64,{encoded}"
+    except OSError:
+        return ""
+
+
+def _enviar_documento_email(documento: dict, email_destino: str) -> None:
+    config = _smtp_config()
+    if not _smtp_disponible():
+        raise RuntimeError("Correo no configurado. Define SMTP_HOST y SMTP_FROM para habilitar envios.")
+
+    payload = documento.get("payload") or {}
+    negocio = payload.get("negocio") or {}
+    cliente = payload.get("cliente") or {}
+    asunto = f"{str(payload.get('tipo_documento') or 'documento').replace('_', ' ').capitalize()} {documento.get('consecutivo')}"
+    html_documento = render_template(
+        "factura_print.html",
+        documento=documento,
+        payload=payload,
+        auto_print=False,
+        print_mode="imprimir",
+        email_mode=True,
+        logo_data_uri=_documento_logo_data_uri(payload),
+        smtp_ready=_smtp_disponible(),
+        layout="standalone",
+    )
+    html_body = render_template(
+        "documento_email.html",
+        documento=documento,
+        payload=payload,
+        cliente=cliente,
+        negocio=negocio,
+    ) if False else f"""
+    <html>
+      <body style="font-family:Segoe UI,Arial,sans-serif;color:#23160d;">
+        <p>Hola {cliente.get('nombre') or 'cliente'},</p>
+        <p>Adjuntamos tu {str(payload.get('tipo_documento') or 'documento').replace('_', ' ')} {documento.get('consecutivo')}.</p>
+        <p>Total: ${float((payload.get('totales') or {}).get('total', 0) or 0):,.2f}</p>
+        <p>{negocio.get('brand_name') or 'Panaderia'}</p>
+      </body>
+    </html>
+    """
+
+    message = EmailMessage()
+    message["Subject"] = asunto
+    message["From"] = config["from"]
+    message["To"] = email_destino
+    message.set_content(
+        "\n".join(
+            [
+                f"Hola {cliente.get('nombre') or 'cliente'},",
+                "",
+                f"Adjuntamos tu documento {documento.get('consecutivo')}.",
+                f"Total: ${float((payload.get('totales') or {}).get('total', 0) or 0):,.2f}",
+                "",
+                str(negocio.get("brand_name") or "Panaderia"),
+            ]
+        )
+    )
+    message.add_alternative(html_body, subtype="html")
+    filename = f"{documento.get('consecutivo') or 'documento'}.html"
+    message.add_attachment(html_documento.encode("utf-8"), maintype="text", subtype="html", filename=filename)
+
+    with smtplib.SMTP(config["host"], config["port"], timeout=20) as server:
+        if config["use_tls"]:
+            server.starttls()
+        if config["user"]:
+            server.login(config["user"], config["password"])
+        server.send_message(message)
+
+
+@app.route("/documento/<int:documento_id>/print")
+@login_required
+def ver_documento_print(documento_id):
+    documento = obtener_documento_emitido(documento_id)
+    if not documento:
+        abort(404)
+    if not _documento_visible_para_usuario(documento):
+        abort(403)
+
+    auto_print = str(request.args.get("auto", "") or "").strip().lower() in {"1", "true", "si", "sí", "yes"}
+    print_mode = str(request.args.get("mode", "imprimir") or "imprimir").strip().lower()
+    if print_mode not in {"imprimir", "reimprimir"}:
+        print_mode = "imprimir"
+
+    return render_template(
+        "factura_print.html",
+        documento=documento,
+        payload=documento.get("payload") or {},
+        auto_print=auto_print,
+        print_mode=print_mode,
+        email_mode=False,
+        logo_data_uri="",
+        smtp_ready=_smtp_disponible(),
+        layout="standalone",
+    )
+
+
+@app.route("/api/documento/generar-desde-venta/<int:venta_id>", methods=["POST"])
+@login_required
+def api_generar_documento_desde_venta(venta_id: int):
+    if _rol_usuario_actual() not in _roles_documento_ok():
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify(_crear_documento_desde_origen("venta", venta_id, _datos_documentales_desde_request(data)))
+    except Exception as exc:
+        _log_exception(
+            "documento_generacion_error",
+            exc,
+            request_id=getattr(g, "request_id", ""),
+            origen_tipo="venta",
+            origen_id=venta_id,
+            usuario=_nombre_usuario_actual(),
+        )
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.route("/api/documento/generar-desde-pedido/<int:pedido_id>", methods=["POST"])
+@login_required
+def api_generar_documento_desde_pedido(pedido_id: int):
+    pedido = obtener_pedido(pedido_id)
+    if not pedido:
+        return jsonify({"ok": False, "error": "Pedido no encontrado"}), 404
+    if not _pedido_visible_para_usuario(pedido):
+        return jsonify({"ok": False, "error": "No autorizado"}), 403
+    if _rol_usuario_actual() not in _roles_documento_ok():
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify(_crear_documento_desde_origen("pedido", pedido_id, _datos_documentales_desde_request(data)))
+    except Exception as exc:
+        _log_exception(
+            "documento_generacion_error",
+            exc,
+            request_id=getattr(g, "request_id", ""),
+            origen_tipo="pedido",
+            origen_id=pedido_id,
+            usuario=_nombre_usuario_actual(),
+        )
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.route("/api/documento/generar-desde-encargo/<int:encargo_id>", methods=["POST"])
+@login_required
+def api_generar_documento_desde_encargo(encargo_id: int):
+    if _rol_usuario_actual() not in _roles_documento_ok():
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    encargo = obtener_encargo_v2(encargo_id)
+    if not encargo:
+        return jsonify({"ok": False, "error": "Encargo no encontrado"}), 404
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify(_crear_documento_desde_origen("encargo", encargo_id, _datos_documentales_desde_request(data)))
+    except Exception as exc:
+        _log_exception(
+            "documento_generacion_error",
+            exc,
+            request_id=getattr(g, "request_id", ""),
+            origen_tipo="encargo",
+            origen_id=encargo_id,
+            usuario=_nombre_usuario_actual(),
+        )
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.route("/api/documentos", methods=["GET"])
+@login_required
+def api_documentos_recientes():
+    if _rol_usuario_actual() not in _roles_documento_ok():
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    pagination_args = _parse_pagination_args()
+    fecha_desde = request.args.get("fecha_desde", "").strip()
+    fecha_hasta = request.args.get("fecha_hasta", "").strip()
+    try:
+        fecha_desde = _parse_fecha_iso(fecha_desde) if fecha_desde else ""
+    except ValueError:
+        fecha_desde = ""
+    try:
+        fecha_hasta = _parse_fecha_iso(fecha_hasta) if fecha_hasta else ""
+    except ValueError:
+        fecha_hasta = ""
+    documentos_data = obtener_documentos_recientes_paginados(
+        page=pagination_args["page"],
+        size=pagination_args["size"],
+        origen_tipo=request.args.get("origen_tipo", "").strip().lower() or None,
+        estado=request.args.get("estado", "").strip().lower() or None,
+        tipo_documento=request.args.get("tipo_documento", "").strip().lower() or None,
+        cliente=request.args.get("cliente", "").strip() or None,
+        fecha_desde=fecha_desde or None,
+        fecha_hasta=fecha_hasta or None,
+        estado_envio=request.args.get("estado_envio", "").strip().lower() or None,
+    )
+    visibles = [doc for doc in documentos_data["items"] if _documento_visible_para_usuario(doc)]
+    return jsonify({
+        "ok": True,
+        "documentos": visibles,
+        "pagination": {
+            **documentos_data["pagination"],
+            "items_count": len(visibles),
+        },
+    })
+
+
+@app.route("/api/documento/<int:documento_id>")
+@login_required
+def api_obtener_documento(documento_id: int):
+    documento = obtener_documento_emitido(documento_id)
+    if not documento:
+        return jsonify({"ok": False, "error": "Documento no encontrado"}), 404
+    if not _documento_visible_para_usuario(documento):
+        return jsonify({"ok": False, "error": "No autorizado"}), 403
+    return jsonify({"ok": True, "documento": documento, "smtp_ready": _smtp_disponible()})
+
+
+@app.route("/api/documento/<int:documento_id>/envios")
+@login_required
+def api_envios_documento(documento_id: int):
+    documento = obtener_documento_emitido(documento_id)
+    if not documento:
+        return jsonify({"ok": False, "error": "Documento no encontrado"}), 404
+    if not _documento_visible_para_usuario(documento):
+        return jsonify({"ok": False, "error": "No autorizado"}), 403
+    return jsonify({"ok": True, "envios": obtener_envios_documento(documento_id)})
+
+
+@app.route("/api/documento/<int:documento_id>/imprimir", methods=["POST"])
+@login_required
+def api_imprimir_documento(documento_id: int):
+    documento = obtener_documento_emitido(documento_id)
+    if not documento:
+        return jsonify({"ok": False, "error": "Documento no encontrado"}), 404
+    if not _documento_visible_para_usuario(documento):
+        return jsonify({"ok": False, "error": "No autorizado"}), 403
+    ok = marcar_documento_impreso(documento_id, usuario_id=_usuario_actual_id())
+    return jsonify({"ok": ok, "estado": "emitido" if ok else "error"}), (200 if ok else 500)
+
+
+@app.route("/api/documento/<int:documento_id>/reimprimir", methods=["POST"])
+@login_required
+def api_reimprimir_documento(documento_id: int):
+    documento = obtener_documento_emitido(documento_id)
+    if not documento:
+        return jsonify({"ok": False, "error": "Documento no encontrado"}), 404
+    if not _documento_visible_para_usuario(documento):
+        return jsonify({"ok": False, "error": "No autorizado"}), 403
+    ok = marcar_documento_reimpreso(documento_id, usuario_id=_usuario_actual_id())
+    return jsonify({"ok": ok, "estado": "reimpresa" if ok else "error"}), (200 if ok else 500)
+
+
+@app.route("/api/documento/<int:documento_id>/enviar", methods=["POST"])
+@login_required
+def api_enviar_documento(documento_id: int):
+    documento = obtener_documento_emitido(documento_id)
+    if not documento:
+        return jsonify({"ok": False, "error": "Documento no encontrado"}), 404
+    if not _documento_visible_para_usuario(documento):
+        return jsonify({"ok": False, "error": "No autorizado"}), 403
+
+    data = request.get_json(silent=True) or {}
+    email_destino = str(data.get("email") or documento.get("cliente_email_snapshot") or "").strip()
+    if not email_destino:
+        return jsonify({"ok": False, "error": "Debes indicar un correo destino"}), 400
+
+    try:
+        _enviar_documento_email(documento, email_destino)
+        registrar_envio_documento(
+            documento_id=documento_id,
+            email_destino=email_destino,
+            estado="enviado",
+            usuario_id=_usuario_actual_id(),
+        )
+        return jsonify({"ok": True, "email": email_destino})
+    except Exception as exc:
+        try:
+            registrar_envio_documento(
+                documento_id=documento_id,
+                email_destino=email_destino,
+                estado="error",
+                error=str(exc),
+                usuario_id=_usuario_actual_id(),
+            )
+        except Exception:
+            app.logger.exception("No se pudo registrar el error de envio del documento")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/origen/<tipo>/<int:origen_id>/documentos")
+@login_required
+def api_documentos_por_origen(tipo: str, origen_id: int):
+    try:
+        documentos = obtener_documentos_por_origen(tipo, origen_id)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+    visibles = [doc for doc in documentos if _documento_visible_para_usuario(doc)]
+    return jsonify({"ok": True, "documentos": visibles})
 
 
 @app.route("/api/pedidos")
@@ -3533,6 +4667,8 @@ def api_guardar_receta(producto):
 @app.route("/api/mesa", methods=["POST"])
 @login_required
 def api_agregar_mesa():
+    if not _puede_gestionar_mesas():
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
     data = request.get_json(silent=True) or {}
     try:
         numero = int(data.get("numero", 0))
@@ -3541,23 +4677,86 @@ def api_agregar_mesa():
     nombre = (data.get("nombre", "") or "").strip()
     if numero <= 0:
         return jsonify({"ok": False, "error": "Numero invalido"}), 400
-    ok = agregar_mesa(numero, nombre)
-    if not ok:
-        return jsonify({
-            "ok": False,
-            "error": "La mesa ya existe y se encuentra activa"
-        }), 400
+    resultado = agregar_mesa(numero, nombre)
+    if not resultado.get("ok"):
+        return jsonify(resultado), 400
+
+    mesa = resultado.get("mesa") or {}
+    accion = str(resultado.get("accion", "") or "").strip()
+    detalle = f"Mesa {mesa.get('numero')} {accion}"
+    _registrar_auditoria_mesa(resultado, f"{accion}_mesa", detalle)
     return jsonify({
         "ok": True,
-        "mensaje": "Mesa agregada o reactivada correctamente",
-        "numero": numero
+        "accion": accion,
+        "mesa": mesa,
+        "mensaje": "Mesa agregada correctamente" if accion == "creada" else "Mesa reactivada correctamente",
     })
+
+
+@app.route("/api/mesa/<int:mesa_id>", methods=["PUT"])
+@login_required
+def api_actualizar_mesa(mesa_id: int):
+    if not _puede_gestionar_mesas():
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        numero = int(data.get("numero", 0))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Numero invalido"}), 400
+    nombre = str(data.get("nombre", "") or "").strip()
+    resultado = actualizar_mesa(mesa_id, numero, nombre)
+    if not resultado.get("ok"):
+        return jsonify(resultado), 400
+    mesa = resultado.get("mesa") or {}
+    _registrar_auditoria_mesa(resultado, "actualizar_mesa", f"Mesa {mesa.get('numero')} actualizada")
+    return jsonify(resultado)
+
+
+@app.route("/api/mesa/<int:mesa_id>/activar", methods=["POST"])
+@login_required
+def api_activar_mesa(mesa_id: int):
+    if not _puede_gestionar_mesas():
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    resultado = activar_mesa(mesa_id)
+    if not resultado.get("ok"):
+        return jsonify(resultado), 400
+    mesa = resultado.get("mesa") or {}
+    _registrar_auditoria_mesa(resultado, "activar_mesa", f"Mesa {mesa.get('numero')} activada")
+    return jsonify(resultado)
+
+
+@app.route("/api/mesa/<int:mesa_id>/desactivar", methods=["POST"])
+@login_required
+def api_desactivar_mesa(mesa_id: int):
+    if not _puede_gestionar_mesas():
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    resultado = desactivar_mesa(mesa_id)
+    if not resultado.get("ok"):
+        return jsonify(resultado), 400
+    mesa = resultado.get("mesa") or {}
+    _registrar_auditoria_mesa(resultado, "desactivar_mesa", f"Mesa {mesa.get('numero')} desactivada")
+    return jsonify(resultado)
+
+
+@app.route("/api/mesa/<int:mesa_id>", methods=["DELETE"])
+@login_required
+def api_eliminar_mesa(mesa_id: int):
+    if not _puede_gestionar_mesas():
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    resultado = eliminar_mesa(mesa_id)
+    if not resultado.get("ok"):
+        status = 409 if resultado.get("codigo") == "mesa_con_pedido_abierto" else 400
+        return jsonify(resultado), status
+    mesa = resultado.get("mesa") or {}
+    _registrar_auditoria_mesa(resultado, "eliminar_mesa", f"Mesa {mesa.get('numero')} eliminada logicamente")
+    return jsonify(resultado)
 
 
 # ── API Backups ──
 
 @app.route("/api/backup", methods=["POST"])
 @login_required
+@admin_required
 def api_crear_backup():
     data = request.json or {}
     nota = data.get("nota", "Backup manual")
@@ -3567,6 +4766,7 @@ def api_crear_backup():
 
 @app.route("/api/backup/restaurar", methods=["POST"])
 @login_required
+@admin_required
 def api_restaurar_backup():
     data = request.json
     timestamp = data.get("timestamp", "")
@@ -3578,6 +4778,7 @@ def api_restaurar_backup():
 
 @app.route("/api/backup/<timestamp>", methods=["DELETE"])
 @login_required
+@admin_required
 def api_eliminar_backup(timestamp):
     result = eliminar_backup(timestamp)
     return jsonify(result)
@@ -3585,6 +4786,7 @@ def api_eliminar_backup(timestamp):
 
 @app.route("/api/backup/limpiar", methods=["POST"])
 @login_required
+@admin_required
 def api_limpiar_backups():
     result = limpiar_backups_antiguos()
     return jsonify(result)
@@ -3603,6 +4805,37 @@ def api_top_productos():
     limite = int(request.args.get("limite", 3))
     top = obtener_top_productos_dia(fecha=fecha, limite=limite)
     return jsonify({"ok": True, "fecha": fecha, "top": top})
+
+
+@app.route("/api/surtido/sugerir", methods=["POST"])
+@login_required
+@roles_required("cajero", "mesero", "tenant_admin", "platform_superadmin")
+def api_sugerir_surtido():
+    data = request.get_json(silent=True) or {}
+    try:
+        valor_objetivo = _parsear_numero_positivo(data.get("valor_objetivo"), "Valor objetivo")
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+    pedido_id_raw = data.get("pedido_id")
+    try:
+        pedido_id = int(pedido_id_raw) if pedido_id_raw not in (None, "") else None
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Pedido invalido"}), 400
+
+    items_actuales = data.get("items_actuales", [])
+    if items_actuales is None:
+        items_actuales = []
+    if not isinstance(items_actuales, list):
+        return jsonify({"ok": False, "error": "items_actuales debe ser una lista"}), 400
+
+    resultado = generar_surtido_por_valor(
+        valor_objetivo=valor_objetivo,
+        excluir_pedido_id=pedido_id,
+        items_existentes=items_actuales,
+    )
+    status = 200 if resultado.get("ok") else 400
+    return jsonify(resultado), status
 
 
 # ── Alertas de stock por producto ────────────────────────────────────────────
@@ -3652,8 +4885,9 @@ def api_actualizar_stock_minimo(producto_id):
 
 @app.route("/api/audit-log")
 @login_required
+@admin_required
 def api_audit_log():
-    if session.get("usuario", {}).get("rol") != "panadero":
+    if not _rol_es_admin():
         return jsonify({"ok": False, "error": "Sin permiso"}), 403
     dias = int(request.args.get("dias", 30))
     limite = int(request.args.get("limite", 200))
@@ -3702,6 +4936,20 @@ def api_obtener_ajuste_pronostico():
     ajuste = obtener_ajuste_pronostico(fecha, producto)
     historial = obtener_historial_ajustes(producto, dias=30)
     return jsonify({"ok": True, "ajuste": ajuste, "historial": historial})
+
+
+# ── Backtesting pronóstico ────────────────────────────────────────────────────
+
+@app.route("/api/pronostico/backtesting")
+@login_required
+def api_pronostico_backtesting():
+    producto = request.args.get("producto", "").strip()
+    if not producto:
+        return jsonify({"ok": False, "error": "Producto requerido"}), 400
+    ventana = int(request.args.get("ventana", 21))
+    max_eval = int(request.args.get("max", 20))
+    resultado = calcular_backtesting(producto, ventana_entrenamiento=ventana, max_evaluaciones=max_eval)
+    return jsonify(resultado)
 
 
 # ── Mermas ───────────────────────────────────────────────────────────────────
@@ -3883,9 +5131,8 @@ def api_export_productos():
 
 @app.route("/panadero/cierre")
 @login_required
+@roles_required("panadero", "tenant_admin", "platform_superadmin")
 def panadero_cierre():
-    if session.get("usuario", {}).get("rol") != "panadero":
-        return redirect(url_for("index"))
     return render_template("panadero_cierre.html",
                            layout="panadero", active_page="cierre")
 
@@ -3894,11 +5141,152 @@ def panadero_cierre():
 
 @app.route("/panadero/audit")
 @login_required
+@admin_required
 def panadero_audit():
-    if session.get("usuario", {}).get("rol") != "panadero":
-        return redirect(url_for("index"))
+    if not _rol_es_admin():
+        return redirect(url_for("auth.index"))
     return render_template("panadero_audit.html",
                            layout="panadero", active_page="audit")
+
+
+# ══════════════════════════════════════════════
+# PLATAFORMA (platform_superadmin)
+# ══════════════════════════════════════════════
+
+@app.route("/tenant/panel")
+@login_required
+@roles_required("tenant_admin", PLATFORM_ADMIN_ROLE)
+@tenant_scope_required
+def tenant_admin_panel():
+    from data.database import (
+        obtener_usuarios_panaderia,
+        obtener_terminales_panaderia,
+        obtener_sedes_de_panaderia,
+    )
+    panaderia_id = _panaderia_actual_id()
+    if not panaderia_id:
+        flash("No se encontró el contexto de panadería.", "error")
+        return redirect(url_for("auth.index"))
+
+    usuarios   = obtener_usuarios_panaderia(int(panaderia_id))
+    sedes      = obtener_sedes_de_panaderia(int(panaderia_id))
+    terminales = obtener_terminales_panaderia(int(panaderia_id))
+
+    return render_template(
+        "tenant_admin_panel.html",
+        usuarios=usuarios,
+        sedes=sedes,
+        terminales=terminales,
+        layout="panadero",
+        active_page="tenant_panel",
+    )
+
+
+@app.route("/api/tenant/usuarios")
+@login_required
+@roles_required("tenant_admin", PLATFORM_ADMIN_ROLE)
+def api_tenant_usuarios():
+    from data.database import obtener_usuarios_panaderia
+    panaderia_id = _panaderia_actual_id()
+    if not panaderia_id:
+        return jsonify({"ok": False, "error": "Sin contexto de panadería"}), 400
+    return jsonify({"ok": True, "data": obtener_usuarios_panaderia(int(panaderia_id))})
+
+
+@app.route("/api/tenant/terminales")
+@login_required
+@roles_required("tenant_admin", PLATFORM_ADMIN_ROLE)
+def api_tenant_terminales():
+    from data.database import obtener_terminales_panaderia
+    panaderia_id = _panaderia_actual_id()
+    if not panaderia_id:
+        return jsonify({"ok": False, "error": "Sin contexto de panadería"}), 400
+    return jsonify({"ok": True, "data": obtener_terminales_panaderia(int(panaderia_id))})
+
+
+@app.route("/platform/panel")
+@login_required
+@roles_required(PLATFORM_ADMIN_ROLE)
+def platform_panel():
+    from data.database import listar_panaderias_plataforma
+    panaderias = listar_panaderias_plataforma()
+    return render_template("platform_panel.html", panaderias=panaderias)
+
+
+@app.route("/api/platform/panaderias")
+@login_required
+@roles_required(PLATFORM_ADMIN_ROLE)
+def api_platform_panaderias():
+    from data.database import listar_panaderias_plataforma
+    return jsonify({"ok": True, "data": listar_panaderias_plataforma()})
+
+
+@app.route("/api/platform/panaderia/<int:panaderia_id>/suscripcion", methods=["POST"])
+@login_required
+@roles_required(PLATFORM_ADMIN_ROLE)
+def api_platform_actualizar_suscripcion(panaderia_id: int):
+    from data.database import actualizar_plan_suscripcion
+    data = request.get_json(silent=True) or {}
+    plan = str(data.get("plan", "") or "").strip().lower()
+    estado = str(data.get("estado", "activa") or "activa").strip().lower()
+    fecha_vencimiento = str(data.get("fecha_vencimiento", "") or "").strip() or None
+    notas = str(data.get("notas", "") or "").strip()
+    planes_validos = ("free", "starter", "pro", "enterprise")
+    estados_validos = ("activa", "trial", "vencida", "cancelada", "suspendida")
+    if plan not in planes_validos:
+        return jsonify({"ok": False, "error": f"Plan inválido. Opciones: {planes_validos}"}), 400
+    if estado not in estados_validos:
+        return jsonify({"ok": False, "error": f"Estado inválido. Opciones: {estados_validos}"}), 400
+    ok = actualizar_plan_suscripcion(panaderia_id, plan, estado, fecha_vencimiento, notas)
+    if not ok:
+        return jsonify({"ok": False, "error": "No se pudo actualizar la suscripción"}), 500
+    registrar_audit(
+        usuario=_nombre_usuario_actual(),
+        usuario_id=_usuario_actual_id(),
+        panaderia_id=panaderia_id,
+        sede_id=None,
+        ip=_client_ip(),
+        user_agent=request.headers.get("User-Agent", ""),
+        request_id=getattr(g, "request_id", ""),
+        accion="actualizar_suscripcion",
+        entidad="panaderia",
+        entidad_id=str(panaderia_id),
+        detalle=f"Plan: {plan} | Estado: {estado} | Vence: {fecha_vencimiento or 'nunca'}",
+        resultado="ok",
+    )
+    return jsonify({"ok": True})
+
+
+@app.route("/api/platform/panaderia/<int:panaderia_id>/estado", methods=["POST"])
+@login_required
+@roles_required(PLATFORM_ADMIN_ROLE)
+def api_platform_actualizar_estado_tenant(panaderia_id: int):
+    data = request.get_json(silent=True) or {}
+    estado_operativo = str(data.get("estado_operativo", "") or "").strip().lower()
+    estados_validos = ("activa", "suspendida", "prueba", "bloqueada")
+    if estado_operativo not in estados_validos:
+        return jsonify({"ok": False, "error": f"Estado inválido. Opciones: {estados_validos}"}), 400
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE panaderias SET estado_operativo = ? WHERE id = ?",
+            (estado_operativo, panaderia_id),
+        )
+        conn.commit()
+    registrar_audit(
+        usuario=_nombre_usuario_actual(),
+        usuario_id=_usuario_actual_id(),
+        panaderia_id=panaderia_id,
+        sede_id=None,
+        ip=_client_ip(),
+        user_agent=request.headers.get("User-Agent", ""),
+        request_id=getattr(g, "request_id", ""),
+        accion="actualizar_estado_operativo",
+        entidad="panaderia",
+        entidad_id=str(panaderia_id),
+        detalle=f"Estado operativo → {estado_operativo}",
+        resultado="ok",
+    )
+    return jsonify({"ok": True})
 
 
 # ══════════════════════════════════════════════
@@ -4124,6 +5512,13 @@ def utility_processor():
         "color_prod": color_prod,
         "number_ui": _format_ui_number,
         "money_ui": _format_ui_money,
+        "request_id": getattr(g, "request_id", ""),
+        "csrf_token": getattr(g, "csrf_token", _current_csrf_token()),
+        "tenant_context": getattr(g, "tenant_context", TenantContext()),
+        "sede_context": getattr(g, "sede_context", SedeContext()),
+        "brand_context": getattr(g, "brand_context", _build_brand_context()),
+        "subscription_context": getattr(g, "subscription_context", SubscriptionContext()),
+        "terminal_context": getattr(g, "terminal_context", None),
     }
 
 
@@ -4132,6 +5527,11 @@ def utility_processor():
 # ══════════════════════════════════════════════
 
 def _iniciar_scheduler():
+    if not _env_bool("ENABLE_IN_APP_SCHEDULER", False):
+        app.logger.info(
+            "Scheduler embebido desactivado. Usa `python jobs_runner.py daemon` para correr jobs fuera del proceso web.",
+        )
+        return None
     """Inicia el scheduler de backups automáticos diarios."""
     if not _supports_app_file_backups():
         app.logger.info(
@@ -4215,7 +5615,19 @@ def _render_encargos_view(*, layout: str, active_page: str,
                           titulo: str,
                           descripcion: str):
     productos = obtener_productos_con_precio()
-    encargos = obtener_encargos(dias=60)
+    encargos = obtener_encargos_v2(dias=60)
+    for encargo in encargos:
+        if encargo.get("cliente_id"):
+            cliente_master = obtener_cliente(int(encargo.get("cliente_id") or 0))
+            if cliente_master:
+                encargo["cliente_master"] = cliente_master
+                encargo["email"] = cliente_master.get("email") or encargo.get("email") or ""
+                encargo["tipo_doc"] = cliente_master.get("tipo_doc") or encargo.get("tipo_doc") or ""
+                encargo["numero_doc"] = cliente_master.get("numero_doc") or encargo.get("numero_doc") or ""
+                encargo["direccion_documento"] = cliente_master.get("direccion") or encargo.get("direccion_documento") or ""
+                encargo["empresa"] = cliente_master.get("empresa") or encargo.get("empresa") or ""
+        encargo["documentos"] = obtener_documentos_por_origen("encargo", int(encargo.get("id", 0) or 0))
+        encargo["ultimo_documento"] = encargo["documentos"][0] if encargo["documentos"] else None
     return render_template(
         "cajero_encargos.html",
         productos=productos,
@@ -4232,13 +5644,8 @@ def _render_encargos_view(*, layout: str, active_page: str,
 
 @app.route("/cajero/encargos")
 @login_required
+@roles_required("cajero", "tenant_admin", "platform_superadmin")
 def cajero_encargos():
-    rol_actual = _rol_usuario_actual()
-    if rol_actual == "panadero":
-        return redirect(url_for("panadero_encargos"))
-    if rol_actual != "cajero":
-        flash("No tienes permiso para ver encargos", "error")
-        return redirect(url_for("index"))
     return _render_encargos_view(
         layout="cajero",
         active_page="encargos",
@@ -4252,10 +5659,8 @@ def cajero_encargos():
 
 @app.route("/panadero/encargos")
 @login_required
+@roles_required("panadero", "tenant_admin", "platform_superadmin")
 def panadero_encargos():
-    if _rol_usuario_actual() != "panadero":
-        flash("No tienes permiso para ver encargos", "error")
-        return redirect(url_for("index"))
     return _render_encargos_view(
         layout="panadero",
         active_page="encargos",
@@ -4331,6 +5736,510 @@ def api_unificar_pedidos():
     resultado = unificar_pedidos(pedido_ids, unificado_por=usuario)
     return jsonify(resultado), 200 if resultado.get("ok") else 400
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Release 3 — Clientes maestros
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.route("/api/clientes", methods=["GET"])
+@login_required
+def api_clientes_listar():
+    q = request.args.get("q", "").strip()
+    clientes = obtener_clientes(busqueda=q)
+    return jsonify({"ok": True, "clientes": clientes})
+
+
+@app.route("/api/clientes", methods=["POST"])
+@login_required
+def api_clientes_crear():
+    roles_ok = {"cajero", "panadero", "tenant_admin"}
+    if _rol_usuario_actual() not in roles_ok:
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    resultado = crear_cliente(
+        nombre=data.get("nombre", ""),
+        telefono=data.get("telefono", ""),
+        email=data.get("email", ""),
+        tipo_doc=data.get("tipo_doc", ""),
+        numero_doc=data.get("numero_doc", ""),
+        empresa=data.get("empresa", ""),
+        direccion=data.get("direccion", ""),
+        notas=data.get("notas", ""),
+    )
+    return jsonify(resultado), 200 if resultado.get("ok") else 400
+
+
+@app.route("/api/cliente/<int:cliente_id>", methods=["GET"])
+@login_required
+def api_cliente_obtener(cliente_id: int):
+    c = obtener_cliente(cliente_id)
+    if not c:
+        return jsonify({"ok": False, "error": "Cliente no encontrado"}), 404
+    return jsonify({"ok": True, "cliente": c})
+
+
+@app.route("/api/cliente/<int:cliente_id>", methods=["PUT"])
+@login_required
+def api_cliente_actualizar(cliente_id: int):
+    roles_ok = {"cajero", "panadero", "tenant_admin"}
+    if _rol_usuario_actual() not in roles_ok:
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    resultado = actualizar_cliente(
+        cliente_id,
+        nombre=data.get("nombre", ""),
+        telefono=data.get("telefono", ""),
+        email=data.get("email", ""),
+        tipo_doc=data.get("tipo_doc", ""),
+        numero_doc=data.get("numero_doc", ""),
+        empresa=data.get("empresa", ""),
+        direccion=data.get("direccion", ""),
+        notas=data.get("notas", ""),
+    )
+    return jsonify(resultado), 200 if resultado.get("ok") else 400
+
+
+# ── Encargos v2 ───────────────────────────────────────────────────────────────
+
+@app.route("/api/cliente/<int:cliente_id>/historial", methods=["GET"])
+@login_required
+def api_cliente_historial(cliente_id: int):
+    pagination_args = _parse_pagination_args()
+    historial = obtener_historial_cliente(
+        cliente_id,
+        page=pagination_args["page"],
+        size=pagination_args["size"],
+    )
+    if not historial.get("ok"):
+        return jsonify(historial), 404
+    return jsonify(historial)
+
+
+@app.route("/api/cartera/<int:cuenta_id>", methods=["GET"])
+@login_required
+def api_cartera_detalle(cuenta_id: int):
+    cuenta = obtener_cuenta_por_cobrar(cuenta_id)
+    if not cuenta:
+        return jsonify({"ok": False, "error": "Cuenta por cobrar no encontrada"}), 404
+    return jsonify({"ok": True, "cuenta": cuenta})
+
+
+@app.route("/api/cartera/<int:cuenta_id>/abono", methods=["POST"])
+@login_required
+def api_cartera_abono(cuenta_id: int):
+    roles_ok = {"cajero", "panadero", "tenant_admin"}
+    if _rol_usuario_actual() not in roles_ok:
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        monto = float(data.get("monto") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Monto invalido"}), 400
+    resultado = registrar_abono_cuenta(
+        cuenta_id=cuenta_id,
+        monto=monto,
+        metodo_pago=data.get("metodo_pago", "efectivo"),
+        referencia=data.get("referencia", ""),
+        nota=data.get("nota", ""),
+        usuario_id=_usuario_actual_id(),
+        usuario_nombre=_nombre_usuario_actual(),
+    )
+    if resultado.get("ok"):
+        _log_event(
+            "cartera_abono_registrado",
+            request_id=getattr(g, "request_id", ""),
+            cuenta_id=cuenta_id,
+            monto=monto,
+            metodo_pago=data.get("metodo_pago", "efectivo"),
+            usuario=_nombre_usuario_actual(),
+            saldo_pendiente=resultado.get("saldo_pendiente"),
+            estado=resultado.get("estado"),
+        )
+    return jsonify(resultado), 200 if resultado.get("ok") else 400
+
+
+@app.route("/api/encargo/v2", methods=["POST"])
+@login_required
+def api_crear_encargo_v2():
+    roles_ok = {"cajero", "panadero", "tenant_admin"}
+    if _rol_usuario_actual() not in roles_ok:
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    usuario = session.get("usuario", {})
+    resultado = crear_encargo_v2(
+        fecha_entrega=data.get("fecha_entrega", ""),
+        cliente=data.get("cliente", ""),
+        items=data.get("items", []),
+        empresa=data.get("empresa", ""),
+        notas=data.get("notas", ""),
+        registrado_por=usuario.get("nombre", ""),
+        hora_entrega=data.get("hora_entrega", ""),
+        telefono=data.get("telefono", ""),
+        anticipo=float(data.get("anticipo") or 0),
+        canal_venta=data.get("canal_venta", "tienda"),
+        tipo_encargo=data.get("tipo_encargo", "orden"),
+        direccion_entrega=data.get("direccion_entrega", ""),
+        cliente_id=data.get("cliente_id"),
+        estado_inicial=data.get("estado_inicial", "confirmado"),
+    )
+    return jsonify(resultado), 200 if resultado.get("ok") else 400
+
+
+@app.route("/api/encargo/v2/<int:encargo_id>", methods=["PUT"])
+@login_required
+def api_actualizar_encargo_v2(encargo_id: int):
+    roles_ok = {"cajero", "panadero", "tenant_admin"}
+    if _rol_usuario_actual() not in roles_ok:
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    resultado = actualizar_encargo(
+        encargo_id,
+        fecha_entrega=data.get("fecha_entrega", ""),
+        cliente=data.get("cliente", ""),
+        items=data.get("items", []),
+        empresa=data.get("empresa", ""),
+        notas=data.get("notas", ""),
+        hora_entrega=data.get("hora_entrega", ""),
+        telefono=data.get("telefono", ""),
+        canal_venta=data.get("canal_venta", "tienda"),
+        tipo_encargo=data.get("tipo_encargo", "orden"),
+        direccion_entrega=data.get("direccion_entrega", ""),
+        cliente_id=data.get("cliente_id"),
+    )
+    return jsonify(resultado), 200 if resultado.get("ok") else 400
+
+
+@app.route("/api/encargo/v2/<int:encargo_id>/estado", methods=["PUT"])
+@login_required
+def api_estado_encargo_v2(encargo_id: int):
+    roles_ok = {"cajero", "panadero", "tenant_admin"}
+    if _rol_usuario_actual() not in roles_ok:
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    usuario = session.get("usuario", {})
+    resultado = actualizar_estado_encargo_v2(
+        encargo_id, data.get("estado", ""), usuario.get("nombre", "")
+    )
+    return jsonify(resultado), 200 if resultado.get("ok") else 400
+
+
+@app.route("/api/encargo/v2/<int:encargo_id>/pago", methods=["POST"])
+@login_required
+def api_pago_encargo_v2(encargo_id: int):
+    roles_ok = {"cajero", "panadero", "tenant_admin"}
+    if _rol_usuario_actual() not in roles_ok:
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    usuario = session.get("usuario", {})
+    try:
+        monto = float(data.get("monto") or 0)
+    except (ValueError, TypeError):
+        return jsonify({"ok": False, "error": "monto invalido"}), 400
+    resultado = registrar_pago_encargo(
+        encargo_id,
+        metodo=data.get("metodo", "efectivo"),
+        monto=monto,
+        registrado_por=usuario.get("nombre", ""),
+        referencia=data.get("referencia", ""),
+        notas=data.get("notas", ""),
+        usuario_id=usuario.get("id"),
+    )
+    return jsonify(resultado), 200 if resultado.get("ok") else 400
+
+
+@app.route("/api/encargo/v2/<int:encargo_id>/pagos", methods=["GET"])
+@login_required
+def api_pagos_encargo_v2(encargo_id: int):
+    pagos = obtener_pagos_encargo(encargo_id)
+    return jsonify({"ok": True, "pagos": pagos})
+
+
+@app.route("/api/encargo/v2/<int:encargo_id>", methods=["GET"])
+@login_required
+def api_obtener_encargo_v2(encargo_id: int):
+    enc = obtener_encargo_v2(encargo_id)
+    if not enc:
+        return jsonify({"ok": False, "error": "Encargo no encontrado"}), 404
+    return jsonify({"ok": True, "encargo": enc})
+
+
+@app.route("/api/encargos/v2", methods=["GET"])
+@login_required
+def api_listar_encargos_v2():
+    estado = request.args.get("estado", "")
+    fecha = request.args.get("fecha_entrega", "")
+    dias = int(request.args.get("dias", 30))
+    encargos = obtener_encargos_v2(estado=estado or None, fecha_entrega=fecha or None, dias=dias)
+    return jsonify({"ok": True, "encargos": encargos})
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# POS Transaccional — venta_headers / venta_items / venta_pagos
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.route("/api/venta/iniciar", methods=["POST"])
+@login_required
+def api_venta_iniciar():
+    roles_ok = {"cajero", "panadero", "tenant_admin"}
+    if _rol_usuario_actual() not in roles_ok:
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    usuario = session.get("usuario", {})
+    tipo_venta = data.get("tipo_venta", "rapida")
+    if tipo_venta not in ("rapida", "con_documento"):
+        return jsonify({"ok": False, "error": "tipo_venta invalido"}), 400
+    try:
+        venta_id = crear_venta_header(
+            cajero=usuario.get("nombre", ""),
+            cajero_id=usuario.get("id"),
+            sede_id=_sede_actual_id(),
+            panaderia_id=_panaderia_actual_id(),
+            terminal_id=usuario.get("terminal_id"),
+            tipo_venta=tipo_venta,
+        )
+        _log_event(
+            "venta_iniciada",
+            request_id=getattr(g, "request_id", ""),
+            venta_id=venta_id,
+            tipo_venta=tipo_venta,
+            usuario=usuario.get("nombre", ""),
+            panaderia_id=_panaderia_actual_id(),
+            sede_id=_sede_actual_id(),
+        )
+        return jsonify({"ok": True, "venta_id": venta_id})
+    except Exception as exc:
+        _log_exception(
+            "venta_inicio_error",
+            exc,
+            request_id=getattr(g, "request_id", ""),
+            tipo_venta=tipo_venta,
+            usuario=usuario.get("nombre", ""),
+        )
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/venta/<int:venta_id>/items", methods=["PUT"])
+@login_required
+def api_venta_items(venta_id: int):
+    roles_ok = {"cajero", "panadero", "tenant_admin"}
+    if _rol_usuario_actual() not in roles_ok:
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    items = data.get("items", [])
+    if not isinstance(items, list):
+        return jsonify({"ok": False, "error": "items debe ser lista"}), 400
+    usuario = session.get("usuario", {})
+    resultado = actualizar_items_venta(
+        venta_id,
+        items,
+        actor_role=_rol_usuario_actual(),
+        actor_name=usuario.get("nombre", ""),
+        panaderia_id=_panaderia_actual_id(),
+    )
+    if resultado.get("ok"):
+        for manual in resultado.get("manuales", []):
+            registrar_audit(
+                usuario=usuario.get("nombre", ""),
+                usuario_id=usuario.get("id"),
+                panaderia_id=_panaderia_actual_id(),
+                sede_id=_sede_actual_id(),
+                ip=request.remote_addr or "",
+                user_agent=request.headers.get("User-Agent", ""),
+                request_id=getattr(g, "request_id", ""),
+                accion="precio_manual_venta",
+                entidad="venta",
+                entidad_id=str(venta_id),
+                detalle=(
+                    f"{manual.get('producto')}: {manual.get('precio_base')} -> "
+                    f"{manual.get('precio_aplicado')} | motivo: {manual.get('motivo_precio')} | "
+                    f"autorizado por: {manual.get('autorizado_por')}"
+                ),
+                resultado="ok",
+            )
+    return jsonify(resultado), 200 if resultado.get("ok") else 400
+
+
+@app.route("/api/venta/<int:venta_id>/comprador", methods=["PUT"])
+@login_required
+def api_venta_comprador(venta_id: int):
+    roles_ok = {"cajero", "panadero", "tenant_admin"}
+    if _rol_usuario_actual() not in roles_ok:
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    ok = actualizar_comprador_venta(
+        venta_id,
+        nombre_comprador=data.get("nombre_comprador", ""),
+        tipo_doc=data.get("tipo_doc", ""),
+        numero_doc=data.get("numero_doc", ""),
+        email_comprador=data.get("email_comprador", ""),
+        empresa_comprador=data.get("empresa_comprador", ""),
+        direccion_comprador=data.get("direccion_comprador", ""),
+        cliente_id=data.get("cliente_id"),
+    )
+    return jsonify({"ok": ok}), 200 if ok else 400
+
+
+@app.route("/api/venta/<int:venta_id>/cliente", methods=["PUT"])
+@login_required
+def api_venta_cliente(venta_id: int):
+    roles_ok = {"cajero", "panadero", "tenant_admin"}
+    if _rol_usuario_actual() not in roles_ok:
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    ok = actualizar_cliente_venta(
+        venta_id,
+        cliente_id=data.get("cliente_id"),
+        cliente_nombre_snapshot=data.get("cliente_nombre_snapshot", ""),
+    )
+    return jsonify({"ok": ok}), 200 if ok else 400
+
+
+@app.route("/api/venta/<int:venta_id>/pagar", methods=["POST"])
+@login_required
+def api_venta_pagar(venta_id: int):
+    roles_ok = {"cajero", "panadero", "tenant_admin"}
+    if _rol_usuario_actual() not in roles_ok:
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    metodo = data.get("metodo", "efectivo")
+    monto = data.get("monto")
+    recibido = data.get("recibido")
+    if monto is None:
+        return jsonify({"ok": False, "error": "monto requerido"}), 400
+    try:
+        monto = float(monto)
+        recibido = float(recibido) if recibido is not None else monto
+    except (ValueError, TypeError):
+        return jsonify({"ok": False, "error": "monto invalido"}), 400
+    usuario = session.get("usuario", {})
+    resultado = registrar_pago_venta(
+        venta_id=venta_id,
+        metodo=metodo,
+        monto=monto,
+        registrado_por=usuario.get("nombre", ""),
+        referencia=data.get("referencia", ""),
+        recibido=recibido,
+    )
+    return jsonify(resultado), 200 if resultado.get("ok") else 400
+
+
+@app.route("/api/venta/<int:venta_id>/cerrar", methods=["POST"])
+@login_required
+def api_venta_cerrar(venta_id: int):
+    roles_ok = {"cajero", "panadero", "tenant_admin"}
+    if _rol_usuario_actual() not in roles_ok:
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    resultado = cerrar_venta(
+        venta_id,
+        usuario_id=_usuario_actual_id(),
+        usuario_nombre=_nombre_usuario_actual(),
+        fecha_vencimiento_credito=data.get("fecha_vencimiento_credito"),
+    )
+    if resultado.get("ok"):
+        _log_event(
+            "venta_cerrada",
+            request_id=getattr(g, "request_id", ""),
+            venta_id=venta_id,
+            usuario=_nombre_usuario_actual(),
+            venta_grupo=resultado.get("venta_grupo"),
+            cuenta_por_cobrar_id=resultado.get("cuenta_por_cobrar_id"),
+            credito_total=resultado.get("credito_total"),
+        )
+    return jsonify(resultado), 200 if resultado.get("ok") else 400
+
+
+@app.route("/api/venta/<int:venta_id>/suspender", methods=["POST"])
+@login_required
+def api_venta_suspender(venta_id: int):
+    roles_ok = {"cajero", "panadero", "tenant_admin"}
+    if _rol_usuario_actual() not in roles_ok:
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    usuario = session.get("usuario", {})
+    ok = suspender_venta(
+        venta_id,
+        nota=data.get("nota", ""),
+        suspendida_por=usuario.get("nombre", ""),
+    )
+    if ok:
+        _log_event(
+            "venta_suspendida",
+            request_id=getattr(g, "request_id", ""),
+            venta_id=venta_id,
+            usuario=usuario.get("nombre", ""),
+            nota=data.get("nota", ""),
+        )
+    return jsonify({"ok": ok}), 200 if ok else 400
+
+
+@app.route("/api/ventas/suspendidas", methods=["GET"])
+@login_required
+def api_ventas_suspendidas():
+    roles_ok = {"cajero", "panadero", "tenant_admin"}
+    if _rol_usuario_actual() not in roles_ok:
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    ventas = obtener_ventas_suspendidas(
+        panaderia_id=_panaderia_actual_id(),
+        sede_id=_sede_actual_id(),
+    )
+    return jsonify({"ok": True, "ventas": ventas})
+
+
+@app.route("/api/venta/<int:venta_id>/reanudar", methods=["POST"])
+@login_required
+def api_venta_reanudar(venta_id: int):
+    roles_ok = {"cajero", "panadero", "tenant_admin"}
+    if _rol_usuario_actual() not in roles_ok:
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    ok = reanudar_venta(venta_id)
+    if ok:
+        venta = obtener_venta_header(venta_id)
+        _log_event(
+            "venta_reanudada",
+            request_id=getattr(g, "request_id", ""),
+            venta_id=venta_id,
+            usuario=_nombre_usuario_actual(),
+            estado=(venta or {}).get("estado"),
+        )
+        return jsonify({"ok": True, "venta": venta})
+    return jsonify({"ok": False, "error": "No se pudo reanudar"}), 400
+
+
+@app.route("/api/venta/<int:venta_id>/anular", methods=["POST"])
+@login_required
+def api_venta_anular(venta_id: int):
+    roles_ok = {"cajero", "panadero", "tenant_admin"}
+    if _rol_usuario_actual() not in roles_ok:
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    motivo = (data.get("motivo") or "").strip()
+    if not motivo:
+        return jsonify({"ok": False, "error": "motivo requerido"}), 400
+    usuario = session.get("usuario", {})
+    ok = anular_venta(
+        venta_id,
+        motivo=motivo,
+        anulada_por=usuario.get("nombre", ""),
+    )
+    return jsonify({"ok": ok}), 200 if ok else 400
+
+
+@app.route("/api/venta/<int:venta_id>", methods=["GET"])
+@login_required
+def api_venta_detalle(venta_id: int):
+    roles_ok = {"cajero", "panadero", "tenant_admin"}
+    if _rol_usuario_actual() not in roles_ok:
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    venta = obtener_venta_header(venta_id)
+    if not venta:
+        return jsonify({"ok": False, "error": "Venta no encontrada"}), 404
+    return jsonify({"ok": True, "venta": venta})
+
+
+# ── Registrar blueprints ──────────────────────────────────────────────────────
+# auth_bp: /, /login, /logout, /health, /ready, /favicon.ico, /cambiar-password
+app.register_blueprint(auth_bp)
 
 # Inicializar BD y scheduler al cargar el módulo (para Gunicorn)
 _inicializar_base_de_datos_con_retry()

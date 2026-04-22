@@ -4,19 +4,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RICHS{% block title_extra %}{% endblock %}</title>
-    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='brand/richs-logo.svg', v='20260327-ui') }}">
+    <title>{{ brand_context.brand_name }}{% block title_extra %}{% endblock %}</title>
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <meta name="x-request-id" content="{{ request_id|default('') }}">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename=brand_context.favicon_path, v='20260416-platform') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20260330-mobile-nav') }}">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/core.css', v='20260416-platform') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/layout.css', v='20260416-platform') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css', v='20260416-platform') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/pages.css', v='20260416-platform') }}">
+    <script src="{{ url_for('static', filename='js/charts/echarts.min.js') }}"
+            onerror="window._echartsLocalFailed=true"></script>
+    <script src="{{ url_for('static', filename='js/charts/echarts-helpers.js', v='20260419-echarts') }}"></script>
+    <script defer src="{{ url_for('static', filename='js/core/security.js', v='20260416-platform') }}"></script>
     <script>
-        window.ensureChartJs = window.ensureChartJs || (() => {
+        /* Cargador diferido de ECharts con fallback local. */
+        window.ensureECharts = window.ensureECharts || (() => {
             let pendingLoad = null;
             const sources = [
-                {{ url_for('static', filename='chart.min.js') | tojson }},
-                'https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js',
+                'https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js',
+                'https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.1/echarts.min.js',
             ];
 
             function injectScript(src) {
@@ -24,29 +34,29 @@
                     const script = document.createElement('script');
                     script.src = src;
                     script.async = true;
-                    script.onload = () => window.Chart
-                        ? resolve(window.Chart)
-                        : reject(new Error(`Chart.js cargo sin exponer Chart desde ${src}`));
-                    script.onerror = () => reject(new Error(`No se pudo cargar Chart.js desde ${src}`));
+                    script.onload = () => window.echarts
+                        ? resolve(window.echarts)
+                        : reject(new Error(`ECharts cargo sin exponer echarts desde ${src}`));
+                    script.onerror = () => reject(new Error(`No se pudo cargar ECharts desde ${src}`));
                     document.head.appendChild(script);
                 });
             }
 
-            async function loadChartJs(index = 0) {
-                if (window.Chart) return window.Chart;
-                if (index >= sources.length) throw new Error('Chart.js no esta disponible.');
+            async function loadECharts(index = 0) {
+                if (window.echarts) return window.echarts;
+                if (index >= sources.length) throw new Error('ECharts no esta disponible.');
                 try {
                     return await injectScript(sources[index]);
                 } catch (error) {
                     if (index >= sources.length - 1) throw error;
-                    return loadChartJs(index + 1);
+                    return loadECharts(index + 1);
                 }
             }
 
-            return function ensureChartJs() {
-                if (window.Chart) return Promise.resolve(window.Chart);
+            return function ensureECharts() {
+                if (window.echarts) return Promise.resolve(window.echarts);
                 if (!pendingLoad) {
-                    pendingLoad = loadChartJs().catch((error) => {
+                    pendingLoad = loadECharts().catch((error) => {
                         pendingLoad = null;
                         throw error;
                     });
@@ -59,7 +69,10 @@
 </head>
 
 <body class="{{ layout|default('') }}-layout">
-    {% set richs_logo = url_for('static', filename='brand/richs-logo.svg', v='20260327-ui') %}
+    {% set richs_logo = url_for('static', filename=brand_context.logo_path, v='20260416-platform') %}
+    {% set brand_name = brand_context.brand_name %}
+    {% set brand_tagline = brand_context.tagline %}
+    {% set brand_support = brand_context.support_label %}
 
     {% if layout == 'panadero' %}
     <header class="mobile-shell-header">
@@ -67,10 +80,10 @@
             <span class="material-symbols-outlined">menu</span>
         </button>
         <div class="mobile-shell-brand">
-            <img src="{{ richs_logo }}" alt="RICHS" class="brand-mark brand-mark-mobile">
+            <img src="{{ richs_logo }}" alt="{{ brand_name }}" class="brand-mark brand-mark-mobile">
             <span class="brand-wordmark-shell">
-                <strong>RICHS</strong>
-                <small>Panaderia artesanal</small>
+                <strong>{{ brand_name }}</strong>
+                <small>{{ brand_tagline }}</small>
             </span>
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
@@ -78,15 +91,15 @@
                 <span class="material-symbols-outlined">notifications</span>
                 <span class="notif-bell-badge" id="notifBadgeMobile" hidden>0</span>
             </button>
-            <a href="{{ url_for('logout') }}" class="mobile-header-action">Salir</a>
+            <a href="{{ url_for('auth.logout') }}" class="mobile-header-action">Salir</a>
         </div>
     </header>
     <div class="mobile-nav-overlay" onclick="closeAppSidebar()"></div>
     <aside class="sidebar">
         <div class="sidebar-brand">
-            <img src="{{ richs_logo }}" alt="RICHS" class="brand-mark brand-mark-sidebar">
+            <img src="{{ richs_logo }}" alt="{{ brand_name }}" class="brand-mark brand-mark-sidebar">
             <div class="sidebar-brand-copy">
-                <span class="brand-supporting-copy">Delicias que nutren</span>
+                <span class="brand-supporting-copy">{{ brand_support }}</span>
             </div>
         </div>
         <div class="sidebar-user">
@@ -120,12 +133,21 @@
                 <a href="{{ url_for('panadero_historial') }}" class="{% if active_page == 'historial' %}active{% endif %}">
                     <span class="material-symbols-outlined">finance</span> Historial
                 </a>
+                <a href="{{ url_for('panadero_cartera') }}" class="{% if active_page == 'cartera' %}active{% endif %}">
+                    <span class="material-symbols-outlined">account_balance_wallet</span> Cartera
+                </a>
+                <a href="{{ url_for('panadero_documentos') }}" class="{% if active_page == 'documentos' %}active{% endif %}">
+                    <span class="material-symbols-outlined">receipt_long</span> Documentos
+                </a>
                 <a href="{{ url_for('panadero_operaciones') }}" class="{% if active_page == 'operaciones' %}active{% endif %}">
                     <span class="material-symbols-outlined">build</span> Operaciones
                 </a>
             </div>
             <div class="sidebar-nav-group">
                 <span class="sidebar-nav-label">Sistema</span>
+                <a href="{{ url_for('panadero_jornada') }}" class="{% if active_page == 'jornada' %}active{% endif %}">
+                    <span class="material-symbols-outlined">schedule</span> Jornada
+                </a>
                 <a href="{{ url_for('panadero_config') }}" class="{% if active_page == 'config' %}active{% endif %}">
                     <span class="material-symbols-outlined">settings</span> Configuracion
                 </a>
@@ -142,7 +164,7 @@
         </nav>
         <div class="sidebar-footer">
             <div class="sidebar-date">{{ ahora.strftime('%d/%m/%Y') }}</div>
-            <a href="{{ url_for('logout') }}" class="sidebar-logout">Cerrar Sesion</a>
+            <a href="{{ url_for('auth.logout') }}" class="sidebar-logout">Cerrar Sesion</a>
         </div>
     </aside>
     {% elif layout == 'cajero' %}
@@ -150,9 +172,9 @@
         <div class="topbar-main">
             <div class="topbar-left">
                 <span class="topbar-brand">
-                    <img src="{{ richs_logo }}" alt="RICHS" class="brand-mark brand-mark-topbar">
+                    <img src="{{ richs_logo }}" alt="{{ brand_name }}" class="brand-mark brand-mark-topbar">
                     <span class="brand-wordmark-shell">
-                        <strong>RICHS</strong>
+                        <strong>{{ brand_name }}</strong>
                         <small>Operacion de caja</small>
                     </span>
                 </span>
@@ -163,7 +185,7 @@
                     <span class="material-symbols-outlined">notifications</span>
                     <span class="notif-bell-badge" id="notifBadgeCajero" hidden>0</span>
                 </button>
-                <a href="{{ url_for('logout') }}" class="topbar-logout">Salir</a>
+                <a href="{{ url_for('auth.logout') }}" class="topbar-logout">Salir</a>
             </div>
         </div>
         <nav class="topbar-nav">
@@ -183,6 +205,12 @@
             <a href="{{ url_for('cajero_ventas') }}" class="{% if active_page == 'ventas' %}active{% endif %}">
                 <span class="material-symbols-outlined">bar_chart</span> Ventas de Hoy
             </a>
+            <a href="{{ url_for('panadero_cartera') }}" class="{% if active_page == 'cartera' %}active{% endif %}">
+                <span class="material-symbols-outlined">account_balance_wallet</span> Cartera
+            </a>
+            <a href="{{ url_for('panadero_documentos') }}" class="{% if active_page == 'documentos' %}active{% endif %}">
+                <span class="material-symbols-outlined">receipt_long</span> Documentos
+            </a>
         </nav>
     </header>
     {% elif layout == 'mesero' %}
@@ -190,9 +218,9 @@
         <div class="topbar-main">
             <div class="topbar-left">
                 <span class="topbar-brand">
-                    <img src="{{ richs_logo }}" alt="RICHS" class="brand-mark brand-mark-topbar">
+                    <img src="{{ richs_logo }}" alt="{{ brand_name }}" class="brand-mark brand-mark-topbar">
                     <span class="brand-wordmark-shell">
-                        <strong>RICHS</strong>
+                        <strong>{{ brand_name }}</strong>
                         <small>Servicio en sala</small>
                     </span>
                 </span>
@@ -203,7 +231,7 @@
                     <span class="material-symbols-outlined">notifications</span>
                     <span class="notif-bell-badge" id="notifBadgeMesero" hidden>0</span>
                 </button>
-                <a href="{{ url_for('logout') }}" class="topbar-logout">Salir</a>
+                <a href="{{ url_for('auth.logout') }}" class="topbar-logout">Salir</a>
             </div>
         </div>
         <nav class="topbar-nav">
@@ -237,6 +265,10 @@
                 <a href="{{ url_for('panadero_encargos') }}" class="panadero-quickdock-link">
                     <span class="material-symbols-outlined">event_note</span>
                     Encargos
+                </a>
+                <a href="{{ url_for('panadero_cartera') }}" class="panadero-quickdock-link">
+                    <span class="material-symbols-outlined">account_balance_wallet</span>
+                    Cartera
                 </a>
             </aside>
         </div>
@@ -1049,6 +1081,32 @@
     /* ══════════════════════════════════════════════
        RIPPLE EFFECT ON BUTTONS
        ══════════════════════════════════════════════ */
+    function initHelpTooltips() {
+        function closeHelpTooltips(except) {
+            document.querySelectorAll('.help-tooltip-trigger[aria-expanded="true"]').forEach(function(trigger) {
+                if (trigger !== except) trigger.setAttribute('aria-expanded', 'false');
+            });
+        }
+
+        document.addEventListener('click', function(event) {
+            var trigger = event.target.closest('.help-tooltip-trigger');
+            if (!trigger) {
+                closeHelpTooltips();
+                return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+            var isOpen = trigger.getAttribute('aria-expanded') === 'true';
+            closeHelpTooltips(trigger);
+            trigger.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+        });
+
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') closeHelpTooltips();
+        });
+    }
+
     document.addEventListener('click', function(e) {
         var btn = e.target.closest('.btn');
         if (!btn) return;
@@ -1156,6 +1214,7 @@
         NotifCenter.init();
         SoundFX.init();
         FieldGuide.init();
+        initHelpTooltips();
         animateCards();
         animateCounters();
         window.Toast = Toast;

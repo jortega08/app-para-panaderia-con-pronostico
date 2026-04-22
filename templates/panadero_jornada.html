@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block title_extra %} - Gestión de Jornada{% endblock %}
+{% block content %}
+<div class="page-container">
+
+  <div class="page-header">
+    <h1 class="page-title">
+      <span class="material-symbols-outlined">schedule</span>
+      Gestión de Jornada
+    </h1>
+    <div class="page-header-right" style="display:flex;gap:10px">
+      <button class="btn btn-success" type="button" id="btnAbrirJornada" onclick="abrirJornada(this)">
+        <span class="material-symbols-outlined">play_circle</span>
+        Abrir jornada
+      </button>
+      <button class="btn btn-danger-outline" type="button" id="btnCerrarJornada" onclick="cerrarJornada(this)">
+        <span class="material-symbols-outlined">stop_circle</span>
+        Cerrar jornada
+      </button>
+    </div>
+  </div>
+
+  <!-- Resumen de estado -->
+  <div class="metrics-row" id="resumenJornada" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px">
+    <div class="metric-card">
+      <div class="metric-icon"><span class="material-symbols-outlined" style="color:#2f6b63">check_circle</span></div>
+      <div class="metric-label">Activos ahora</div>
+      <div class="metric-value" id="cntActivos">—</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-icon"><span class="material-symbols-outlined" style="color:#b7422f">cancel</span></div>
+      <div class="metric-label">Sin acceso hoy</div>
+      <div class="metric-value" id="cntInactivos">—</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-icon"><span class="material-symbols-outlined" style="color:#c17817">groups</span></div>
+      <div class="metric-label">Total personal</div>
+      <div class="metric-value" id="cntTotal">—</div>
+    </div>
+  </div>
+
+  <!-- Lista de usuarios -->
+  <div class="card">
+    <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
+      <span><span class="material-symbols-outlined">badge</span> Personal operativo</span>
+      <button class="btn btn-sm btn-outline" type="button" onclick="cargarUsuarios()">
+        <span class="material-symbols-outlined">refresh</span> Actualizar
+      </button>
+    </div>
+    <div class="card-body" id="tablaJornada">
+      <div style="text-align:center;padding:28px;color:var(--color-text-secondary)">
+        <span class="material-symbols-outlined" style="font-size:36px;opacity:.4;display:block;margin-bottom:8px">schedule</span>
+        Cargando personal...
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const CSRF_TOKEN = '{{ g.csrf_token }}';
+
+async function api(url, method = 'GET', body = null) {
+  const opts = {
+    method,
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
+  };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(url, opts);
+  return r.json();
+}
+
+async function cargarUsuarios() {
+  document.getElementById('tablaJornada').innerHTML =
+    '<div style="text-align:center;padding:28px;color:var(--color-text-secondary)">Cargando...</div>';
+  try {
+    const data = await api('/api/jornada/usuarios');
+    if (!data.ok) throw new Error(data.error || 'Error');
+    renderTabla(data.data);
+    actualizarResumen(data.data);
+  } catch (e) {
+    document.getElementById('tablaJornada').innerHTML =
+      `<div class="empty-state compact-empty-state"><div class="empty-state-title">No se pudo cargar</div><div class="empty-state-text">${e.message}</div></div>`;
+  }
+}
+
+function renderTabla(usuarios) {
+  const box = document.getElementById('tablaJornada');
+  if (!usuarios.length) {
+    box.innerHTML = `<div class="empty-state compact-empty-state">
+      <div class="empty-state-title">Sin personal operativo</div>
+      <div class="empty-state-text">Agrega cajeros o meseros desde la configuración de usuarios.</div>
+    </div>`;
+    return;
+  }
+
+  const filas = usuarios.map(u => {
+    const activo = !!u.jornada_activa;
+    const desde = u.jornada_activada_en
+      ? u.jornada_activada_en.substring(11, 16)  // HH:MM
+      : '';
+    const activadoPor = u.jornada_activada_por || '';
+    return `
+      <tr>
+        <td>
+          <strong>${esc(u.nombre)}</strong>
+          <br><span class="text-muted" style="font-size:12px">${esc(u.username || '')}</span>
+        </td>
+        <td>
+          <span class="chip chip-${u.rol === 'cajero' ? 'accent' : 'secondary'}">
+            ${u.rol === 'cajero' ? 'Cajero' : 'Mesero'}
+          </span>
+        </td>
+        <td>${esc(u.sede_nombre || '—')}</td>
+        <td>
+          <span class="chip ${activo ? 'chip-success' : 'chip-muted'}">
+            <span class="material-symbols-outlined" style="font-size:14px">
+              ${activo ? 'check_circle' : 'cancel'}
+            </span>
+            ${activo ? 'Activo' : 'Inactivo'}
+          </span>
+          ${activo && desde ? `<br><span class="text-muted" style="font-size:11px">desde ${esc(desde)}${activadoPor ? ' · por ' + esc(activadoPor) : ''}</span>` : ''}
+        </td>
+        <td>
+          ${activo
+            ? `<button class="btn btn-sm btn-danger-outline" onclick="toggleUsuario(${u.id}, false, this)">
+                 <span class="material-symbols-outlined">lock</span> Desactivar
+               </button>`
+            : `<button class="btn btn-sm btn-success" onclick="toggleUsuario(${u.id}, true, this)">
+                 <span class="material-symbols-outlined">lock_open</span> Activar
+               </button>`
+          }
+        </td>
+      </tr>`;
+  }).join('');
+
+  box.innerHTML = `
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>Rol</th>
+          <th>Sede</th>
+          <th>Estado</th>
+          <th>Acción</th>
+        </tr>
+      </thead>
+      <tbody>${filas}</tbody>
+    </table>`;
+}
+
+function actualizarResumen(usuarios) {
+  const activos   = usuarios.filter(u => u.jornada_activa).length;
+  const inactivos = usuarios.length - activos;
+  document.getElementById('cntActivos').textContent   = activos;
+  document.getElementById('cntInactivos').textContent = inactivos;
+  document.getElementById('cntTotal').textContent     = usuarios.length;
+}
+
+async function toggleUsuario(id, activar, btn) {
+  AppUI?.setButtonLoading(btn, true, activar ? 'Activando...' : 'Desactivando...');
+  try {
+    const accion = activar ? 'activar' : 'desactivar';
+    const data = await api(`/api/jornada/usuario/${id}/${accion}`, 'POST');
+    if (!data.ok) throw new Error(data.error || 'Error');
+    await cargarUsuarios();
+    Toast?.success(activar ? 'Usuario activado para la jornada.' : 'Usuario desactivado.');
+  } catch (e) {
+    Toast?.error(e.message || 'No se pudo actualizar el usuario.');
+    AppUI?.setButtonLoading(btn, false);
+  }
+}
+
+async function abrirJornada(btn) {
+  const ok = await appConfirm?.(
+    '¿Abrir jornada? Todos los cajeros y meseros de esta sede podrán iniciar sesión.',
+    { title: 'Abrir jornada', confirmText: 'Abrir', type: 'success' }
+  );
+  if (ok === false) return;  // appConfirm puede no estar disponible
+  AppUI?.setButtonLoading(btn, true, 'Abriendo...');
+  try {
+    const data = await api('/api/jornada/abrir', 'POST');
+    if (!data.ok) throw new Error(data.error || 'Error');
+    await cargarUsuarios();
+    Toast?.success(`Jornada abierta. ${data.data.activados} usuario(s) activos.`);
+  } catch (e) {
+    Toast?.error(e.message || 'No se pudo abrir la jornada.');
+  } finally {
+    AppUI?.setButtonLoading(btn, false);
+  }
+}
+
+async function cerrarJornada(btn) {
+  const ok = await appConfirm?.(
+    '¿Cerrar jornada? Los cajeros y meseros perderán acceso hasta que se abra de nuevo.',
+    { title: 'Cerrar jornada', confirmText: 'Cerrar', type: 'danger' }
+  );
+  if (ok === false) return;
+  AppUI?.setButtonLoading(btn, true, 'Cerrando...');
+  try {
+    const data = await api('/api/jornada/cerrar', 'POST');
+    if (!data.ok) throw new Error(data.error || 'Error');
+    await cargarUsuarios();
+    Toast?.success(`Jornada cerrada. ${data.data.desactivados} usuario(s) desactivados.`);
+  } catch (e) {
+    Toast?.error(e.message || 'No se pudo cerrar la jornada.');
+  } finally {
+    AppUI?.setButtonLoading(btn, false);
+  }
+}
+
+const esc = t => `${t == null ? '' : t}`.replace(/[&<>"']/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+document.addEventListener('DOMContentLoaded', cargarUsuarios);
+</script>
+{% endblock %}

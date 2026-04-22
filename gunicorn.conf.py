@@ -2,7 +2,7 @@
 gunicorn.conf.py
 ----------------
 Configuración de Gunicorn para producción.
-Uso: gunicorn -c gunicorn.conf.py app:app
+Uso: gunicorn -c gunicorn.conf.py wsgi:app
 """
 
 import multiprocessing

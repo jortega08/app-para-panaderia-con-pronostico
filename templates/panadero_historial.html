@@ -1,6 +1,25 @@
 {% extends "base.html" %}
 {% block title_extra %} - Historial de Ventas{% endblock %}
 {% block content %}
+{% set history_help = {
+    'ventas_totales': 'Suma total vendida en el periodo seleccionado. Si se aleja del promedio, revisa dias fuertes y medios de pago.',
+    'ticket_promedio': 'Valor promedio por transaccion registrada en el periodo. Si baja, revisa mezcla de productos y ventas complementarias.',
+    'unidades_vendidas': 'Total de unidades vendidas dentro del rango. Si sube mas rapido que el ingreso, el precio o el mix pueden estar cayendo.',
+    'promedio_diario': 'Promedio diario de facturacion del periodo. Sirve para detectar si el negocio viene por encima o por debajo de su ritmo normal.',
+    'mejor_dia': 'Dia con mayor venta registrada en el periodo. Usalo como referencia para preparar personal y produccion.',
+    'producto_lider': 'Producto que mas ingreso aporto en el rango analizado. Si cambia el lider, revisa exhibicion, produccion o compra.',
+    'aprovechamiento': 'Porcentaje de lo producido que realmente se vendio. Si baja, revisa sobrantes y ajusta la produccion del siguiente ciclo.',
+    'desperdicio': 'Porcentaje y volumen de sobrante frente a lo producido. Si sube mucho, conviene corregir lote o demanda prevista.',
+    'dias_quiebre': 'Dias en los que falto producto para cubrir la demanda. Si crecen, revisa horarios de horneo y producto critico.',
+    'evolucion_diaria': 'Cruza ingresos y transacciones por dia. Si las ventas suben sin mas transacciones, el ticket promedio esta mejorando.',
+    'lectura_ejecutiva': 'Resume mix de recaudo, diferencias de caja y top productos. Si aparece mucha diferencia de cierre, conviene revisar arqueos y movimientos.',
+    'flujo_caja': 'Muestra de donde entra y sale el dinero cada dia. Si los egresos manuales pesan demasiado, valida soporte y autorizacion.',
+    'dif_caja': 'Compara el cierre real contra lo esperado por sistema. Faltantes o sobrantes repetidos merecen revision operativa.',
+    'productos_rentables': 'Ranking de productos por ingreso. Si cambia el lider, ajusta exhibicion, produccion o compra de insumos.',
+    'ritmo_dia_semana': 'Muestra en que dias de la semana se concentra la demanda. Usa los picos para preparar produccion y personal.',
+    'horas_movimiento': 'Distribucion horaria de unidades vendidas. Si aparecen horas pico claras, adelanta alistamiento y refuerzo.',
+    'produccion_venta': 'Compara producido, vendido, sobrante y faltante. Si hay faltantes recurrentes, sube la produccion de ese momento.'
+} %}
 <div class="page-container analytics-page history-page">
     <section class="card history-hero-card">
         <div class="history-hero-copy">
@@ -71,34 +90,58 @@
 
     <section class="history-kpi-grid">
         <article class="history-kpi-card">
+            <div class="card-help-corner">{% with help_text=history_help.ventas_totales %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
             <div class="history-kpi-label">Ventas totales</div>
             <div class="history-kpi-value" id="kpiIngresos">$0</div>
             <div class="history-kpi-meta" id="kpiIngresosMeta">0 dias con ventas</div>
         </article>
         <article class="history-kpi-card">
+            <div class="card-help-corner">{% with help_text=history_help.ticket_promedio %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
             <div class="history-kpi-label">Ticket promedio</div>
             <div class="history-kpi-value" id="kpiTicket">$0</div>
             <div class="history-kpi-meta" id="kpiTicketMeta">0 transacciones</div>
         </article>
         <article class="history-kpi-card">
+            <div class="card-help-corner">{% with help_text=history_help.unidades_vendidas %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
             <div class="history-kpi-label">Unidades vendidas</div>
             <div class="history-kpi-value" id="kpiPanes">0</div>
             <div class="history-kpi-meta" id="kpiPanesMeta">0 producidas</div>
         </article>
         <article class="history-kpi-card">
+            <div class="card-help-corner">{% with help_text=history_help.promedio_diario %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
             <div class="history-kpi-label">Promedio diario</div>
             <div class="history-kpi-value" id="kpiPromedioDiario">$0</div>
             <div class="history-kpi-meta" id="kpiPromedioDiarioMeta">0 unidades por dia</div>
         </article>
         <article class="history-kpi-card">
+            <div class="card-help-corner">{% with help_text=history_help.mejor_dia %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
             <div class="history-kpi-label">Mejor dia</div>
             <div class="history-kpi-value" id="kpiMejorDia">-</div>
             <div class="history-kpi-meta" id="kpiMejorDiaMeta">Sin lectura</div>
         </article>
         <article class="history-kpi-card">
+            <div class="card-help-corner">{% with help_text=history_help.producto_lider %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
             <div class="history-kpi-label">Producto lider</div>
             <div class="history-kpi-value" id="kpiProductoLider">-</div>
             <div class="history-kpi-meta" id="kpiProductoLiderMeta">Sin ranking</div>
+        </article>
+        <article class="history-kpi-card">
+            <div class="card-help-corner">{% with help_text=history_help.aprovechamiento %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
+            <div class="history-kpi-label">Aprovechamiento</div>
+            <div class="history-kpi-value" id="kpiAprovechamiento">0%</div>
+            <div class="history-kpi-meta" id="kpiAprovechamientoMeta">vendido / producido</div>
+        </article>
+        <article class="history-kpi-card">
+            <div class="card-help-corner">{% with help_text=history_help.desperdicio %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
+            <div class="history-kpi-label">Desperdicio</div>
+            <div class="history-kpi-value" id="kpiDesperdicio">0%</div>
+            <div class="history-kpi-meta" id="kpiDesperdicioMeta">sobrante / producido</div>
+        </article>
+        <article class="history-kpi-card">
+            <div class="card-help-corner">{% with help_text=history_help.dias_quiebre %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
+            <div class="history-kpi-label">Dias con quiebre</div>
+            <div class="history-kpi-value" id="kpiQuiebres">0</div>
+            <div class="history-kpi-meta" id="kpiQuiebresMeta">dias con faltante</div>
         </article>
     </section>
 
@@ -106,13 +149,15 @@
         <article class="card analytics-card history-card history-card-wide">
             <div class="card-header history-section-header">
                 <div><strong>Evolucion diaria</strong><span>Compara ingresos contra numero de transacciones para detectar dias fuertes y dias flojos.</span></div>
+                <div class="card-help-inline">{% with help_text=history_help.evolucion_diaria %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
             </div>
-            <div class="card-body chart-wrap history-chart-lg"><canvas id="chartEvolucionDiaria"></canvas></div>
+            <div class="card-body chart-wrap history-chart-lg"><div id="chartEvolucionDiaria" style="width:100%;height:280px;"></div></div>
         </article>
 
         <article class="card analytics-card history-card">
             <div class="card-header history-section-header">
                 <div><strong>Lectura ejecutiva</strong><span>Mix de pago, caja y productos que sostienen la facturacion.</span></div>
+                <div class="card-help-inline">{% with help_text=history_help.lectura_ejecutiva %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
             </div>
             <div class="card-body history-panel-body">
                 <div class="history-panel-block">
@@ -158,43 +203,57 @@
         <article class="card analytics-card history-card history-card-wide">
             <div class="card-header history-section-header">
                 <div><strong>Flujo de caja por dia</strong><span>Mira como se compone el dinero entre apertura, ventas, ingresos manuales y salidas.</span></div>
+                <div class="card-help-inline">{% with help_text=history_help.flujo_caja %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
             </div>
-            <div class="card-body chart-wrap"><canvas id="chartCajaHistorial"></canvas></div>
+            <div class="card-body chart-wrap"><div id="chartCajaHistorial" style="width:100%;height:260px;"></div></div>
+        </article>
+
+        <article class="card analytics-card history-card">
+            <div class="card-header history-section-header">
+                <div><strong>Diferencias de cierre de caja</strong><span>Verde = sobrante al cerrar, rojo = faltante. Ayuda a detectar dias con descuadres.</span></div>
+                <div class="card-help-inline">{% with help_text=history_help.dif_caja %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
+            </div>
+            <div class="card-body chart-wrap"><div id="chartDifCaja" style="width:100%;height:200px;"></div></div>
         </article>
 
         <article class="card analytics-card history-card">
             <div class="card-header history-section-header">
                 <div><strong>Productos mas rentables</strong><span>Ranking de referencia para ver que empuja la venta real.</span></div>
+                <div class="card-help-inline">{% with help_text=history_help.productos_rentables %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
             </div>
-            <div class="card-body chart-wrap"><canvas id="chartVentasProductoHistorial"></canvas></div>
+            <div class="card-body chart-wrap"><div id="chartVentasProductoHistorial" style="width:100%;height:260px;"></div></div>
         </article>
 
         <article class="card analytics-card history-card">
             <div class="card-header history-section-header">
                 <div><strong>Ritmo por dia de semana</strong><span>Ideal para entender cuando se concentra la demanda del negocio.</span></div>
+                <div class="card-help-inline">{% with help_text=history_help.ritmo_dia_semana %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
             </div>
-            <div class="card-body chart-wrap"><canvas id="chartDiaSemanaHistorial"></canvas></div>
+            <div class="card-body chart-wrap"><div id="chartDiaSemanaHistorial" style="width:100%;height:260px;"></div></div>
         </article>
 
         <article class="card analytics-card history-card">
             <div class="card-header history-section-header">
                 <div><strong>Horas de mayor movimiento</strong><span>Distribucion de unidades vendidas segun franja horaria.</span></div>
+                <div class="card-help-inline">{% with help_text=history_help.horas_movimiento %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
             </div>
-            <div class="card-body chart-wrap"><canvas id="chartHora"></canvas></div>
+            <div class="card-body chart-wrap"><div id="chartHora" style="width:100%;height:260px;"></div></div>
         </article>
 
         <article class="card analytics-card history-card">
             <div class="card-header history-section-header">
                 <div><strong>Produccion vs venta</strong><span>Lectura operativa para revisar sobrantes, faltantes y balance del periodo.</span></div>
+                <div class="card-help-inline">{% with help_text=history_help.produccion_venta %}{% include "components/_help_tooltip_trigger.html" %}{% endwith %}</div>
             </div>
-            <div class="card-body chart-wrap"><canvas id="chartOperacion"></canvas></div>
+            <div class="card-body chart-wrap"><div id="chartOperacion" style="width:100%;height:260px;"></div></div>
         </article>
     </section>
 
     <section class="history-tables-grid">
         <article class="card history-table-card history-table-wide">
             <div class="card-header history-section-header">
-                <div><strong>Ventas recientes</strong><span>Detalle de las ultimas transacciones registradas en el periodo.</span></div>
+                <div><strong>Ventas recientes</strong><span id="ventasRecientesHint">Detalle de las ultimas transacciones registradas en el periodo.</span></div>
+                <button class="btn btn-light" type="button" id="btnLimpiarVentasDia" hidden>Ver todo el periodo</button>
             </div>
             <div class="card-body history-table-wrap">
                 <table class="table table-compact history-table">
@@ -263,12 +322,7 @@
 </div>
 
 <script>
-let chartHistorialVentas = null;
-let chartHistorialCaja = null;
-let chartHistorialProductos = null;
-let chartHistorialDiaSemana = null;
-let chartHistorialHora = null;
-let chartHistorialOperacion = null;
+// Instancias ECharts gestionadas por AppCharts (echarts-helpers.js)
 
 const compactMoneyFormatter = new Intl.NumberFormat('en-US', {
     notation: 'compact',
@@ -307,9 +361,6 @@ function escapeHtml(value) {
         "'": '&#39;',
     }[char]));
 }
-function destroyChart(chartRef) {
-    if (chartRef) chartRef.destroy();
-}
 function humanize(value) {
     const text = `${value || '-'}`.replace(/_/g, ' ').trim();
     return text ? text.charAt(0).toUpperCase() + text.slice(1) : '-';
@@ -341,6 +392,9 @@ function toInputDate(dateValue) {
     return `${year}-${month}-${day}`;
 }
 
+let latestHistorialPayload = null;
+let selectedVentasFecha = '';
+
 function applyPresetDays(days) {
     const daysInt = Math.max(Number(days || 30), 1);
     const end = new Date(`${todayStr}T00:00:00`);
@@ -368,6 +422,7 @@ function bindHistorialFilters() {
         cargarDashboardHistorial();
     });
     document.getElementById('btnResetHistorial').addEventListener('click', resetHistorialFilters);
+    document.getElementById('btnLimpiarVentasDia').addEventListener('click', () => setVentasDrilldown(''));
     daysSelect.addEventListener('change', () => {
         if (daysSelect.value !== 'custom') {
             applyPresetDays(daysSelect.value);
@@ -435,6 +490,17 @@ function renderKpis(totals, insights, operation) {
     document.getElementById('kpiProductoLiderMeta').textContent = leader.producto
         ? `${money(leader.dinero || 0)} · ${number(leader.panes || 0)} unidades`
         : 'Sin ranking en el periodo';
+
+    const op = operation || {};
+    document.getElementById('kpiAprovechamiento').textContent = percent(op.aprovechamiento || 0);
+    document.getElementById('kpiAprovechamientoMeta').textContent =
+        `${number(op.total_vendido || 0)} vendidos de ${number(op.total_producido || 0)} producidos`;
+    document.getElementById('kpiDesperdicio').textContent = percent(op.desperdicio || 0);
+    document.getElementById('kpiDesperdicioMeta').textContent =
+        `${number(op.total_sobrante || 0)} unidades sobrantes en el periodo`;
+    document.getElementById('kpiQuiebres').textContent = number(op.dias_con_quiebre || 0);
+    document.getElementById('kpiQuiebresMeta').textContent =
+        `dias con faltante de ${number(op.registros || 0)} registros`;
 }
 
 function renderExecutivePanel(data) {
@@ -470,338 +536,224 @@ function renderExecutivePanel(data) {
     `).join('');
 }
 
+/* ── ECharts: helpers de eje ─────────────────────────────────────────── */
+const axisTextStyle = { color: '#5D4037', fontSize: 11 };
+const gridLine = { lineStyle: { color: '#EFEBE9' } };
+const baseAxis = { axisLine: { lineStyle: { color: '#EFEBE9' } }, axisLabel: axisTextStyle, splitLine: gridLine };
+
 function renderChartEvolucion(rows) {
-    destroyChart(chartHistorialVentas);
-    const ctx = document.getElementById('chartEvolucionDiaria');
-    chartHistorialVentas = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: rows.map((row) => shortDate(row.fecha)),
-            datasets: [
-                {
-                    type: 'line',
-                    label: 'Ventas',
-                    data: rows.map((row) => Number(row.dinero || 0)),
-                    borderColor: '#C17817',
-                    backgroundColor: 'rgba(193, 120, 23, 0.18)',
-                    tension: 0.32,
-                    borderWidth: 3,
-                    pointRadius: 2,
-                    yAxisID: 'y',
-                    fill: true,
-                    order: 1,
-                },
-                {
-                    type: 'bar',
-                    label: 'Transacciones',
-                    data: rows.map((row) => Number(row.transacciones || 0)),
-                    backgroundColor: 'rgba(67, 107, 79, 0.78)',
-                    borderRadius: 10,
-                    yAxisID: 'y1',
-                    order: 2,
-                },
-            ],
+    const chart = AppCharts.init('chartEvolucionDiaria');
+    if (!chart) return;
+    chart.setOption({
+        color: ['#C17817', '#436B4F'],
+        tooltip: { trigger: 'axis', axisPointer: { type: 'cross' },
+            formatter(params) {
+                return params[0].name + '<br>' +
+                    params.map(p => `${p.marker}${p.seriesName}: <b>${p.seriesIndex === 1 ? number(p.value) : money(p.value)}</b>`).join('<br>');
+            }
         },
-        options: {
-            maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
-            plugins: {
-                legend: { labels: { usePointStyle: true } },
-                tooltip: {
-                    callbacks: {
-                        label(context) {
-                            const value = context.raw;
-                            return context.dataset.yAxisID === 'y1'
-                                ? `${context.dataset.label}: ${number(value || 0)}`
-                                : `${context.dataset.label}: ${money(value || 0)}`;
-                        },
-                    },
-                },
-            },
-            scales: {
-                x: { grid: { display: false } },
-                y: {
-                    beginAtZero: true,
-                    ticks: { callback: (value) => axisMoney(value) },
-                },
-                y1: {
-                    beginAtZero: true,
-                    position: 'right',
-                    grid: { drawOnChartArea: false },
-                    ticks: { precision: 0 },
-                },
-            },
-        },
+        legend: { bottom: 0, textStyle: axisTextStyle },
+        dataZoom: rows.length > 20 ? [{ type: 'slider', bottom: '8%', height: 16, borderColor: '#EFEBE9', fillerColor: 'rgba(193,120,23,.12)', handleStyle: { color: '#C17817' }, textStyle: axisTextStyle, startValue: rows.length > 30 ? rows.length - 30 : 0 }] : [],
+        grid: AppCharts.grid({ bottom: rows.length > 20 ? '22%' : '15%' }),
+        xAxis: { type: 'category', data: rows.map(r => shortDate(r.fecha)), ...baseAxis, axisLabel: { ...axisTextStyle, rotate: rows.length > 20 ? 35 : 0 } },
+        yAxis: [
+            { type: 'value', name: 'Ventas', ...baseAxis, axisLabel: { ...axisTextStyle, formatter: v => axisMoney(v) } },
+            { type: 'value', name: 'Trans.', position: 'right', ...baseAxis, minInterval: 1, splitLine: { show: false } },
+        ],
+        series: [
+            { name: 'Ventas', type: 'line', data: rows.map(r => Number(r.dinero || 0)), smooth: true, symbol: 'circle', symbolSize: 4, lineStyle: { width: 2 }, areaStyle: { opacity: 0.15 }, yAxisIndex: 0 },
+            { name: 'Transacciones', type: 'bar', data: rows.map(r => Number(r.transacciones || 0)), barMaxWidth: 24, itemStyle: { borderRadius: [4, 4, 0, 0], color: 'rgba(67,107,79,.75)' }, yAxisIndex: 1 },
+        ],
+    });
+    chart.off('click');
+    chart.on('click', (params) => {
+        const row = rows[params?.dataIndex ?? -1];
+        if (!row || !row.fecha) return;
+        setVentasDrilldown(row.fecha);
     });
 }
 
 function renderChartCaja(rows) {
-    destroyChart(chartHistorialCaja);
-    const ctx = document.getElementById('chartCajaHistorial');
-    chartHistorialCaja = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: rows.map((row) => shortDate(row.fecha)),
-            datasets: [
-                {
-                    label: 'Ventas efectivo',
-                    data: rows.map((row) => Number(row.ventas_efectivo || 0)),
-                    backgroundColor: 'rgba(193, 120, 23, 0.86)',
-                    borderRadius: 8,
-                },
-                {
-                    label: 'Transferencia',
-                    data: rows.map((row) => Number(row.ventas_transferencia || 0)),
-                    backgroundColor: 'rgba(65, 121, 90, 0.82)',
-                    borderRadius: 8,
-                },
-                {
-                    label: 'Ingresos manuales',
-                    data: rows.map((row) => Number(row.ingresos || 0)),
-                    backgroundColor: 'rgba(93, 149, 111, 0.72)',
-                    borderRadius: 8,
-                },
-                {
-                    label: 'Egresos manuales',
-                    data: rows.map((row) => Number(row.egresos || 0) * -1),
-                    backgroundColor: 'rgba(166, 74, 63, 0.82)',
-                    borderRadius: 8,
-                },
-            ],
+    const chart = AppCharts.init('chartCajaHistorial');
+    if (!chart) return;
+    chart.setOption({
+        color: ['#C17817','#416B5A','#5D9570','#A64A3F'],
+        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' },
+            formatter(params) {
+                return params[0].name + '<br>' +
+                    params.map(p => `${p.marker}${p.seriesName}: <b>${signedMoney(p.value)}</b>`).join('<br>');
+            }
         },
-        options: {
-            maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
-            plugins: {
-                legend: { labels: { usePointStyle: true } },
-                tooltip: {
-                    callbacks: {
-                        label(context) {
-                            return `${context.dataset.label}: ${signedMoney(context.raw || 0)}`;
-                        },
-                    },
-                },
-            },
-            scales: {
-                x: { stacked: true, grid: { display: false } },
-                y: {
-                    stacked: true,
-                    beginAtZero: true,
-                    ticks: { callback: (value) => axisMoney(value) },
-                },
-            },
-        },
+        legend: { bottom: 0, textStyle: axisTextStyle },
+        dataZoom: rows.length > 20 ? [{ type: 'slider', bottom: '8%', height: 16, borderColor: '#EFEBE9', fillerColor: 'rgba(193,120,23,.12)', handleStyle: { color: '#C17817' }, textStyle: axisTextStyle, startValue: rows.length > 30 ? rows.length - 30 : 0 }] : [],
+        grid: AppCharts.grid({ bottom: rows.length > 20 ? '22%' : '15%' }),
+        xAxis: { type: 'category', data: rows.map(r => shortDate(r.fecha)), ...baseAxis },
+        yAxis: { type: 'value', ...baseAxis, axisLabel: { ...axisTextStyle, formatter: v => axisMoney(v) } },
+        series: [
+            { name: 'Efectivo',          type: 'bar', stack: 'caja', data: rows.map(r => Number(r.ventas_efectivo || 0)),    itemStyle: { borderRadius: [3,3,0,0] } },
+            { name: 'Transferencia',     type: 'bar', stack: 'caja', data: rows.map(r => Number(r.ventas_transferencia || 0)), itemStyle: { borderRadius: [3,3,0,0] } },
+            { name: 'Ingresos manuales', type: 'bar', stack: 'caja', data: rows.map(r => Number(r.ingresos || 0)),            itemStyle: { borderRadius: [3,3,0,0] } },
+            { name: 'Egresos manuales',  type: 'bar', stack: 'caja', data: rows.map(r => Number(r.egresos || 0) * -1),        itemStyle: { borderRadius: [0,0,3,3] } },
+        ],
     });
 }
 
 function renderChartProductos(rows) {
     const top = rows.slice(0, 8).reverse();
-    destroyChart(chartHistorialProductos);
-    const ctx = document.getElementById('chartVentasProductoHistorial');
-    chartHistorialProductos = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: top.map((row) => row.producto || '-'),
-            datasets: [{
-                label: 'Ingresos',
-                data: top.map((row) => Number(row.dinero || 0)),
-                backgroundColor: top.map((_, index) => index === top.length - 1
-                    ? 'rgba(193, 120, 23, 0.92)'
-                    : 'rgba(193, 120, 23, 0.38)'),
-                borderRadius: 12,
-            }],
+    const chart = AppCharts.init('chartVentasProductoHistorial');
+    if (!chart) return;
+    chart.setOption({
+        color: ['#C17817'],
+        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' },
+            formatter(params) {
+                const item = top[params[0].dataIndex] || {};
+                return `${params[0].name}<br><b>${money(item.dinero || 0)}</b> · ${number(item.panes || 0)} unidades`;
+            }
         },
-        options: {
-            indexAxis: 'y',
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    callbacks: {
-                        label(context) {
-                            const item = top[context.dataIndex] || {};
-                            return `Ingresos: ${money(item.dinero || 0)} · ${number(item.panes || 0)} unidades`;
-                        },
-                    },
-                },
-            },
-            scales: {
-                x: {
-                    beginAtZero: true,
-                    ticks: { callback: (value) => axisMoney(value) },
-                    grid: { color: 'rgba(193, 120, 23, 0.08)' },
-                },
-                y: { grid: { display: false } },
-            },
-        },
+        grid: AppCharts.grid({ left: '8%' }),
+        xAxis: { type: 'value', ...baseAxis, axisLabel: { ...axisTextStyle, formatter: v => axisMoney(v) } },
+        yAxis: { type: 'category', data: top.map(r => r.producto || '-'), ...baseAxis,
+                 axisLabel: { ...axisTextStyle, width: 110, overflow: 'truncate' } },
+        series: [{
+            type: 'bar', barMaxWidth: 32,
+            data: top.map((r, i) => ({ value: Number(r.dinero || 0),
+                itemStyle: { color: i === top.length - 1 ? 'rgba(193,120,23,.92)' : 'rgba(193,120,23,.42)', borderRadius: [0,4,4,0] } })),
+        }],
     });
 }
 
 function renderChartDiaSemana(rows) {
-    destroyChart(chartHistorialDiaSemana);
-    const ctx = document.getElementById('chartDiaSemanaHistorial');
-    chartHistorialDiaSemana = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: rows.map((row) => row.dia || '-'),
-            datasets: [
-                {
-                    label: 'Ventas',
-                    data: rows.map((row) => Number(row.dinero || 0)),
-                    backgroundColor: 'rgba(211, 143, 55, 0.78)',
-                    borderRadius: 10,
-                    yAxisID: 'y',
-                },
-                {
-                    type: 'line',
-                    label: 'Unidades',
-                    data: rows.map((row) => Number(row.panes || 0)),
-                    borderColor: '#436B4F',
-                    backgroundColor: 'rgba(67, 107, 79, 0.16)',
-                    borderWidth: 3,
-                    pointRadius: 2,
-                    tension: 0.25,
-                    yAxisID: 'y1',
-                },
-            ],
+    const chart = AppCharts.init('chartDiaSemanaHistorial');
+    if (!chart) return;
+    chart.setOption({
+        color: ['#D38F37','#436B4F'],
+        tooltip: { trigger: 'axis', axisPointer: { type: 'cross' },
+            formatter(params) {
+                return params[0].name + '<br>' +
+                    params.map(p => `${p.marker}${p.seriesName}: <b>${p.seriesIndex === 0 ? money(p.value) : number(p.value)}</b>`).join('<br>');
+            }
         },
-        options: {
-            maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
-            plugins: {
-                legend: { labels: { usePointStyle: true } },
-                tooltip: {
-                    callbacks: {
-                        label(context) {
-                            return context.dataset.yAxisID === 'y1'
-                                ? `${context.dataset.label}: ${number(context.raw || 0)}`
-                                : `${context.dataset.label}: ${money(context.raw || 0)}`;
-                        },
-                    },
-                },
-            },
-            scales: {
-                x: { grid: { display: false } },
-                y: {
-                    beginAtZero: true,
-                    ticks: { callback: (value) => axisMoney(value) },
-                },
-                y1: {
-                    beginAtZero: true,
-                    position: 'right',
-                    grid: { drawOnChartArea: false },
-                    ticks: { precision: 0 },
-                },
-            },
-        },
+        legend: { bottom: 0, textStyle: axisTextStyle },
+        grid: AppCharts.grid({ bottom: '15%' }),
+        xAxis: { type: 'category', data: rows.map(r => r.dia || '-'), ...baseAxis },
+        yAxis: [
+            { type: 'value', name: 'Ventas',    ...baseAxis, axisLabel: { ...axisTextStyle, formatter: v => axisMoney(v) } },
+            { type: 'value', name: 'Unidades',  position: 'right', ...baseAxis, minInterval: 1, splitLine: { show: false } },
+        ],
+        series: [
+            { name: 'Ventas',   type: 'bar',  data: rows.map(r => Number(r.dinero || 0)), barMaxWidth: 40, itemStyle: { borderRadius: [4,4,0,0], color: 'rgba(211,143,55,.8)' }, yAxisIndex: 0 },
+            { name: 'Unidades', type: 'line', data: rows.map(r => Number(r.panes || 0)),  smooth: true, symbol: 'circle', symbolSize: 5, lineStyle: { color: '#436B4F', width: 2 }, itemStyle: { color: '#436B4F' }, yAxisIndex: 1 },
+        ],
     });
 }
 
 function renderChartHora(rows) {
-    destroyChart(chartHistorialHora);
-    const ctx = document.getElementById('chartHora');
-    chartHistorialHora = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: rows.map((row) => row.hora || '-'),
-            datasets: [{
-                label: 'Unidades vendidas',
-                data: rows.map((row) => Number(row.panes || 0)),
-                borderColor: '#A6593F',
-                backgroundColor: 'rgba(166, 89, 63, 0.18)',
-                fill: true,
-                tension: 0.32,
-                borderWidth: 3,
-                pointRadius: 2,
-            }],
-        },
-        options: {
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    callbacks: {
-                        label(context) {
-                            return `Unidades: ${number(context.raw || 0)}`;
-                        },
-                    },
-                },
-            },
-            scales: {
-                x: { grid: { display: false } },
-                y: { beginAtZero: true, ticks: { precision: 0 } },
-            },
-        },
+    const chart = AppCharts.init('chartHora');
+    if (!chart) return;
+    chart.setOption({
+        color: ['#A6593F'],
+        tooltip: { trigger: 'axis', formatter(params) { return `${params[0].name}: <b>${number(params[0].value)}</b> uds.`; } },
+        grid: AppCharts.grid(),
+        xAxis: { type: 'category', data: rows.map(r => r.hora || '-'), ...baseAxis },
+        yAxis: { type: 'value', ...baseAxis, minInterval: 1 },
+        series: [{
+            type: 'line', data: rows.map(r => Number(r.panes || 0)), smooth: true,
+            areaStyle: { color: 'rgba(166,89,63,.18)' }, symbol: 'circle', symbolSize: 4,
+            lineStyle: { color: '#A6593F', width: 2 }, itemStyle: { color: '#A6593F' },
+        }],
     });
 }
 
 function renderChartOperacion(rows) {
     const periodRows = rows.slice(-14);
-    destroyChart(chartHistorialOperacion);
-    const ctx = document.getElementById('chartOperacion');
-    chartHistorialOperacion = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: periodRows.map((row) => shortDate(row.fecha)),
-            datasets: [
-                {
-                    type: 'line',
-                    label: 'Producido',
-                    data: periodRows.map((row) => Number(row.producido || 0)),
-                    borderColor: '#C17817',
-                    backgroundColor: 'rgba(193, 120, 23, 0.16)',
-                    borderWidth: 3,
-                    pointRadius: 2,
-                    tension: 0.25,
-                },
-                {
-                    type: 'line',
-                    label: 'Vendido',
-                    data: periodRows.map((row) => Number(row.vendido || 0)),
-                    borderColor: '#436B4F',
-                    backgroundColor: 'rgba(67, 107, 79, 0.16)',
-                    borderWidth: 3,
-                    pointRadius: 2,
-                    tension: 0.25,
-                },
-                {
-                    label: 'Sobrante',
-                    data: periodRows.map((row) => Number(row.sobrante || 0)),
-                    backgroundColor: 'rgba(100, 161, 117, 0.68)',
-                    borderRadius: 8,
-                },
-                {
-                    label: 'Faltante',
-                    data: periodRows.map((row) => Number(row.faltante || 0) * -1),
-                    backgroundColor: 'rgba(166, 74, 63, 0.75)',
-                    borderRadius: 8,
-                },
-            ],
+    const chart = AppCharts.init('chartOperacion');
+    if (!chart) return;
+    chart.setOption({
+        color: ['#C17817','#436B4F','#64A175','#A64A3F'],
+        tooltip: { trigger: 'axis', axisPointer: { type: 'cross' },
+            formatter(params) {
+                return params[0].name + '<br>' +
+                    params.map(p => `${p.marker}${p.seriesName}: <b>${number(Math.abs(p.value))}</b>`).join('<br>');
+            }
         },
-        options: {
-            maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
-            plugins: {
-                legend: { labels: { usePointStyle: true } },
-                tooltip: {
-                    callbacks: {
-                        label(context) {
-                            return `${context.dataset.label}: ${number(Math.abs(context.raw || 0))}`;
-                        },
-                    },
-                },
-            },
-            scales: {
-                x: { stacked: false, grid: { display: false } },
-                y: { beginAtZero: true, ticks: { precision: 0 } },
-            },
-        },
+        legend: { bottom: 0, textStyle: axisTextStyle },
+        grid: AppCharts.grid({ bottom: '15%' }),
+        xAxis: { type: 'category', data: periodRows.map(r => shortDate(r.fecha)), ...baseAxis },
+        yAxis: { type: 'value', ...baseAxis, minInterval: 1 },
+        series: [
+            { name: 'Producido', type: 'line', data: periodRows.map(r => Number(r.producido || 0)), smooth: true, symbol: 'circle', symbolSize: 4, lineStyle: { width: 2 } },
+            { name: 'Vendido',   type: 'line', data: periodRows.map(r => Number(r.vendido   || 0)), smooth: true, symbol: 'circle', symbolSize: 4, lineStyle: { width: 2 } },
+            { name: 'Sobrante',  type: 'bar',  data: periodRows.map(r => Number(r.sobrante  || 0)), barMaxWidth: 20, itemStyle: { borderRadius: [4,4,0,0], color: 'rgba(100,161,117,.7)' } },
+            { name: 'Faltante',  type: 'bar',  data: periodRows.map(r => Number(r.faltante  || 0) * -1), barMaxWidth: 20, itemStyle: { borderRadius: [0,0,4,4], color: 'rgba(166,74,63,.75)' } },
+        ],
     });
 }
+function renderChartDifCaja(rows) {
+    const filtered = rows.filter(r => r.diferencia != null);
+    const chart = AppCharts.init('chartDifCaja');
+    if (!chart) return;
+    if (!filtered.length) { chart.setOption({ graphic: [{ type: 'text', left: 'center', top: 'middle', style: { text: 'Sin datos de caja en el periodo', fill: '#9E9E9E', fontSize: 13 } }] }); return; }
+    const maxAbs = Math.max(...filtered.map(r => Math.abs(Number(r.diferencia || 0))), 1);
+    chart.setOption({
+        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' },
+            formatter(params) {
+                const v = Number(params[0].value || 0);
+                const label = v > 0 ? 'Sobrante' : v < 0 ? 'Faltante' : 'Cuadrado';
+                return `${params[0].name}<br>${params[0].marker}${label}: <b>${signedMoney(v)}</b>`;
+            }
+        },
+        grid: AppCharts.grid({ bottom: '8%' }),
+        xAxis: { type: 'category', data: filtered.map(r => shortDate(r.fecha)), ...baseAxis, axisLabel: { ...axisTextStyle, rotate: filtered.length > 20 ? 35 : 0 } },
+        yAxis: { type: 'value', ...baseAxis, axisLabel: { ...axisTextStyle, formatter: v => axisMoney(v) } },
+        series: [{
+            type: 'bar', barMaxWidth: 28,
+            data: filtered.map(r => {
+                const v = Number(r.diferencia || 0);
+                const intensity = Math.min(0.3 + (Math.abs(v) / maxAbs) * 0.65, 0.95);
+                const color = v >= 0 ? `rgba(70,140,90,${intensity})` : `rgba(180,60,50,${intensity})`;
+                return { value: v, itemStyle: { color, borderRadius: v >= 0 ? [4,4,0,0] : [0,0,4,4] } };
+            }),
+        }],
+    });
+}
+
+function getVentasRowsForTable() {
+    const payload = latestHistorialPayload || {};
+    const allRows = Array.isArray(payload.ventas_detalle)
+        ? payload.ventas_detalle
+        : (Array.isArray(payload.ventas_recientes) ? payload.ventas_recientes : []);
+    if (!selectedVentasFecha) {
+        return Array.isArray(payload.ventas_recientes) ? payload.ventas_recientes : allRows;
+    }
+    return allRows.filter((row) => `${row.fecha || ''}` === selectedVentasFecha);
+}
+
+function updateVentasDrilldownState(rows) {
+    const hint = document.getElementById('ventasRecientesHint');
+    const clearButton = document.getElementById('btnLimpiarVentasDia');
+    if (!hint || !clearButton) return;
+    if (selectedVentasFecha) {
+        hint.textContent = `Mostrando solo ventas del ${shortDate(selectedVentasFecha)}. ${number(rows.length)} registros en la tabla.`;
+        clearButton.hidden = false;
+        return;
+    }
+    hint.textContent = 'Detalle de las ultimas transacciones registradas en el periodo.';
+    clearButton.hidden = true;
+}
+
+function setVentasDrilldown(fecha) {
+    selectedVentasFecha = fecha || '';
+    renderVentasTable(getVentasRowsForTable());
+}
+
 function renderVentasTable(rows) {
     const tbody = document.getElementById('tablaVentasRecientes');
+    updateVentasDrilldownState(rows);
     if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No hay ventas registradas en este periodo.</td></tr>';
+        const emptyMessage = selectedVentasFecha
+            ? `No hay ventas registradas para ${shortDate(selectedVentasFecha)}.`
+            : 'No hay ventas registradas en este periodo.';
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted">${emptyMessage}</td></tr>`;
         return;
     }
 
@@ -886,6 +838,8 @@ async function cargarDashboardHistorial() {
             throw new Error(`HTTP ${response.status}`);
         }
         const data = await response.json();
+        latestHistorialPayload = data;
+        selectedVentasFecha = '';
 
         window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
 
@@ -898,13 +852,19 @@ async function cargarDashboardHistorial() {
         renderChartDiaSemana(data.serie_dia_semana || []);
         renderChartHora(data.serie_horaria || []);
         renderChartOperacion(data.serie_operativa || []);
-        renderVentasTable(data.ventas_recientes || []);
+        renderChartDifCaja(data.serie_caja || []);
+        renderVentasTable(getVentasRowsForTable());
         renderArqueosTable(data.arqueos_historial || []);
         renderMovimientosTable(data.movimientos_historial || []);
     } catch (error) {
         console.error('Error cargando historial dashboard', error);
+        latestHistorialPayload = null;
+        selectedVentasFecha = '';
         document.getElementById('historyHeroSummary').textContent =
             'No fue posible cargar el dashboard del historial en este momento. Revisa la conexion o intenta actualizar de nuevo.';
+        document.getElementById('ventasRecientesHint').textContent =
+            'Detalle de las ultimas transacciones registradas en el periodo.';
+        document.getElementById('btnLimpiarVentasDia').hidden = true;
         document.getElementById('historyTopProductsList').innerHTML =
             '<div class="history-empty">No se pudo cargar el ranking de productos.</div>';
         document.getElementById('tablaVentasRecientes').innerHTML =

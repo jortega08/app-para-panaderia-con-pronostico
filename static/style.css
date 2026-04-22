@@ -5393,6 +5393,7 @@ body.cajero-layout .page-container.production-page {
     min-width: 0;
     padding: 20px 22px;
     border-radius: 22px;
+    position: relative;
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(250, 247, 242, 0.98));
     border: 1px solid rgba(193, 120, 23, 0.1);
     box-shadow: 0 14px 36px rgba(50, 34, 17, 0.05);
@@ -7379,6 +7380,123 @@ label {
     overflow: hidden;
 }
 
+.card-help-corner {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    z-index: 3;
+}
+
+.card-help-inline {
+    display: inline-flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.card-header-with-help {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.card-header-copy {
+    min-width: 0;
+}
+
+.card-header-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.card-header-meta {
+    display: block;
+    margin-top: 4px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text-muted);
+}
+
+.help-tooltip-trigger {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid rgba(139, 85, 19, 0.16);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.88);
+    color: var(--text-muted);
+    box-shadow: 0 10px 20px rgba(71, 40, 20, 0.08);
+    cursor: pointer;
+    transition: transform 0.18s ease, border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
+}
+
+.help-tooltip-trigger:hover,
+.help-tooltip-trigger:focus-visible,
+.help-tooltip-trigger[aria-expanded="true"] {
+    color: var(--primary);
+    border-color: rgba(193, 120, 23, 0.34);
+    background: rgba(255, 248, 242, 0.98);
+    transform: translateY(-1px);
+}
+
+.help-tooltip-trigger:focus-visible {
+    outline: 2px solid rgba(193, 120, 23, 0.22);
+    outline-offset: 2px;
+}
+
+.help-tooltip-trigger .material-symbols-outlined {
+    font-size: 18px;
+    line-height: 1;
+}
+
+.help-tooltip-bubble {
+    position: absolute;
+    top: calc(100% + 10px);
+    right: 0;
+    width: min(280px, calc(100vw - 36px));
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: #2b1a12;
+    color: #fff8f2;
+    font-size: 12px;
+    line-height: 1.5;
+    text-align: left;
+    box-shadow: 0 18px 30px rgba(26, 15, 10, 0.24);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(-4px);
+    transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s ease;
+    z-index: 25;
+}
+
+.help-tooltip-bubble::before {
+    content: '';
+    position: absolute;
+    top: -6px;
+    right: 12px;
+    width: 12px;
+    height: 12px;
+    background: inherit;
+    transform: rotate(45deg);
+}
+
+.help-tooltip-trigger:hover .help-tooltip-bubble,
+.help-tooltip-trigger:focus-visible .help-tooltip-bubble,
+.help-tooltip-trigger[aria-expanded="true"] .help-tooltip-bubble {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
 .metric-card::after {
     content: '';
     position: absolute;
@@ -7423,6 +7541,17 @@ label {
 
     .metric-value {
         font-size: 34px;
+    }
+
+    .card-header-with-help,
+    .sales-section-header,
+    .history-section-header {
+        gap: 10px;
+    }
+
+    .help-tooltip-bubble {
+        right: -4px;
+        width: min(260px, calc(100vw - 28px));
     }
 }
 

@@ -41,6 +41,7 @@
         padding: 9px 14px;
         font-size: 13px;
         font-weight: 700;
+        text-decoration: none;
     }
 
     .mesa-filter-btn.is-active,
@@ -62,6 +63,94 @@
         color: var(--primary-dark);
         font-size: 11px;
     }
+
+    .pedido-detail-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+    }
+
+    .pedido-detail-card {
+        border: 1px solid rgba(139, 85, 19, 0.12);
+        border-radius: 16px;
+        padding: 14px;
+        background: rgba(255, 255, 255, 0.92);
+    }
+
+    .pedido-section-title {
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        margin-bottom: 10px;
+    }
+
+    .pedido-meta-list {
+        display: grid;
+        gap: 8px;
+    }
+
+    .pedido-meta-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        font-size: 14px;
+    }
+
+    .pedido-meta-row span {
+        color: var(--text-muted);
+    }
+
+    .pedido-trace-list {
+        display: grid;
+        gap: 10px;
+    }
+
+    .pedido-trace-item {
+        display: grid;
+        grid-template-columns: 22px minmax(0, 1fr);
+        gap: 10px;
+        align-items: start;
+    }
+
+    .pedido-trace-icon {
+        width: 22px;
+        height: 22px;
+        border-radius: 999px;
+        display: grid;
+        place-items: center;
+        background: rgba(212, 114, 42, 0.12);
+        color: var(--primary-dark);
+    }
+
+    .pedido-trace-icon .material-symbols-outlined {
+        font-size: 15px;
+    }
+
+    .pedido-trace-title {
+        font-weight: 700;
+        color: var(--text);
+    }
+
+    .pedido-trace-meta {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin-top: 2px;
+    }
+
+    .pedido-trace-note {
+        font-size: 13px;
+        color: var(--text-sec);
+        margin-top: 4px;
+        line-height: 1.45;
+    }
+
+    @media (max-width: 840px) {
+        .pedido-detail-grid {
+            grid-template-columns: 1fr;
+        }
+    }
 </style>
 <div class="page-container">
     <div class="page-header">
@@ -71,21 +160,34 @@
         </div>
     </div>
 
-    {% if not pedidos %}
-    <div class="card">
-        <div class="card-body" style="text-align: center; padding: 40px;">
-            <span style="font-size: 48px; opacity: 0.4;"><span class="material-symbols-outlined" style="font-size: 48px;">assignment</span></span>
-            <p class="text-muted" style="margin-top: 12px;">No hay pedidos hoy</p>
+    <div class="card mesa-filter-card">
+        <div class="card-body">
+            <div class="mesa-filter-head">
+                <div>
+                    <strong>Estado del pedido</strong>
+                    <span>Cambia entre listos para caja, pendientes y cancelados.</span>
+                </div>
+            </div>
+            <div class="mesa-filter-strip">
+                {% for filtro in filtros_estado %}
+                <a class="mesa-filter-btn{% if filtro.active %} is-active{% endif %}"
+                   href="{{ url_for('mesero_pedidos', estado=filtro.key) }}">
+                    {{ filtro.label }}
+                    <span class="mesa-filter-count">{{ filtro.count }}</span>
+                </a>
+                {% endfor %}
+            </div>
         </div>
     </div>
-    {% else %}
+
+    {% if pedidos %}
     {% if mesas_filtro %}
     <div class="card mesa-filter-card">
         <div class="card-body">
             <div class="mesa-filter-head">
                 <div>
                     <strong>Filtrar por mesa</strong>
-                    <span>Enfoca la lista en una sola mesa para revisar sus pedidos más rápido.</span>
+                    <span>Enfoca la lista en una sola mesa para revisar sus pedidos mas rapido.</span>
                 </div>
             </div>
             <div class="mesa-filter-strip">
@@ -104,6 +206,7 @@
         </div>
     </div>
     {% endif %}
+
     <div class="pedidos-list" id="pedidosList">
         {% for p in pedidos %}
         <div class="pedido-card pedido-estado-{{ p.estado }}" data-mesa="{{ p.mesa_numero or '' }}">
@@ -122,6 +225,28 @@
                 </div>
                 <span class="pedido-total">${{ '{:,.0f}'.format(p.total or 0) }}</span>
             </div>
+
+            <div class="pedido-detail-grid" style="padding: 0 16px 12px;">
+                <div class="pedido-detail-card">
+                    <div class="pedido-section-title">Resumen</div>
+                    <div class="pedido-meta-list">
+                        <div class="pedido-meta-row"><span>Creado</span><strong>{{ p.creado_en or (p.fecha ~ ' ' ~ p.hora) }}</strong></div>
+                        <div class="pedido-meta-row"><span>Tomado por</span><strong>{{ p.mesero or '-' }}</strong></div>
+                        <div class="pedido-meta-row"><span>Mesa</span><strong>{{ p.mesa_nombre or ('Mesa ' ~ (p.mesa_numero or '?')) }}</strong></div>
+                    </div>
+                </div>
+                <div class="pedido-detail-card">
+                    <div class="pedido-section-title">Comanda</div>
+                    <div class="pedido-meta-list">
+                        <div class="pedido-meta-row"><span>Registradas</span><strong>{{ p.comandas|length }}</strong></div>
+                        <div class="pedido-meta-row"><span>Ultima</span><strong>{% if p.ultima_comanda %}#{{ p.ultima_comanda.id }}{% else %}Sin comanda{% endif %}</strong></div>
+                        {% if p.ultima_comanda %}
+                        <div class="pedido-meta-row"><span>Actualizada</span><strong>{{ p.ultima_comanda.created_at }}</strong></div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
             <div class="pedido-items">
                 {% for item in p["items"] %}
                 <div class="pedido-item-row">
@@ -141,31 +266,77 @@
                 {% endif %}
                 {% endfor %}
             </div>
+
             {% if p.notas %}
             <div class="pedido-notas"><span class="material-symbols-outlined">edit_note</span> {{ p.notas }}</div>
             {% endif %}
-            {% if p.estado not in ('pagado', 'cancelado') %}
+
             <div style="margin-top: 14px; display:flex; gap:8px; flex-wrap:wrap;">
+                <button type="button" class="btn btn-outline btn-sm" onclick="openPedidoDetail({{ p.id }})">
+                    Ver detalle
+                </button>
+                {% if p.ultima_comanda %}
+                <a class="btn btn-outline btn-sm" href="{{ url_for('ver_comanda_print', comanda_id=p.ultima_comanda.id) }}" target="_blank" rel="noopener">
+                    Ver comanda
+                </a>
+                <a class="btn btn-outline btn-sm" href="{{ url_for('ver_comanda_print', comanda_id=p.ultima_comanda.id, mode='reimprimir', auto=1) }}" target="_blank" rel="noopener">
+                    Reimprimir comanda
+                </a>
+                {% endif %}
+                {% if p.estado not in ('pagado', 'cancelado') %}
                 <a class="btn btn-outline btn-sm" href="{{ url_for('mesero_pedido', mesa_id=p.mesa_id) }}">
                     Tomar pedido adicional
                 </a>
                 <button type="button" class="btn btn-danger-outline btn-sm" onclick="cancelarPedido({{ p.id }})">
                     Cancelar pedido
                 </button>
+                {% endif %}
             </div>
-            {% endif %}
         </div>
         {% endfor %}
     </div>
     <div class="card" id="pedidosEmptyState" hidden>
         <div class="card-body" style="text-align: center; padding: 32px;">
-            <p class="text-muted">No hay pedidos para la mesa seleccionada.</p>
+            <p class="text-muted">No hay pedidos para la mesa seleccionada dentro de este filtro.</p>
+        </div>
+    </div>
+    {% else %}
+    <div class="card">
+        <div class="card-body" style="text-align: center; padding: 40px;">
+            <span style="font-size: 48px; opacity: 0.4;"><span class="material-symbols-outlined" style="font-size: 48px;">assignment</span></span>
+            <p class="text-muted" style="margin-top: 12px;">
+                {% if filtro_estado == 'cancelado' %}
+                No tienes pedidos cancelados hoy.
+                {% elif filtro_estado == 'pendiente' %}
+                No tienes pedidos pendientes por revisar.
+                {% else %}
+                No tienes pedidos listos para caja en este momento.
+                {% endif %}
+            </p>
         </div>
     </div>
     {% endif %}
 </div>
 
+<div class="modal-overlay" id="pedidoDetailModal" style="display:none;" onclick="if(event.target === this) closePedidoDetail()">
+    <div class="modal-card" style="max-width: 860px;">
+        <div class="modal-header">
+            <h3 id="pedidoDetailTitle">Detalle del pedido</h3>
+            <button type="button" class="modal-close" onclick="closePedidoDetail()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div id="pedidoDetailContent">
+                <div class="text-muted">Cargando detalle...</div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-outline" onclick="closePedidoDetail()">Cerrar</button>
+        </div>
+    </div>
+</div>
+
 <script>
+const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 let mesaFiltroActual = 'todas';
 
 function setMesaFilter(mesaNumero) {
@@ -187,6 +358,123 @@ function filtrarPedidosPorMesa() {
     if (emptyState) {
         emptyState.hidden = visibles > 0;
     }
+}
+
+function traceIcon(tipo) {
+    const icons = {
+        creado: 'shopping_bag',
+        actualizacion: 'edit_square',
+        cobrado: 'payments',
+        cancelado: 'cancel',
+        comanda_generada: 'receipt_long',
+        comanda_impresa: 'print',
+        comanda_reimpresa: 'print_connect',
+        estado: 'schedule',
+    };
+    return icons[tipo] || 'info';
+}
+
+function renderTrace(events) {
+    if (!events || !events.length) {
+        return '<div class="text-muted">Todavia no hay eventos registrados para este pedido.</div>';
+    }
+    return events.map((event) => `
+        <div class="pedido-trace-item">
+            <div class="pedido-trace-icon"><span class="material-symbols-outlined">${traceIcon(event.tipo)}</span></div>
+            <div>
+                <div class="pedido-trace-title">${AppUI.escapeHtml(event.titulo || 'Evento')}</div>
+                <div class="pedido-trace-meta">${AppUI.escapeHtml(event.fecha_hora || '')}${event.usuario ? ' · ' + AppUI.escapeHtml(event.usuario) : ''}</div>
+                ${event.descripcion ? `<div class="pedido-trace-note">${AppUI.escapeHtml(event.descripcion)}</div>` : ''}
+            </div>
+        </div>
+    `).join('');
+}
+
+async function openPedidoDetail(pedidoId) {
+    const modal = document.getElementById('pedidoDetailModal');
+    const content = document.getElementById('pedidoDetailContent');
+    modal.style.display = 'flex';
+    content.innerHTML = '<div class="text-muted">Cargando detalle...</div>';
+
+    try {
+        const response = await fetch('/api/pedido/' + pedidoId, { cache: 'no-store' });
+        const data = await response.json();
+        if (!response.ok || data.error) {
+            throw new Error(data.error || 'No se pudo cargar el detalle del pedido');
+        }
+
+        const ultimaComanda = data.ultima_comanda;
+        const renderComandaItems = (comanda) => {
+            if (!comanda || !(comanda.items || []).length) {
+                return '<div class="text-muted" style="padding-top:12px;">La comanda no tiene lineas registradas.</div>';
+            }
+            return `
+                <div class="pedido-items" style="padding: 12px 0 0;">
+                    ${(comanda.items || []).map((item) => `
+                        <div style="padding:10px 0;border-bottom:1px solid rgba(0,0,0,0.08);">
+                            <div class="pedido-item-row" style="align-items:flex-start;">
+                                <span><strong>${AppUI.escapeHtml(String(item.cantidad || 0))}x</strong> ${AppUI.escapeHtml(item.producto_nombre_snapshot || '')}</span>
+                                <span class="text-muted">Linea</span>
+                            </div>
+                            ${(item.modificaciones || []).length ? `
+                                <div class="text-muted" style="margin-top:6px;padding-left:12px;display:grid;gap:4px;">
+                                    ${(item.modificaciones || []).map((mod) => `
+                                        <div>${AppUI.escapeHtml(mod.tipo === 'adicional'
+                                            ? ('+ ' + (mod.descripcion || '') + ((Number(mod.cantidad || 1) > 1) ? (' x' + Number(mod.cantidad || 1)) : ''))
+                                            : ('Sin ' + (mod.descripcion || '')))}</div>
+                                    `).join('')}
+                                </div>
+                            ` : ''}
+                            ${item.observacion ? `<div class="text-muted" style="margin-top:6px;padding-left:12px;"><em>Obs: ${AppUI.escapeHtml(item.observacion)}</em></div>` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        };
+        document.getElementById('pedidoDetailTitle').textContent = 'Pedido #' + pedidoId + ' - Mesa ' + (data.mesa_numero || '?');
+        content.innerHTML = `
+            <div class="pedido-detail-grid">
+                <div class="pedido-detail-card">
+                    <div class="pedido-section-title">Resumen del pedido</div>
+                    <div class="pedido-meta-list">
+                        <div class="pedido-meta-row"><span>Creado por</span><strong>${AppUI.escapeHtml(data.mesero || '-')}</strong></div>
+                        <div class="pedido-meta-row"><span>Creado en</span><strong>${AppUI.escapeHtml(data.creado_en || ((data.fecha || '') + ' ' + (data.hora || '')))}</strong></div>
+                        <div class="pedido-meta-row"><span>Estado actual</span><strong>${AppUI.escapeHtml((data.estado || '').replaceAll('_', ' '))}</strong></div>
+                        <div class="pedido-meta-row"><span>Total</span><strong>${AppUI.formatMoney(data.total || 0, 0)}</strong></div>
+                    </div>
+                </div>
+                <div class="pedido-detail-card">
+                    <div class="pedido-section-title">Comanda</div>
+                    ${
+                        ultimaComanda
+                            ? `<div class="pedido-meta-list">
+                                <div class="pedido-meta-row"><span>Ultima comanda</span><strong>#${AppUI.escapeHtml(ultimaComanda.id)}</strong></div>
+                                <div class="pedido-meta-row"><span>Registrada</span><strong>${AppUI.escapeHtml(ultimaComanda.created_at || '')}</strong></div>
+                                <div class="pedido-meta-row"><span>Mesa</span><strong>${AppUI.escapeHtml(ultimaComanda.mesa_numero ? ('Mesa ' + ultimaComanda.mesa_numero) : 'Sin mesa')}</strong></div>
+                                <div class="pedido-meta-row"><span>Mesero</span><strong>${AppUI.escapeHtml(ultimaComanda.creada_por_nombre_snapshot || ultimaComanda.pedido_mesero || '-')}</strong></div>
+                                <div class="pedido-meta-row"><span>Estado</span><strong>${AppUI.escapeHtml((ultimaComanda.estado || '').replaceAll('_', ' '))}</strong></div>
+                               </div>
+                               ${renderComandaItems(ultimaComanda)}
+                               <div style="margin-top: 12px; display:flex; gap:8px; flex-wrap:wrap;">
+                                 <a class="btn btn-outline btn-sm" href="/comanda/${ultimaComanda.id}/print" target="_blank" rel="noopener">Ver comanda</a>
+                                 <a class="btn btn-outline btn-sm" href="/comanda/${ultimaComanda.id}/print?mode=reimprimir&auto=1" target="_blank" rel="noopener">Reimprimir</a>
+                               </div>`
+                            : '<div class="text-muted">Este pedido todavia no tiene una comanda registrada.</div>'
+                    }
+                </div>
+            </div>
+            <div class="pedido-detail-card" style="margin-top: 14px;">
+                <div class="pedido-section-title">Trazabilidad</div>
+                <div class="pedido-trace-list">${renderTrace(data.trazabilidad || [])}</div>
+            </div>
+        `;
+    } catch (error) {
+        content.innerHTML = '<div class="text-danger">' + AppUI.escapeHtml(error.message || 'No se pudo cargar el detalle.') + '</div>';
+    }
+}
+
+function closePedidoDetail() {
+    document.getElementById('pedidoDetailModal').style.display = 'none';
 }
 
 async function cancelarPedido(pedidoId) {
@@ -215,7 +503,10 @@ async function cancelarPedido(pedidoId) {
     try {
         const res = await fetch('/api/pedido/' + pedidoId + '/estado', {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': CSRF_TOKEN,
+            },
             body: JSON.stringify({ estado: 'cancelado', motivo_cancelacion: motivoCancelacion }),
         });
         const data = await res.json();
@@ -230,7 +521,6 @@ async function cancelarPedido(pedidoId) {
 
 filtrarPedidosPorMesa();
 
-// Auto-refresh cada 30 segundos
 setTimeout(function() { location.reload(); }, 30000);
 </script>
 {% endblock %}

@@ -62,6 +62,10 @@
         color: var(--primary-dark);
         font-size: 11px;
     }
+    .cliente-dropdown { position:absolute; z-index:100; inset:auto 0 auto 0; background:#fff; border:1px solid var(--border); border-radius:12px; margin-top:6px; box-shadow:0 12px 26px rgba(15,23,42,.12); max-height:220px; overflow:auto; }
+    .cliente-option { padding:10px 14px; cursor:pointer; }
+    .cliente-option:hover { background:rgba(193,120,23,.08); }
+    .cliente-option-meta { font-size:11px; color:var(--text-muted); margin-top:2px; }
 
     .pedidos-empty-state {
         margin-top: 16px;
@@ -110,6 +114,14 @@
                     <option value="todos">Todos</option>
                 </select>
             </div>
+            <form method="get" style="display:flex;align-items:center;gap:8px;">
+                <label for="pageSizePedidos" style="font-size:12px;color:var(--text-muted);">Pagina</label>
+                <select id="pageSizePedidos" name="size" class="form-input form-input-sm" style="width:auto;" onchange="this.form.submit()">
+                    {% for option in (25, 50, 100) %}
+                    <option value="{{ option }}" {% if pagination.size == option %}selected{% endif %}>{{ option }}</option>
+                    {% endfor %}
+                </select>
+            </form>
             <button class="btn btn-outline btn-sm" onclick="abrirModalUnificar()">
                 <span class="material-symbols-outlined" style="font-size:16px;vertical-align:middle;">merge</span> Unir pedidos
             </button>
@@ -314,8 +326,39 @@
             {% if p['notas'] %}
             <div class="pedido-notas">{{ p['notas'] }}</div>
             {% endif %}
+            {% if p['comandas'] %}
+            <div class="pedido-notas" style="background: rgba(47,107,99,0.08); border-left-color: rgba(47,107,99,0.55);">
+                {{ p['comandas']|length }} comanda{{ '' if p['comandas']|length == 1 else 's' }} registrada{{ '' if p['comandas']|length == 1 else 's' }}.
+                Ultima: #{{ p['ultima_comanda']['id'] }} · {{ p['ultima_comanda']['created_at'] }}
+            </div>
+            {% endif %}
+            {% if p['documentos'] %}
+            <div class="pedido-notas" style="background: rgba(193,120,23,0.08); border-left-color: rgba(193,120,23,0.5);">
+                {{ p['documentos']|length }} documento{{ '' if p['documentos']|length == 1 else 's' }} emitido{{ '' if p['documentos']|length == 1 else 's' }}.
+                Ultimo: {{ p['ultimo_documento']['consecutivo'] }} · {{ p['ultimo_documento']['created_at'] }}
+            </div>
+            {% endif %}
 
             <div class="pedido-actions">
+                {% if p['ultima_comanda'] %}
+                <a class="btn btn-sm btn-outline" href="{{ url_for('ver_comanda_print', comanda_id=p['ultima_comanda']['id']) }}" target="_blank" rel="noopener">
+                    Ver comanda
+                </a>
+                <a class="btn btn-sm btn-outline" href="{{ url_for('ver_comanda_print', comanda_id=p['ultima_comanda']['id'], mode='reimprimir', auto=1) }}" target="_blank" rel="noopener">
+                    Reimprimir comanda
+                </a>
+                {% endif %}
+                {% if p['ultimo_documento'] %}
+                <a class="btn btn-sm btn-outline" href="{{ url_for('ver_documento_print', documento_id=p['ultimo_documento']['id']) }}" target="_blank" rel="noopener">
+                    Ver documento
+                </a>
+                <a class="btn btn-sm btn-outline" href="{{ url_for('ver_documento_print', documento_id=p['ultimo_documento']['id'], mode='reimprimir', auto=1) }}" target="_blank" rel="noopener">
+                    Reimprimir documento
+                </a>
+                <button class="btn btn-sm btn-outline" onclick="reenviarDocumento({{ p['ultimo_documento']['id'] }}, {{ (p['ultimo_documento']['cliente_email_snapshot'] or '')|tojson }})">
+                    Reenviar correo
+                </button>
+                {% endif %}
                 {% if p['estado'] not in ('pagado', 'cancelado') %}
                 <a class="btn btn-sm btn-outline" href="{{ url_for('cajero_editar_pedido', pedido_id=p['id']) }}">Editar
                     pedido</a>
@@ -333,8 +376,10 @@
                     onclick="cambiarEstado({{ p['id'] }}, 'cancelado')">Cancelar</button>
                 {% elif p['estado'] == 'listo' %}
                 <button class="btn btn-sm btn-success btn-lg"
-                    onclick="openChargeModal({{ p['id'] }}, {{ p['total'] }})">Cobrar - ${{ '{:,.0f}'.format(p['total']
+                    onclick="openChargeModal({{ p['id'] }}, {{ p['total'] }}, false)">Cobrar - ${{ '{:,.0f}'.format(p['total']
                     or 0) }}</button>
+                <button class="btn btn-sm btn-accent"
+                    onclick="openChargeModal({{ p['id'] }}, {{ p['total'] }}, true)">Cobrar y emitir</button>
                 <button class="btn btn-sm btn-danger-outline"
                     onclick="cambiarEstado({{ p['id'] }}, 'cancelado')">Cancelar</button>
                 {% endif %}
@@ -342,6 +387,7 @@
         </div>
         {% endfor %}
     </div>
+    {% include "components/_pagination.html" %}
     <div class="card pedidos-empty-state" id="pedidosEmptyState" hidden>
         <div class="card-body text-center" style="padding: 32px;">
             <p class="text-muted" style="margin: 0;">No hay pedidos para ese filtro en este momento.</p>
@@ -377,6 +423,67 @@
                     original.</div>
                 <div id="splitItemsList" style="display:grid; gap:10px; margin-top:12px;"></div>
             </div>
+            <div id="chargeDocSection" class="payment-summary-box payment-summary-box-soft"
+                style="display:none; margin-bottom:14px;">
+                <div class="payment-summary-row"><span>Documento para cliente</span><strong id="chargeDocMode">Activo</strong></div>
+                <div class="form-help" style="margin-top:8px;">Estos datos solo se capturan si la mesa pide documento comercial.</div>
+                <div class="two-col-form" style="margin-top:12px;">
+                    <div>
+                        <label class="form-label">Nombre o razon social</label>
+                        <input id="chargeDocNombre" type="text" class="form-input" placeholder="Nombre completo o empresa">
+                    </div>
+                    <div>
+                        <label class="form-label">Tipo documento</label>
+                        <select id="chargeDocTipoDoc" class="form-input">
+                            <option value="">Sin documento</option>
+                            <option value="CC">Cedula (CC)</option>
+                            <option value="NIT">NIT</option>
+                            <option value="CE">Cedula extranjeria</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="form-label">Numero documento</label>
+                        <input id="chargeDocNumeroDoc" type="text" class="form-input" placeholder="Ej: 123456789">
+                    </div>
+                    <div>
+                        <label class="form-label">Email</label>
+                        <input id="chargeDocEmail" type="email" class="form-input" placeholder="cliente@correo.com">
+                    </div>
+                    <div>
+                        <label class="form-label">Empresa / institucion</label>
+                        <input id="chargeDocEmpresa" type="text" class="form-input" placeholder="Opcional">
+                    </div>
+                    <div>
+                        <label class="form-label">Direccion</label>
+                        <input id="chargeDocDireccion" type="text" class="form-input" placeholder="Opcional">
+                    </div>
+                </div>
+                <div style="margin-top:10px;">
+                    <label class="form-label">Tipo de documento a emitir</label>
+                    <select id="chargeDocTipoDocumento" class="form-input">
+                        <option value="factura">Factura</option>
+                        <option value="documento_venta">Documento de venta</option>
+                        <option value="remision">Remision</option>
+                    </select>
+                </div>
+            </div>
+            <div id="chargeClientSection" class="payment-summary-box payment-summary-box-soft" style="display:none; margin-bottom:14px;">
+                <div class="payment-summary-row"><span>Cliente maestro</span><strong id="chargeClientLabel">Opcional</strong></div>
+                <div class="form-help" id="chargeClientHelp" style="margin-top:8px;">Asocia el cliente para historial comercial y cartera.</div>
+                <div class="cliente-autocomplete" style="position:relative; margin-top:10px;">
+                    <input id="chargeClienteBusqueda" type="text" class="form-input" placeholder="Buscar cliente por nombre, doc o telefono" oninput="buscarClientesPedido(this.value)" autocomplete="off">
+                    <div class="cliente-dropdown" id="chargeClienteDropdown" style="display:none;"></div>
+                </div>
+                <input id="chargeClienteId" type="hidden">
+                <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+                    <button type="button" class="btn btn-outline btn-sm" onclick="abrirModalNuevoClientePedido()">+ Crear cliente</button>
+                    <button type="button" class="btn btn-outline btn-sm" onclick="limpiarClientePedido()">Limpiar cliente</button>
+                </div>
+                <div id="chargeDueWrap" style="display:none; margin-top:10px;">
+                    <label class="form-label">Fecha de vencimiento</label>
+                    <input id="chargeFechaVencimiento" type="date" class="form-input">
+                </div>
+            </div>
             <div style="display:flex; align-items:center; gap:8px; margin-bottom:14px;">
                 <input type="checkbox" id="mixtoCheck" onchange="toggleMixto()" style="width:auto; cursor:pointer; accent-color:var(--primary,#d4722a);">
                 <label for="mixtoCheck" style="margin:0; font-size:13px; cursor:pointer; color:var(--text-sec);">Pago mixto (dos métodos)</label>
@@ -389,6 +496,7 @@
                         <option value="efectivo">Efectivo</option>
                         <option value="transferencia">Transferencia</option>
                         <option value="tarjeta">Tarjeta</option>
+                        <option value="credito">Credito</option>
                     </select>
                 </div>
                 <div>
@@ -417,6 +525,7 @@
                             <option value="transferencia">Transferencia</option>
                             <option value="tarjeta">Tarjeta</option>
                             <option value="efectivo">Efectivo</option>
+                            <option value="credito">Credito</option>
                         </select>
                     </div>
                     <div>
@@ -441,10 +550,62 @@
     </div>
 </div>
 
+<div class="modal-overlay" id="modalNuevoClientePedido" style="display:none;" onclick="if(event.target===this)cerrarModalNuevoClientePedido()">
+    <div class="modal-card" style="max-width:540px;">
+        <div class="modal-header">
+            <h3>Nuevo cliente</h3>
+            <button class="modal-close" onclick="cerrarModalNuevoClientePedido()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="two-col-form">
+                <div>
+                    <label class="form-label">Nombre *</label>
+                    <input id="nuevoClientePedidoNombre" class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">Telefono</label>
+                    <input id="nuevoClientePedidoTelefono" class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">Email</label>
+                    <input id="nuevoClientePedidoEmail" class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">Empresa</label>
+                    <input id="nuevoClientePedidoEmpresa" class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">Tipo documento</label>
+                    <select id="nuevoClientePedidoTipoDoc" class="form-input">
+                        <option value="">Sin documento</option>
+                        <option value="CC">Cedula (CC)</option>
+                        <option value="NIT">NIT</option>
+                        <option value="CE">Cedula extranjeria</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">Numero documento</label>
+                    <input id="nuevoClientePedidoNumeroDoc" class="form-input">
+                </div>
+                <div style="grid-column:1 / -1;">
+                    <label class="form-label">Direccion</label>
+                    <input id="nuevoClientePedidoDireccion" class="form-input">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="cerrarModalNuevoClientePedido()">Cancelar</button>
+            <button class="btn btn-primary" onclick="guardarNuevoClientePedido()">Crear cliente</button>
+        </div>
+    </div>
+</div>
+
 <script>
     let cajaActiva = {{ caja|default ({}) | tojson }};
-    let chargeContext = { pedidoId: null, total: 0, pedido: null, mode: 'full' };
+    let chargeContext = { pedidoId: null, total: 0, pedido: null, mode: 'full', emitirDocumento: false };
     let mesaFiltroActual = 'todas';
+    let _clientesPedidoBuscados = [];
+    let _clientePedidoDebounce = null;
 
     function money(value) {
         return window.AppUI
@@ -520,6 +681,9 @@
             .then(res => res.json())
             .then(data => {
                 if (data.ok) {
+                    if (data.comanda_id) {
+                        window.open('/comanda/' + data.comanda_id + '/print?mode=imprimir&auto=1', '_blank', 'noopener');
+                    }
                     location.reload();
                 } else {
                     Toast.error('Error: ' + (data.error || 'No se pudo cambiar el estado'));
@@ -528,12 +692,12 @@
             .catch(err => Toast.error('Error de conexion: ' + err.message));
     }
 
-    async function openChargeModal(pedidoId, total) {
+    async function openChargeModal(pedidoId, total, emitirDocumento = false) {
         if (!cajaActiva || !cajaActiva.arqueo_activo) {
             Toast.warning('Debes abrir la caja antes de cobrar pedidos.');
             return;
         }
-        chargeContext = { pedidoId, total: Number(total), pedido: null, mode: 'full' };
+        chargeContext = { pedidoId, total: Number(total), pedido: null, mode: 'full', emitirDocumento: !!emitirDocumento };
         document.getElementById('chargePedidoId').textContent = '#' + pedidoId;
         document.getElementById('chargeTotal').textContent = money(total);
         document.getElementById('chargeNowTotal').textContent = money(total);
@@ -548,6 +712,18 @@
         document.getElementById('receivedMixto').style.display = 'none';
         document.getElementById('chargeMontoM1').value = '';
         document.getElementById('chargeMethod2').value = 'transferencia';
+        document.getElementById('chargeDocSection').style.display = emitirDocumento ? '' : 'none';
+        document.getElementById('chargeDocMode').textContent = emitirDocumento ? 'Si' : 'No';
+        document.getElementById('chargeDocNombre').value = '';
+        document.getElementById('chargeDocTipoDoc').value = '';
+        document.getElementById('chargeDocNumeroDoc').value = '';
+        document.getElementById('chargeDocEmail').value = '';
+        document.getElementById('chargeDocEmpresa').value = '';
+        document.getElementById('chargeDocDireccion').value = '';
+        document.getElementById('chargeDocTipoDocumento').value = 'factura';
+        limpiarClientePedido();
+        document.getElementById('chargeFechaVencimiento').value = new Date().toISOString().slice(0, 10);
+        updateChargeClientVisibility();
         document.getElementById('chargeModal').style.display = 'flex';
 
         try {
@@ -557,6 +733,10 @@
                 throw new Error(data.error || 'No se pudo cargar el pedido');
             }
             chargeContext.pedido = data;
+            if (data.cliente_id) {
+                document.getElementById('chargeClienteId').value = data.cliente_id;
+                document.getElementById('chargeClienteBusqueda').value = data.cliente_nombre_snapshot || data.cliente_nombre || '';
+            }
             renderSplitItems();
             setChargeMode('full');
         } catch (err) {
@@ -567,7 +747,7 @@
 
     function closeChargeModal() {
         document.getElementById('chargeModal').style.display = 'none';
-        chargeContext = { pedidoId: null, total: 0, pedido: null, mode: 'full' };
+        chargeContext = { pedidoId: null, total: 0, pedido: null, mode: 'full', emitirDocumento: false };
     }
 
     function toggleMixto() {
@@ -582,6 +762,138 @@
     function isMixto() {
         return document.getElementById('mixtoCheck').checked;
     }
+
+    function chargeUsaCredito() {
+        const metodo1 = document.getElementById('chargeMethod')?.value || 'efectivo';
+        const metodo2 = document.getElementById('chargeMethod2')?.value || '';
+        return metodo1 === 'credito' || (isMixto() && metodo2 === 'credito');
+    }
+
+    function updateChargeClientVisibility() {
+        const visible = chargeContext.emitirDocumento || chargeUsaCredito();
+        const requiereCredito = chargeUsaCredito();
+        document.getElementById('chargeClientSection').style.display = visible ? '' : 'none';
+        document.getElementById('chargeDueWrap').style.display = requiereCredito ? '' : 'none';
+        document.getElementById('chargeClientLabel').textContent = requiereCredito ? 'Obligatorio' : 'Opcional';
+        document.getElementById('chargeClientHelp').textContent = requiereCredito
+            ? 'Selecciona o crea el cliente para generar la cuenta por cobrar.'
+            : 'Puedes asociarlo para historial comercial y autocompletar el documento.';
+    }
+
+    function limpiarClientePedido() {
+        document.getElementById('chargeClienteBusqueda').value = '';
+        document.getElementById('chargeClienteId').value = '';
+        document.getElementById('chargeClienteDropdown').style.display = 'none';
+    }
+
+    function buscarClientesPedido(query) {
+        clearTimeout(_clientePedidoDebounce);
+        if (!query || query.trim().length < 2) {
+            document.getElementById('chargeClienteDropdown').style.display = 'none';
+            return;
+        }
+        _clientePedidoDebounce = setTimeout(async () => {
+            try {
+                const res = await fetch(`/api/clientes?q=${encodeURIComponent(query.trim())}`);
+                const data = await res.json();
+                _clientesPedidoBuscados = data.clientes || [];
+                renderClienteDropdownPedido();
+            } catch (_) {
+                document.getElementById('chargeClienteDropdown').style.display = 'none';
+            }
+        }, 220);
+    }
+
+    function renderClienteDropdownPedido() {
+        const dd = document.getElementById('chargeClienteDropdown');
+        if (!_clientesPedidoBuscados.length) {
+            dd.innerHTML = `<div class="cliente-option" onclick="abrirModalNuevoClientePedido()"><strong>+ Crear nuevo cliente</strong></div>`;
+            dd.style.display = 'block';
+            return;
+        }
+        dd.innerHTML = _clientesPedidoBuscados.map((c, index) => `
+            <div class="cliente-option" onclick="seleccionarClientePedidoPorIndex(${index})">
+                <strong>${c.nombre}</strong>
+                <div class="cliente-option-meta">${[c.empresa, c.telefono, c.numero_doc].filter(Boolean).join(' · ')}</div>
+            </div>
+        `).join('') + `<div class="cliente-option" style="border-top:1px solid var(--border);" onclick="abrirModalNuevoClientePedido()"><strong>+ Crear nuevo cliente</strong></div>`;
+        dd.style.display = 'block';
+    }
+
+    function seleccionarClientePedidoPorIndex(index) {
+        const c = _clientesPedidoBuscados[index];
+        if (!c) return;
+        document.getElementById('chargeClienteBusqueda').value = c.nombre || '';
+        document.getElementById('chargeClienteId').value = c.id || '';
+        document.getElementById('chargeClienteDropdown').style.display = 'none';
+        if (chargeContext.emitirDocumento) {
+            if (!document.getElementById('chargeDocNombre').value.trim()) document.getElementById('chargeDocNombre').value = c.nombre || '';
+            if (!document.getElementById('chargeDocTipoDoc').value) document.getElementById('chargeDocTipoDoc').value = c.tipo_doc || '';
+            if (!document.getElementById('chargeDocNumeroDoc').value.trim()) document.getElementById('chargeDocNumeroDoc').value = c.numero_doc || '';
+            if (!document.getElementById('chargeDocEmail').value.trim()) document.getElementById('chargeDocEmail').value = c.email || '';
+            if (!document.getElementById('chargeDocEmpresa').value.trim()) document.getElementById('chargeDocEmpresa').value = c.empresa || '';
+            if (!document.getElementById('chargeDocDireccion').value.trim()) document.getElementById('chargeDocDireccion').value = c.direccion || '';
+        }
+    }
+
+    function abrirModalNuevoClientePedido() {
+        document.getElementById('chargeClienteDropdown').style.display = 'none';
+        ['nuevoClientePedidoNombre','nuevoClientePedidoTelefono','nuevoClientePedidoEmail','nuevoClientePedidoEmpresa','nuevoClientePedidoNumeroDoc','nuevoClientePedidoDireccion'].forEach(id => {
+            document.getElementById(id).value = '';
+        });
+        document.getElementById('nuevoClientePedidoTipoDoc').value = '';
+        document.getElementById('modalNuevoClientePedido').style.display = 'flex';
+    }
+
+    function cerrarModalNuevoClientePedido() {
+        document.getElementById('modalNuevoClientePedido').style.display = 'none';
+    }
+
+    async function guardarNuevoClientePedido() {
+        const payload = {
+            nombre: document.getElementById('nuevoClientePedidoNombre').value.trim(),
+            telefono: document.getElementById('nuevoClientePedidoTelefono').value.trim(),
+            email: document.getElementById('nuevoClientePedidoEmail').value.trim(),
+            empresa: document.getElementById('nuevoClientePedidoEmpresa').value.trim(),
+            tipo_doc: document.getElementById('nuevoClientePedidoTipoDoc').value,
+            numero_doc: document.getElementById('nuevoClientePedidoNumeroDoc').value.trim(),
+            direccion: document.getElementById('nuevoClientePedidoDireccion').value.trim(),
+        };
+        if (!payload.nombre) {
+            Toast.warning('Ingresa el nombre del cliente.');
+            return;
+        }
+        try {
+            const res = await fetch('/api/clientes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.ok) throw new Error(data.error || 'No se pudo crear el cliente.');
+            document.getElementById('chargeClienteId').value = data.cliente.id;
+            document.getElementById('chargeClienteBusqueda').value = data.cliente.nombre || payload.nombre;
+            if (chargeContext.emitirDocumento) {
+                if (!document.getElementById('chargeDocNombre').value.trim()) document.getElementById('chargeDocNombre').value = data.cliente.nombre || payload.nombre;
+                if (!document.getElementById('chargeDocTipoDoc').value) document.getElementById('chargeDocTipoDoc').value = data.cliente.tipo_doc || payload.tipo_doc || '';
+                if (!document.getElementById('chargeDocNumeroDoc').value.trim()) document.getElementById('chargeDocNumeroDoc').value = data.cliente.numero_doc || payload.numero_doc || '';
+                if (!document.getElementById('chargeDocEmail').value.trim()) document.getElementById('chargeDocEmail').value = data.cliente.email || payload.email || '';
+                if (!document.getElementById('chargeDocEmpresa').value.trim()) document.getElementById('chargeDocEmpresa').value = data.cliente.empresa || payload.empresa || '';
+                if (!document.getElementById('chargeDocDireccion').value.trim()) document.getElementById('chargeDocDireccion').value = data.cliente.direccion || payload.direccion || '';
+            }
+            cerrarModalNuevoClientePedido();
+            Toast.success('Cliente creado y seleccionado.');
+        } catch (error) {
+            Toast.error(error.message || 'No se pudo crear el cliente.');
+        }
+    }
+
+    document.addEventListener('click', (event) => {
+        if (!event.target.closest('.cliente-autocomplete')) {
+            const dd = document.getElementById('chargeClienteDropdown');
+            if (dd) dd.style.display = 'none';
+        }
+    });
 
     function setChargeMode(mode) {
         chargeContext.mode = mode === 'split' ? 'split' : 'full';
@@ -660,6 +972,7 @@
         const inputRecibido = document.getElementById('chargeReceived');
         const totalCobro = getChargeTotal();
         const mixto = isMixto();
+        updateChargeClientVisibility();
 
         document.getElementById('chargeNowTotal').textContent = money(totalCobro);
         document.getElementById('splitSelectedTotal').textContent = money(totalCobro);
@@ -710,10 +1023,14 @@
             document.getElementById('changeRow').style.display = '';
 
             const helpText = document.getElementById('chargeReceivedHelp');
-            if (metodo1 === 'transferencia' || metodo1 === 'tarjeta') {
+            if (metodo1 === 'transferencia' || metodo1 === 'tarjeta' || metodo1 === 'credito') {
                 inputRecibido.value = String(Math.ceil(totalCobro));
                 inputRecibido.disabled = true;
-                if (helpText) helpText.textContent = `Con ${metodo1} se registra el total exacto, sin vuelta.`;
+                if (helpText) {
+                    helpText.textContent = metodo1 === 'credito'
+                        ? 'Credito: el saldo quedara registrado en cartera.'
+                        : `Con ${metodo1} se registra el total exacto, sin vuelta.`;
+                }
             } else {
                 inputRecibido.disabled = false;
                 if (helpText) helpText.textContent = 'Ingresa el monto que entrega el cliente para calcular la vuelta.';
@@ -731,12 +1048,33 @@
         const totalCobro = getChargeTotal();
         const mixto = isMixto();
         const metodo2 = document.getElementById('chargeMethod2').value;
+        const clienteId = Number(document.getElementById('chargeClienteId')?.value || 0) || null;
+        const clienteNombre = document.getElementById('chargeClienteBusqueda')?.value?.trim() || '';
+        const fechaVencimientoCredito = document.getElementById('chargeFechaVencimiento')?.value || null;
+        const datosDocumento = {
+            cliente_id: clienteId,
+            nombre: document.getElementById('chargeDocNombre')?.value?.trim() || '',
+            tipo_doc: document.getElementById('chargeDocTipoDoc')?.value || '',
+            numero_doc: document.getElementById('chargeDocNumeroDoc')?.value?.trim() || '',
+            email: document.getElementById('chargeDocEmail')?.value?.trim() || '',
+            empresa: document.getElementById('chargeDocEmpresa')?.value?.trim() || '',
+            direccion: document.getElementById('chargeDocDireccion')?.value?.trim() || '',
+            tipo_documento: document.getElementById('chargeDocTipoDocumento')?.value || 'factura',
+        };
 
         let metodo_pago_2_val = null;
         let monto_pago_2_val = null;
 
         if (chargeContext.mode === 'split' && totalCobro <= 0) {
             Toast.warning('Selecciona al menos una parte del pedido para dividir la cuenta.');
+            return;
+        }
+        if (chargeUsaCredito() && !clienteId) {
+            Toast.warning('Selecciona o crea un cliente antes de registrar credito.');
+            return;
+        }
+        if (chargeContext.emitirDocumento && !datosDocumento.nombre) {
+            Toast.warning('Ingresa el nombre o razon social para emitir el documento.');
             return;
         }
 
@@ -769,6 +1107,9 @@
                 Toast.warning('El monto recibido (' + money(recibido) + ') no cubre el total (' + money(totalCobro) + '). Ingresa un valor mayor o igual.');
                 return;
             }
+            if (metodo1 !== 'efectivo') {
+                recibido = totalCobro;
+            }
         }
 
         try {
@@ -781,6 +1122,11 @@
                         selecciones: getSplitSelections(),
                         metodo_pago: metodo1,
                         monto_recibido: recibido,
+                        metodo_pago_2: metodo_pago_2_val,
+                        monto_pago_2: monto_pago_2_val,
+                        cliente_id: clienteId,
+                        cliente_nombre_snapshot: clienteNombre || null,
+                        fecha_vencimiento_credito: fechaVencimientoCredito,
                     }),
                 });
             } else {
@@ -788,6 +1134,9 @@
                     estado: 'pagado',
                     metodo_pago: metodo1,
                     monto_recibido: recibido,
+                    cliente_id: clienteId,
+                    cliente_nombre_snapshot: clienteNombre || null,
+                    fecha_vencimiento_credito: fechaVencimientoCredito,
                 };
                 if (mixto) {
                     payload.metodo_pago_2 = metodo_pago_2_val;
@@ -804,9 +1153,47 @@
                 const faltantes = (data.faltantes || []).map(item => `${item.producto}: faltan ${item.faltante}`).join(', ');
                 throw new Error(data.error + (faltantes ? '. ' + faltantes : ''));
             }
+            if (chargeContext.emitirDocumento) {
+                const pedidoDocumentoId = data.pedido_dividido_id || chargeContext.pedidoId;
+                const docRes = await fetch(`/api/documento/generar-desde-pedido/${pedidoDocumentoId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(datosDocumento),
+                });
+                const docData = await docRes.json();
+                if (!docRes.ok || !docData.ok) {
+                    throw new Error(docData.error || 'No se pudo generar el documento del pedido.');
+                }
+                window.open(`/documento/${docData.documento_id}/print?mode=imprimir&auto=1`, '_blank', 'noopener');
+            }
             location.reload();
         } catch (err) {
             Toast.error(err.message || 'No se pudo cobrar el pedido.');
+        }
+    }
+
+    async function reenviarDocumento(documentoId, emailActual) {
+        const email = window.prompt('Correo destino para reenviar el documento:', emailActual || '');
+        if (email === null) return;
+        const limpio = String(email || '').trim();
+        if (!limpio) {
+            Toast.warning('Ingresa un correo valido para reenviar el documento.');
+            return;
+        }
+        try {
+            const res = await fetch(`/api/documento/${documentoId}/enviar`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: limpio }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.ok) {
+                throw new Error(data.error || 'No se pudo reenviar el documento.');
+            }
+            Toast.success(`Documento enviado a ${limpio}.`);
+            setTimeout(() => location.reload(), 600);
+        } catch (err) {
+            Toast.error(err.message || 'No se pudo reenviar el documento.');
         }
     }
 
