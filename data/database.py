@@ -8727,14 +8727,24 @@ def _generar_consecutivo_documento_conn(
     sede = _row_to_dict(obtener_sede_por_id(int(sede_id)) if sede_id else None)
     prefijo = _documento_prefijo_tipo(tipo_documento)
     sede_codigo = str(sede.get("codigo") or "GEN").strip().upper() or "GEN"
+    filtros = ["tipo_documento = ?"]
+    params: list = [tipo_documento]
+    if sede_id is None:
+        filtros.insert(0, "sede_id IS NULL")
+    else:
+        filtros.insert(0, "sede_id = ?")
+        params.insert(0, sede_id)
+    where_clause = " AND ".join(filtros)
     row = conn.execute(
-        """
+        f"""
         SELECT COALESCE(MAX(consecutivo_numero), 0) AS ultimo
         FROM documentos_emitidos
-        WHERE sede_id IS ? AND tipo_documento = ?
+        WHERE {where_clause}
         """,
-        (sede_id, tipo_documento),
+        tuple(params),
     ).fetchone()
+    if not row:
+        row = {"ultimo": 0}
     consecutivo_numero = int((row["ultimo"] or 0) if row else 0) + 1
     consecutivo = f"{prefijo}-{sede_codigo}-{consecutivo_numero:06d}"
     return consecutivo_numero, consecutivo

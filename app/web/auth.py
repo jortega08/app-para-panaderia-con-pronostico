@@ -56,8 +56,6 @@ auth_bp = Blueprint("auth", __name__)
 def _redirect_post_login(usuario: dict):
     """Redirige al usuario a su seccion segun el rol, tras un login exitoso."""
     rol = str(usuario.get("rol") or "").strip()
-    if usuario.get("must_change_password") and rol not in ("cajero", "mesero", "platform_superadmin"):
-        return redirect(url_for("auth.cambiar_password"))
     if rol == "cajero":
         return redirect(url_for("cajero_pos"))
     if rol == "mesero":
