@@ -56,10 +56,13 @@
         <p class="login-hint" style="margin:-6px 0 14px">
           Si vienes de una versiÃ³n anterior, tambiÃ©n puedes probar con tu nombre visible mientras tu administrador ajusta el username.
         </p>
+        <p class="login-hint" style="margin:-10px 0 14px">
+          Tambien puedes dejar el usuario en blanco si tu PIN solo pertenece a una persona activa.
+        </p>
         <div class="login-code-input-wrap" style="margin-bottom:14px">
           <span class="material-symbols-outlined login-input-icon">person</span>
           <input type="text" id="usernameOpInput" name="username_op" class="login-code-input"
-                 placeholder="Tu usuario o nombre"
+                 placeholder="Tu usuario o nombre (opcional)"
                  autocomplete="username" autocapitalize="none" spellcheck="false"
                  maxlength="40">
         </div>
@@ -272,13 +275,6 @@ function pinDel() {
 }
 
 function pinSubmitOp() {
-  if (LOGIN_REQUIRES_USERNAME) {
-    const username = document.getElementById('usernameOpInput').value.trim();
-    if (!username) {
-      document.getElementById('usernameOpInput').focus();
-      return;
-    }
-  }
   if (!pin) return;
   document.getElementById('pinHiddenOp').value = pin;
   document.getElementById('formOperativo').submit();

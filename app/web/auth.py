@@ -147,10 +147,41 @@ def login():
             if login_operativo.get("requiere_username"):
                 username_op = request.form.get("username_op", "").strip()
                 if not username_op:
-                    flash("Escribe tu usuario o nombre y PIN.", "error")
-                    return _render_login()
-                usuario = verificar_usuario_operativo_local(login_operativo["panaderia_id"], username_op, pin)
-                metodo = "pin_username"
+                    coincidencias = listar_operativos_activos_por_pin(login_operativo["panaderia_id"], pin)
+                    if len(coincidencias) == 1:
+                        usuario = coincidencias[0]
+                        metodo = "pin_only_legacy"
+                    elif len(coincidencias) > 1:
+                        flash(
+                            "Ese PIN coincide con mas de un usuario operativo activo. "
+                            "Escribe tu username exacto o pide al administrador actualizarlo.",
+                            "warning",
+                        )
+                        return _render_login()
+                    else:
+                        diagnostico = diagnosticar_login_operativo_local(
+                            login_operativo["panaderia_id"],
+                            pin,
+                            requiere_username=False,
+                        )
+                        if diagnostico.get("status") == "jornada_cerrada":
+                            flash("La jornada esta cerrada. Solicita a un administrador abrir la jornada.", "error")
+                            return _render_login()
+                        if diagnostico.get("status") == "pin_duplicado":
+                            flash(
+                                "Ese PIN coincide con mas de un usuario operativo activo. "
+                                "Escribe tu username exacto o pide al administrador actualizarlo.",
+                                "warning",
+                            )
+                            return _render_login()
+                        intento = registrar_login_attempts_fallido(scope_key, _MAX_ATTEMPTS, _LOCKOUT_MINUTES)
+                        restantes = max(0, _MAX_ATTEMPTS - int(intento.get("attempts", 0) or 0))
+                        flash(f"PIN incorrecto. Intentos restantes: {restantes}", "error")
+                        return _render_login()
+                if not usuario:
+                    usuario = verificar_usuario_operativo_local(login_operativo["panaderia_id"], username_op, pin)
+                if not metodo:
+                    metodo = "pin_username"
                 if not usuario:
                     diagnostico = diagnosticar_login_operativo_local(
                         login_operativo["panaderia_id"],
