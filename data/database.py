@@ -538,6 +538,51 @@ def _reparar_foreign_keys_usuarios_legacy_postgres(conn) -> list[str]:
     return reparadas
 
 
+def _migrar_estado_encargos_postgres(conn) -> None:
+    """Actualiza el CHECK de encargos.estado en PostgreSQL sin recrear la tabla."""
+    if DB_TYPE != "postgresql" or not _tabla_existe_conn(conn, "encargos"):
+        return
+
+    conn.execute(
+        """
+        UPDATE encargos
+        SET estado = CASE
+            WHEN estado = 'pendiente' THEN 'confirmado'
+            WHEN estado IN ('cotizacion', 'confirmado', 'con_anticipo', 'programado', 'listo', 'entregado', 'cancelado') THEN estado
+            ELSE 'confirmado'
+        END
+        """
+    )
+
+    constraints = conn.execute(
+        """
+        SELECT con.conname AS constraint_name
+        FROM pg_constraint con
+        JOIN pg_class rel ON rel.oid = con.conrelid
+        WHERE con.contype = 'c'
+          AND rel.relname = 'encargos'
+          AND pg_get_constraintdef(con.oid) ILIKE '%estado%'
+        ORDER BY con.conname
+        """
+    ).fetchall()
+
+    for row in constraints:
+        constraint_name = str(row.get("constraint_name", "") or "").strip()
+        if constraint_name:
+            conn.execute(
+                f"ALTER TABLE {_quote_ident_pg('encargos')} DROP CONSTRAINT IF EXISTS {_quote_ident_pg(constraint_name)}"
+            )
+
+    conn.execute("ALTER TABLE encargos ALTER COLUMN estado SET DEFAULT 'confirmado'")
+    conn.execute(
+        """
+        ALTER TABLE encargos
+        ADD CONSTRAINT encargos_estado_check
+        CHECK(estado IN ('cotizacion','confirmado','con_anticipo','programado','listo','entregado','cancelado'))
+        """
+    )
+
+
 def _asegurar_surtido_tipo_productos_conn(conn) -> None:
     columnas = _columnas_tabla_conn(conn, "productos")
     if "surtido_tipo" in columnas:
@@ -3539,7 +3584,11 @@ def _migrar_fase8(conn) -> None:
     _ejecutar_migracion_tolerante(conn, "CREATE INDEX IF NOT EXISTS idx_clientes_doc ON clientes(tipo_doc, numero_doc)")
 
     # ── encargos: recrear si el estado no admite aún 'cotizacion' ─────────────
-    row = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='encargos'").fetchone()
+    if DB_TYPE == "sqlite":
+        row = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='encargos'").fetchone()
+    else:
+        row = None
+
     if row and "cotizacion" not in (row["sql"] or ""):
         conn.execute("""
             CREATE TABLE IF NOT EXISTS encargos_r3 (
@@ -3594,6 +3643,8 @@ def _migrar_fase8(conn) -> None:
         """)
         conn.execute("DROP TABLE encargos")
         conn.execute("ALTER TABLE encargos_r3 RENAME TO encargos")
+    elif DB_TYPE == "postgresql":
+        _migrar_estado_encargos_postgres(conn)
 
     # Columnas nuevas en encargos (si se creó sin ellas por otra ruta)
     for stmt in [
