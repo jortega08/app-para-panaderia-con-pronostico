@@ -147,7 +147,7 @@ def login():
             if login_operativo.get("requiere_username"):
                 username_op = request.form.get("username_op", "").strip()
                 if not username_op:
-                    flash("Escribe tu usuario y PIN.", "error")
+                    flash("Escribe tu usuario o nombre y PIN.", "error")
                     return _render_login()
                 usuario = verificar_usuario_operativo_local(login_operativo["panaderia_id"], username_op, pin)
                 metodo = "pin_username"
@@ -161,9 +161,16 @@ def login():
                     if diagnostico.get("status") == "jornada_cerrada":
                         flash("La jornada está cerrada. Solicita a un administrador abrir la jornada.", "error")
                         return _render_login()
+                    if diagnostico.get("status") == "identificador_duplicado":
+                        flash(
+                            "Ese nombre coincide con más de un usuario operativo activo. "
+                            "Usa tu username exacto o pide al administrador actualizarlo.",
+                            "warning",
+                        )
+                        return _render_login()
                     intento = registrar_login_attempts_fallido(scope_key, _MAX_ATTEMPTS, _LOCKOUT_MINUTES)
                     restantes = max(0, _MAX_ATTEMPTS - int(intento.get("attempts", 0) or 0))
-                    flash(f"Usuario o PIN incorrecto. Intentos restantes: {restantes}", "error")
+                    flash(f"Usuario, nombre o PIN incorrecto. Intentos restantes: {restantes}", "error")
                     return _render_login()
             else:
                 coincidencias = listar_operativos_activos_por_pin(login_operativo["panaderia_id"], pin)
@@ -202,7 +209,7 @@ def login():
             password = request.form.get("password", "")
 
             if not username or not password:
-                flash("Escribe tu usuario y contrasena.", "error")
+                flash("Escribe tu usuario, correo o nombre y tu contrasena.", "error")
                 return _render_login()
 
             usuario = verificar_password(username, password)
@@ -214,7 +221,7 @@ def login():
                     flash(f"Demasiados intentos fallidos. Espera {_LOCKOUT_MINUTES} minutos.", "error")
                 else:
                     restantes = max(0, _MAX_ATTEMPTS - int(intento.get("attempts", 0) or 0))
-                    flash(f"Usuario o contrasena incorrectos. Intentos restantes: {restantes}", "error")
+                    flash(f"Usuario, correo, nombre o contrasena incorrectos. Intentos restantes: {restantes}", "error")
                 return _render_login()
 
         limpiar_login_attempts([scope_key])

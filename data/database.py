@@ -2711,6 +2711,49 @@ def _migrar_jornada(conn) -> None:
         SET codigo = UPPER(REPLACE(REPLACE(slug, '-', ''), '_', ''))
         WHERE codigo = '' OR codigo IS NULL
     """)
+
+    # Compatibilidad: usuarios operativos heredados de versiones sin jornada
+    # deben conservar acceso al migrar.
+    clave_migracion = "migracion_jornada_legacy_operativos"
+    row = conn.execute(
+        "SELECT valor FROM configuracion_sistema WHERE clave = ?",
+        (clave_migracion,),
+    ).fetchone()
+    if not row or str(row["valor"] or "").strip() != "1":
+        ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cur = conn.execute(
+            """
+            UPDATE usuarios
+            SET jornada_activa = 1,
+                jornada_activada_en = CASE
+                    WHEN COALESCE(jornada_activada_en, '') = '' THEN ?
+                    ELSE jornada_activada_en
+                END,
+                jornada_activada_por = CASE
+                    WHEN COALESCE(jornada_activada_por, '') = '' THEN 'migracion_legacy'
+                    ELSE jornada_activada_por
+                END
+            WHERE activo = 1
+              AND rol IN ('cajero', 'mesero')
+              AND COALESCE(jornada_activa, 0) = 0
+            """,
+            (ahora,),
+        )
+        if row is None:
+            conn.execute(
+                "INSERT INTO configuracion_sistema (clave, valor) VALUES (?, ?)",
+                (clave_migracion, "1"),
+            )
+        else:
+            conn.execute(
+                "UPDATE configuracion_sistema SET valor = ? WHERE clave = ?",
+                ("1", clave_migracion),
+            )
+        if int(cur.rowcount or 0):
+            logger.info(
+                "migracion: se activaron %s jornadas operativas heredadas.",
+                int(cur.rowcount or 0),
+            )
     # Índices de jornada
     _ejecutar_migracion_tolerante(conn, "CREATE INDEX IF NOT EXISTS idx_usuarios_jornada ON usuarios(jornada_activa, panaderia_id, sede_id)")
     _ejecutar_migracion_tolerante(conn, "CREATE UNIQUE INDEX IF NOT EXISTS idx_panaderias_codigo ON panaderias(codigo)")
@@ -6461,6 +6504,19 @@ def verificar_password(username_or_email: str, password: str) -> dict | None:
             (identifier, identifier)
         ).fetchone()
         if not hash_row:
+            rows_by_name = conn.execute(
+                """
+                SELECT id, password_hash FROM usuarios
+                WHERE activo = 1
+                  AND password_hash IS NOT NULL AND password_hash != ''
+                  AND LOWER(COALESCE(nombre, '')) = ?
+                ORDER BY id ASC
+                """,
+                (identifier,),
+            ).fetchall()
+            if len(rows_by_name) == 1:
+                hash_row = rows_by_name[0]
+        if not hash_row:
             return None
         if not check_password_hash(hash_row["password_hash"], pwd):
             return None
@@ -6558,24 +6614,32 @@ def verificar_usuario_operativo_local(panaderia_id: int, username: str, pin: str
     pin_hash = _hash_pin(pin_norm)
     pin_lookup_digest = _pin_lookup_digest(pin_norm)
     with get_connection() as conn:
-        row = conn.execute(
+        rows = conn.execute(
             _OPERATIVO_LOGIN_SELECT + """
             WHERE u.activo = 1
               AND u.jornada_activa = 1
               AND u.rol IN ('cajero', 'mesero')
               AND u.panaderia_id = ?
-              AND LOWER(u.username) = ?
+              AND (
+                    LOWER(COALESCE(u.username, '')) = ?
+                    OR LOWER(COALESCE(u.nombre, '')) = ?
+              )
               AND (
                     u.pin_lookup_digest = ?
                     OR (COALESCE(u.pin_lookup_digest, '') = '' AND (u.pin_hash = ? OR u.pin = ?))
               )
-            LIMIT 1
+            ORDER BY u.id ASC
             """,
-            (int(panaderia_id), username_norm, pin_lookup_digest, pin_hash, pin_hash),
-        ).fetchone()
-        if not row or _check_locked(row):
+            (int(panaderia_id), username_norm, username_norm, pin_lookup_digest, pin_hash, pin_hash),
+        ).fetchall()
+        usuarios = [
+            _enriquecer_con_membresia(conn, dict(row))
+            for row in rows
+            if not _check_locked(row)
+        ]
+        if len(usuarios) != 1:
             return None
-        return _enriquecer_con_membresia(conn, dict(row))
+        return usuarios[0]
 
 
 def diagnosticar_login_operativo_local(
@@ -6599,8 +6663,8 @@ def diagnosticar_login_operativo_local(
     ]
     params: list = [int(panaderia_id), pin_lookup_digest, pin_hash, pin_hash]
     if requiere_username:
-        filtros.append("LOWER(COALESCE(u.username, '')) = ?")
-        params.append(username_norm)
+        filtros.append("(LOWER(COALESCE(u.username, '')) = ? OR LOWER(COALESCE(u.nombre, '')) = ?)")
+        params.extend([username_norm, username_norm])
     with get_connection() as conn:
         rows = conn.execute(
             _OPERATIVO_LOGIN_SELECT + f"""
@@ -6617,6 +6681,8 @@ def diagnosticar_login_operativo_local(
 
     if not usuarios:
         return {"status": "invalid"}
+    if requiere_username and len(usuarios) > 1:
+        return {"status": "identificador_duplicado", "usuarios": usuarios}
     if not requiere_username and len(usuarios) > 1:
         activos = [u for u in usuarios if int(u.get("jornada_activa", 0) or 0) == 1]
         if len(activos) > 1:
