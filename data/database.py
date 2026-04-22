@@ -101,6 +101,17 @@ def _tenant_insert_fields(include_sede: bool = True) -> tuple[str, tuple]:
         return "panaderia_id, sede_id", (panaderia_id, sede_id)
     return "panaderia_id", (panaderia_id,)
 
+
+def _require_inserted_id(cursor, entidad: str) -> int:
+    """Valida que el INSERT haya devuelto un ID autogenerado utilizable."""
+    try:
+        inserted_id = int(getattr(cursor, "lastrowid", 0) or 0)
+    except (TypeError, ValueError):
+        inserted_id = 0
+    if inserted_id > 0:
+        return inserted_id
+    raise ValueError(f"No se pudo obtener el ID de {entidad} recien creada")
+
 try:
     import psycopg2  # type: ignore
     _INTEGRITY_ERRORS = (sqlite3.IntegrityError, psycopg2.IntegrityError)
@@ -8155,8 +8166,9 @@ def crear_venta_header(
             (fecha_op, hora_op, now_str, now_str,
              cajero, cajero_id, sede_id, panaderia_id, terminal_id, tipo_venta),
         )
+        venta_id = _require_inserted_id(cur, "la cabecera de venta")
         conn.commit()
-        return cur.lastrowid
+        return venta_id
 
 
 def actualizar_items_venta(
@@ -8175,97 +8187,101 @@ def actualizar_items_venta(
     actor_name = _texto_linea_canonico(actor_name)
     panaderia_id = int(panaderia_id or 0)
 
-    with get_connection() as conn:
-        vh = conn.execute(
-            "SELECT estado, panaderia_id FROM venta_headers WHERE id = ?",
-            (venta_id,),
-        ).fetchone()
-        if not vh or vh["estado"] not in ("activa", "suspendida"):
-            return {"ok": False, "error": "La venta no admite cambios"}
-        if not panaderia_id:
-            panaderia_id = int(vh["panaderia_id"] or 0)
+    try:
+        with get_connection() as conn:
+            vh = conn.execute(
+                "SELECT estado, panaderia_id FROM venta_headers WHERE id = ?",
+                (venta_id,),
+            ).fetchone()
+            if not vh or vh["estado"] not in ("activa", "suspendida"):
+                return {"ok": False, "error": "La venta no admite cambios"}
+            if not panaderia_id:
+                panaderia_id = int(vh["panaderia_id"] or 0)
 
-        item_ids = [
-            row["id"]
-            for row in conn.execute("SELECT id FROM venta_items WHERE venta_id = ?", (venta_id,)).fetchall()
-        ]
-        _eliminar_modificaciones_venta_items_conn(conn, venta_id, item_ids)
-        conn.execute("DELETE FROM venta_items WHERE venta_id = ?", (venta_id,))
+            item_ids = [
+                row["id"]
+                for row in conn.execute("SELECT id FROM venta_items WHERE venta_id = ?", (venta_id,)).fetchall()
+            ]
+            _eliminar_modificaciones_venta_items_conn(conn, venta_id, item_ids)
+            conn.execute("DELETE FROM venta_items WHERE venta_id = ?", (venta_id,))
 
-        manuales: list[dict] = []
-        for item in items_norm:
-            producto = str(item.get("producto", "") or "").strip()
-            cantidad = max(1, int(item.get("cantidad", 1) or 1))
-            precio_base = round(float(item.get("precio_base", item.get("precio", 0)) or 0), 2)
-            precio_aplicado = round(float(item.get("precio_aplicado", precio_base) or precio_base), 2)
-            motivo_precio = _texto_linea_canonico(item.get("motivo_precio", ""))
-            autorizado_por = _texto_linea_canonico(item.get("autorizado_por", ""))
-            autorizado_pin = str(item.get("autorizado_pin", "") or "").strip()
-            modificaciones = _normalizar_modificaciones_linea(item.get("modificaciones"))
+            manuales: list[dict] = []
+            for item in items_norm:
+                producto = str(item.get("producto", "") or "").strip()
+                cantidad = max(1, int(item.get("cantidad", 1) or 1))
+                precio_base = round(float(item.get("precio_base", item.get("precio", 0)) or 0), 2)
+                precio_aplicado = round(float(item.get("precio_aplicado", precio_base) or precio_base), 2)
+                motivo_precio = _texto_linea_canonico(item.get("motivo_precio", ""))
+                autorizado_por = _texto_linea_canonico(item.get("autorizado_por", ""))
+                autorizado_pin = str(item.get("autorizado_pin", "") or "").strip()
+                modificaciones = _normalizar_modificaciones_linea(item.get("modificaciones"))
 
-            if not producto:
-                continue
+                if not producto:
+                    continue
 
-            if precio_aplicado != precio_base:
-                if not motivo_precio:
-                    return {"ok": False, "error": f"El precio manual de {producto} requiere motivo"}
+                if precio_aplicado != precio_base:
+                    if not motivo_precio:
+                        return {"ok": False, "error": f"El precio manual de {producto} requiere motivo"}
 
-                autorizador = None
-                if actor_role in ("cajero", "mesero"):
-                    autorizador = _verificar_autorizador_precio_conn(
-                        conn,
-                        panaderia_id,
-                        autorizado_por,
-                        autorizado_pin,
-                    )
-                    if not autorizador:
-                        return {
-                            "ok": False,
-                            "error": f"{producto}: se requiere autorizacion valida para cambiar el precio",
+                    autorizador = None
+                    if actor_role in ("cajero", "mesero"):
+                        autorizador = _verificar_autorizador_precio_conn(
+                            conn,
+                            panaderia_id,
+                            autorizado_por,
+                            autorizado_pin,
+                        )
+                        if not autorizador:
+                            return {
+                                "ok": False,
+                                "error": f"{producto}: se requiere autorizacion valida para cambiar el precio",
+                            }
+                        autorizado_por = str(autorizador.get("nombre") or autorizador.get("username") or autorizado_por)
+                    else:
+                        autorizado_por = autorizado_por or actor_name
+
+                    manuales.append(
+                        {
+                            "producto": producto,
+                            "precio_base": precio_base,
+                            "precio_aplicado": precio_aplicado,
+                            "motivo_precio": motivo_precio,
+                            "autorizado_por": autorizado_por,
                         }
-                    autorizado_por = str(autorizador.get("nombre") or autorizador.get("username") or autorizado_por)
+                    )
                 else:
-                    autorizado_por = autorizado_por or actor_name
+                    autorizado_por = ""
 
-                manuales.append(
-                    {
-                        "producto": producto,
-                        "precio_base": precio_base,
-                        "precio_aplicado": precio_aplicado,
-                        "motivo_precio": motivo_precio,
-                        "autorizado_por": autorizado_por,
-                    }
+                subtotal = _linea_subtotal(cantidad, precio_aplicado, modificaciones)
+                cur_item = conn.execute(
+                    """
+                    INSERT INTO venta_items
+                        (venta_id, producto_id, producto, cantidad, precio_base,
+                         precio_aplicado, subtotal, motivo_precio, autorizado_por, notas)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        venta_id,
+                        item.get("producto_id"),
+                        producto,
+                        cantidad,
+                        precio_base,
+                        precio_aplicado,
+                        subtotal,
+                        motivo_precio,
+                        autorizado_por,
+                        str(item.get("notas", "") or ""),
+                    ),
                 )
-            else:
-                autorizado_por = ""
-
-            subtotal = _linea_subtotal(cantidad, precio_aplicado, modificaciones)
-            cur_item = conn.execute(
-                """
-                INSERT INTO venta_items
-                    (venta_id, producto_id, producto, cantidad, precio_base,
-                     precio_aplicado, subtotal, motivo_precio, autorizado_por, notas)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    venta_id,
-                    item.get("producto_id"),
-                    producto,
-                    cantidad,
-                    precio_base,
-                    precio_aplicado,
-                    subtotal,
-                    motivo_precio,
-                    autorizado_por,
-                    str(item.get("notas", "") or ""),
-                ),
-            )
-            venta_item_id = cur_item.lastrowid
-            for mod in modificaciones:
-                _insertar_modificacion_venta_item_conn(conn, venta_id, venta_item_id, mod)
-        _recalcular_totales_venta(conn, venta_id)
-        conn.commit()
-    return {"ok": True, "manuales": manuales, "items": items_norm}
+                venta_item_id = _require_inserted_id(cur_item, f"la linea de venta de {producto}")
+                for mod in modificaciones:
+                    _insertar_modificacion_venta_item_conn(conn, venta_id, venta_item_id, mod)
+            _recalcular_totales_venta(conn, venta_id)
+            conn.commit()
+        return {"ok": True, "manuales": manuales, "items": items_norm}
+    except Exception as exc:
+        logger.error(f"actualizar_items_venta: {exc}")
+        return {"ok": False, "error": str(exc)}
 
 
 def actualizar_comprador_venta(
@@ -10636,7 +10652,7 @@ def _crear_pedido_conn(conn, mesa_id: int, mesero: str, items: list[dict],
         mesa_id, mesero, estado, fecha, hora, creado_en, notas, total,
         panaderia_id, sede_id, int(cliente_id or 0) or None, str(cliente_nombre_snapshot or "").strip(),
     ))
-    pedido_id = cursor.lastrowid
+    pedido_id = _require_inserted_id(cursor, "el pedido")
     _registrar_historial_estado_pedido(
         conn,
         pedido_id,
@@ -10997,7 +11013,7 @@ def _crear_comanda_desde_pedido_conn(conn, pedido_id: int, usuario_id: int | Non
             created_at,
         ),
     )
-    comanda_id = cursor.lastrowid
+    comanda_id = _require_inserted_id(cursor, "la comanda")
 
     for item in items:
         conn.execute(

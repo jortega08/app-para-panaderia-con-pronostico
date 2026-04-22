@@ -239,7 +239,11 @@ def login():
             username = request.form.get("username", "").strip()
             password = request.form.get("password", "")
 
-            if not username or not password:
+            if not password:
+                flash("Escribe tu contrasena.", "error")
+                return _render_login()
+
+            if not username:
                 flash("Escribe tu usuario, correo o nombre y tu contrasena.", "error")
                 return _render_login()
 

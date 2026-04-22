@@ -1,746 +1,383 @@
-# Evaluación de Arquitectura — PuntoVenta Panadería SaaS
-
-> Estado al: 2026-04-19  
-> Versión del sistema: multi-tenant SaaS (Fases 0–7 implementadas)
+---
+name: Bakery POS Project Overview
+description: Arquitectura completa, módulos, base de datos, API y decisiones de diseño del sistema POS para panaderías
+type: project
+updatedAt: 2026-04-22
+originSessionId: 66a0e190-e2f2-47b8-91a6-362e01bd66d3
+---
+Flask monolith POS + multi-tenant SaaS para panaderías (Colombia). SQLite dev / PostgreSQL prod (Railway). Monolito principal en `app.py` (~248 KB) + blueprints en `app/`. BD centralizada en `data/database.py` (~600 KB).
 
 ---
 
-## Índice
+## Stack Tecnológico
 
-1. [¿Qué es el sistema?](#1-qué-es-el-sistema)
-2. [Stack tecnológico](#2-stack-tecnológico)
-3. [Estructura de módulos](#3-estructura-de-módulos)
-4. [Cómo se comunican las partes](#4-cómo-se-comunican-las-partes)
-5. [Flujo completo de una request](#5-flujo-completo-de-una-request)
-6. [Modelo de datos](#6-modelo-de-datos)
-7. [Roles y permisos](#7-roles-y-permisos)
-8. [Reglas de negocio](#8-reglas-de-negocio)
-9. [Multi-tenancy](#9-multi-tenancy)
-10. [Autenticación y sesiones](#10-autenticación-y-sesiones)
-11. [Seguridad](#11-seguridad)
-12. [Algoritmo de pronóstico](#12-algoritmo-de-pronóstico)
-13. [Despliegue e infraestructura](#13-despliegue-e-infraestructura)
-14. [Puntos de extensión y deuda técnica](#14-puntos-de-extensión-y-deuda-técnica)
+| Capa | Tecnología |
+|------|-----------|
+| Backend | Flask 3.0+, Gunicorn, APScheduler 3.10+ |
+| Base de datos | SQLite (dev) / PostgreSQL 12+ (prod) via `db_adapter` |
+| Frontend | Jinja2, HTML5, CSS3, JavaScript vanilla |
+| Visualización | ECharts 5.5.1 (bundle local `static/js/charts/echarts.min.js` + CDN fallback) |
+| Contenedores | Docker, Docker Compose, Nginx reverse proxy |
+| Deploy | Railway.app (PaaS), WSGI via `wsgi.py` |
+
+**ECharts helper:** `static/js/charts/echarts-helpers.js` — gestiona ciclo de vida de instancias (`init/dispose/resizeAll`), `AppCharts.grid()` con paddings predeterminados. `ensureECharts()` usa CDN como fallback si la carga local falló.
 
 ---
 
-## 1. ¿Qué es el sistema?
-
-**PuntoVenta Panadería** es una aplicación web SaaS B2B diseñada para gestionar panaderías artesanales. Corre como una aplicación Flask monolítica multi-tenant y actualmente soporta una panadería con múltiples sedes, con infraestructura lista para escalar a N tenants independientes.
-
-### Qué hace
-
-| Módulo | Función |
-|--------|---------|
-| **Punto de venta (POS)** | Registro de ventas individuales y en lote, arqueo de caja, métodos de pago múltiples |
-| **Pedidos & Mesas** | Creación de pedidos por mesa, asignación a mesero, división de cuenta, estados del pedido |
-| **Encargos** | Pedidos especiales con fecha de entrega, seguimiento por estado |
-| **Pronóstico de producción** | Sugerencia diaria de cuánto producir por producto usando promedio móvil ponderado + tendencia |
-| **Registro de producción** | Ingreso de producido/vendido/sobrante por día, descarte de sobrante |
-| **Inventario & Insumos** | Control de stock de insumos, alertas de stock bajo, recetas con fichas técnicas |
-| **Usuarios & Jornada** | Alta/baja de cajeros y meseros, activación de jornada diaria por sede |
-| **Backup** | Backup automático a las 23:00, respaldo manual, restauración, compatible con SQLite y PostgreSQL |
-| **Auditoría** | Registro inmutable de acciones críticas con trazabilidad completa |
-| **Panel de Plataforma** | Vista de todas las panaderías, gestión de planes de suscripción y estado operativo |
-
----
-
-## 2. Stack tecnológico
-
-| Capa | Tecnología | Versión / Notas |
-|------|-----------|----------------|
-| Lenguaje | Python | 3.11 |
-| Framework web | Flask | Con blueprints y `g` request context |
-| WSGI server | Gunicorn | `sync` workers, sin async |
-| Reverse proxy | Nginx | Alpine, puerto 80 → 5000 |
-| Base de datos principal | SQLite (dev) / PostgreSQL (prod) | Adaptador `db_adapter.py` transparente |
-| ORM / Queries | SQL directo | Sin ORM — queries crudas con `sqlite3` / `psycopg2` |
-| Templating | Jinja2 | Vía Flask; sin SSR frameworks modernos |
-| Gráficas | ECharts 5.5 | CDN con fallback a cdnjs |
-| CSS | Custom | 4 archivos (core, layout, components, pages) + style.css global |
-| JavaScript | Vanilla JS | Sin frameworks front-end (React, Vue, etc.) |
-| Containerización | Docker | `python:3.11-slim`, usuario no-root |
-| Orquestación | Docker Compose | 2 servicios: web + nginx |
-| Autenticación | Sesiones Flask firmadas | `session` cookie `HttpOnly`, `SameSite=Lax` |
-| CSRF | Token en sesión + header `X-CSRF-Token` | Validado en `before_request` |
-
----
-
-## 3. Estructura de módulos
+## Estructura de Directorios
 
 ```
 app-para-panaderia-con-pronostico/
-│
-├── app.py                    # Aplicación Flask principal (>4000 líneas)
-│                             # Todas las rutas, before/after_request,
-│                             # helpers internos, context global de Jinja
-│
-├── wsgi.py                   # Entry point de Gunicorn → importa app de app.py
-│
-├── backup.py                 # Sistema de backup (SQLite nativo / pg_dump)
-│
-├── app/                      # Módulos core de la aplicación
-│   ├── context.py            # Dataclasses de request context (frozen)
-│   │   ├── TenantContext
-│   │   ├── SedeContext
-│   │   ├── SubscriptionContext
-│   │   ├── TerminalContext
-│   │   └── BrandContext
-│   │
-│   ├── tenant_service.py     # Resolución y validación del tenant activo
-│   │   └── TenantService     # 14 métodos estáticos + 3 excepciones
-│   │
-│   ├── security.py           # Constantes de roles, CSRF helpers
-│   ├── responses.py          # json_error(), wants_json_response()
-│   ├── logging_utils.py      # configure_app_logging(), generate_request_id()
-│   │
+├── app/                        # Módulos Flask (blueprints y servicios)
+│   ├── context.py              # Data classes: TenantContext, SedeContext, TerminalContext, SubscriptionContext, BrandContext
+│   ├── tenant_service.py       # TenantService: resolve_by_id/slug/domain/default, validación de suscripciones
+│   ├── security.py             # Constantes de roles, manejo CSRF
+│   ├── logging_utils.py        # Configuración de logs y request IDs para trazabilidad
+│   ├── responses.py            # Builders de respuestas JSON de error estandarizadas
 │   └── web/
-│       ├── auth.py           # Blueprint "auth" — login, logout, jornada API
-│       ├── decorators.py     # @login_required, @roles_required, @tenant_scope_required,
-│       │                     # @sede_scope_required, @admin_required
-│       └── utils.py          # Helpers de sesión, iconos, CSRF, rate limiting
+│       ├── auth.py             # Blueprint: login (PIN/password), logout, health, jornada API
+│       ├── decorators.py       # @login_required, @roles_required, @admin_required, @tenant_scope_required, @sede_scope_required
+│       └── utils.py            # Contexto de usuario, CSRF tokens, brand context, filtros Jinja2
 │
 ├── data/
-│   ├── database.py           # Toda la capa de datos (~3800 líneas)
-│   │   ├── 33 tablas SQLite/PostgreSQL
-│   │   ├── 140+ funciones públicas
-│   │   ├── Sistema de migraciones idempotentes (_migrar_*)
-│   │   └── Multi-tenant scope por hilo (_tenant_scope, _apply_tenant_scope)
-│   └── db_adapter.py         # Abstracción SQLite ↔ PostgreSQL (get_database_info)
+│   ├── database.py             # ~100 funciones DB, migraciones fases 0–8 idempotentes
+│   └── db_adapter.py           # Abstracción SQLite/PostgreSQL (conexión, parámetros, upsert)
 │
 ├── logic/
-│   └── pronostico.py         # Algoritmo de pronóstico de producción
-│                             # (promedio móvil ponderado + tendencia + días especiales)
-│
-├── templates/                # 28 templates Jinja2
-│   ├── base.html             # Layout base heredado por todos
-│   ├── login.html
-│   ├── platform_panel.html   # Panel platform_superadmin
-│   ├── cajero_*.html         # Vistas del cajero (3)
-│   ├── mesero_*.html         # Vistas del mesero (3)
-│   ├── panadero_*.html       # Vistas del panadero/admin (12)
-│   └── components/           # Componentes reutilizables (_kpi_card, _chart_card, etc.)
+│   └── pronostico.py           # Motor de pronóstico v2 (mezcla ponderada + anomalías + backtesting)
 │
 ├── static/
-│   ├── style.css             # CSS global
-│   ├── css/                  # core / layout / components / pages
-│   ├── js/
-│   │   ├── core/security.js  # CSRF y helpers de seguridad front-end
-│   │   └── charts/echarts-helpers.js
-│   └── brand/                # Logo SVG (richs-logo.svg)
+│   ├── brand/                  # Logos y branding por tenant
+│   ├── css/                    # Hojas de estilo (layout, pages, components)
+│   └── js/
+│       ├── charts/             # echarts.min.js (1 MB), echarts-helpers.js
+│       ├── core/               # Utilidades de seguridad JS
+│       └── pages/              # Scripts específicos por página
 │
-├── backups/                  # Directorio de archivos de backup
-├── docs/                     # Documentación
+├── templates/
+│   ├── base.html               # Layout maestro (nav, estilos, scripts)
+│   ├── login.html
+│   ├── error.html
+│   ├── components/             # _chart_card, _kpi_card, _table_card, _pagination, _help_tooltip_trigger
+│   ├── cajero_*.html           # POS, ventas, pedidos, encargos
+│   ├── mesero_*.html           # Mesas, pedido por mesa, lista de pedidos
+│   ├── panadero_*.html         # Pronóstico, producción, ventas, historial, cartera, documentos,
+│   │                           # operaciones, inventario, jornada, backups, config, audit,
+│   │                           # estandarización, cierre
+│   ├── dashboard_ventas.html
+│   ├── comanda_print.html      # Ticket de cocina
+│   ├── factura_print.html      # Factura/recibo
+│   ├── cliente_historial.html
+│   └── platform_panel.html     # Panel superadmin de plataforma
+│
+├── app.py                      # Aplicación Flask principal (~248 KB, monolito de rutas)
+├── backup.py                   # Sistema backup SQLite (API nativa + WAL) / PostgreSQL (pg_dump)
+├── jobs_runner.py              # Runner de jobs: modo `once` o `daemon` con poll interval configurable
+├── seed_demo.py                # Datos de demo para desarrollo
+├── wsgi.py                     # Entry point WSGI
 ├── Dockerfile
-├── docker-compose.yml
+├── docker-compose.yml          # Producción (web + nginx + PostgreSQL externo)
+├── docker-compose.demo.yml     # Demo (web + nginx + PostgreSQL local)
 ├── gunicorn.conf.py
-└── requirements.txt
+├── nginx.conf
+├── railway.toml
+└── requirements.txt            # Flask, psycopg2-binary, python-dotenv, gunicorn, APScheduler
 ```
 
 ---
 
-## 4. Cómo se comunican las partes
+## Multi-tenancy
 
-### Diagrama de capas
+`panaderias → sedes → terminales` con `tenant_memberships` como fuente de rol/panaderia_id/sede_id.
 
+- `TenantService` resuelve contexto en `before_request` (por id, slug, dominio o `resolve_default()`).
+- `SubscriptionContext` expone plan (`free/starter/pro/enterprise`), límites y `is_active`.
+- `TerminalContext` asocia terminales físicas (caja, mesero, kiosko, cocina) a la sesión.
+- `_apply_tenant_scope()` helper interno: añade `WHERE panaderia_id = ?` a cualquier query.
+- `resolve_default()` solo para no autenticados; autenticados siempre por `session["usuario"]["panaderia_id"]`.
+
+**Límites del plan `free`:** 1 sede, 5 usuarios, 50 productos. Planes superiores expanden los límites.
+
+---
+
+## Roles y Acceso
+
+| Rol | Acceso |
+|-----|--------|
+| `platform_superadmin` | Bypasa checks de tenant, sede y suscripción |
+| `tenant_admin` | Gestión de panadería: usuarios, config, sedes |
+| `panadero` | Dashboards, pronóstico, producción, inventario, historial, cierre |
+| `cajero` | POS, ventas, encargos, caja |
+| `mesero` | Mesas, pedidos de mesa |
+
+---
+
+## Seguridad de Sesión
+
+- **Login dual:** PIN operativo (cajero/mesero) + usuario/password para admin.
+- **Rate limiting:** tracking de intentos fallidos por IP en `login_attempts`; lockout tras N fallos.
+- **`session_version`** (int en `usuarios`) — se incrementa al revocar acceso.  
+  `before_request` compara `session["usuario"]["session_version"]` contra DB en cada request (excepto login/logout/static). Si difieren → `session.clear()` + redirect/401.
+- **Cookies:** HTTPOnly, SameSite=Lax, Secure en producción. CSRF tokens en formularios.
+- **Jornada:** `usuarios.jornada_activa` controla si cajero/mesero puede iniciar sesión operativa.
+- **Audit log:** Todas las acciones sensibles quedan en `audit_log` (usuario, IP, timestamp, entidad, resultado).
+
+---
+
+## Base de Datos — Tablas Principales
+
+### Multi-tenant
+| Tabla | Descripción |
+|-------|-------------|
+| `panaderias` | Organización (slug, nombre, activa, dominio_custom) |
+| `sedes` | Sucursal (panaderia_id, slug, nombre, codigo, activa) |
+| `terminales` | Dispositivo POS (sede_id, tipo, codigo, last_seen_at) |
+| `tenant_subscriptions` | Plan (panaderia_id, plan, estado, max_sedes, max_usuarios, max_productos) |
+| `tenant_branding` | Marca visual (logo_path, favicon_path, colors) |
+| `tenant_memberships` | Relación usuario-tenant-sede-rol |
+
+### Usuarios y Seguridad
+| Tabla | Descripción |
+|-------|-------------|
+| `usuarios` | Usuarios (pin_hash, password_hash, rol, jornada_activa, session_version, last_login_at) |
+| `login_attempts` | Intentos fallidos (scope_key, attempts, locked_until) |
+
+### Catálogo
+| Tabla | Descripción |
+|-------|-------------|
+| `productos` | Catálogo (nombre, precio, categoria, es_panaderia, stock_minimo, surtido_tipo) |
+| `categorias_producto` | Categorías activas por tenant |
+| `adicionales` | Extras/toppings opcionales |
+
+### Ventas y Pedidos
+| Tabla | Descripción |
+|-------|-------------|
+| `ventas` | Transacciones de venta directa (venta_grupo, metodo_pago, monto_recibido, cambio) |
+| `pedidos` | Órdenes de mesa (estado, mesa_id, mesero, total, metodo_pago) |
+| `pedido_items` | Ítems del pedido |
+| `pedido_item_modificaciones` | Personalizaciones (adicionales, exclusiones) |
+| `pedido_estado_historial` | Historial de cambios de estado |
+| `mesas` | Mesas físicas (numero, nombre, activa, eliminada) |
+
+### Encargos (Pre-pedidos)
+| Tabla | Descripción |
+|-------|-------------|
+| `encargos` | Pre-pedido con fecha de entrega (cliente, empresa, estado, total) |
+| `encargo_items` | Ítems del encargo |
+
+### Inventario y Recetas
+| Tabla | Descripción |
+|-------|-------------|
+| `insumos` | Ingredientes (unidad, stock, stock_minimo) |
+| `inventario_sede` | Stock por sucursal (insumo_id, sede_id, stock) |
+| `recetas` | Ingredientes por producto (cantidad, unidad_receta) |
+| `receta_fichas` | Fichas técnicas (rendimiento, tiempo_preparacion, tiempo_amasado) |
+| `producto_componentes` | Desglose de componentes de producto |
+| `adicional_insumos` | Ingredientes requeridos por extra |
+
+### Producción y Pronóstico
+| Tabla | Descripción |
+|-------|-------------|
+| `registros_diarios` | Log diario (fecha, dia_semana, producido, vendido, sobrante_inicial) |
+| `ajustes_pronostico` | Ajustes manuales al forecast (tipo, valor, razon) |
+| `dias_especiales` | Factores para días especiales (factor, tipo, descripcion) |
+| `mermas` | Registros de desperdicio/merma |
+| `alertas` | Alertas por umbral de producto |
+
+### Caja y Contabilidad
+| Tabla | Descripción |
+|-------|-------------|
+| `arqueos_caja` | Apertura/cierre de caja (monto_apertura, monto_cierre, diferencia, efectivo_esperado) |
+| `movimientos_caja` | Transacciones (tipo, concepto, monto, registrado_por) |
+
+### Sistema
+| Tabla | Descripción |
+|-------|-------------|
+| `audit_log` | Trazabilidad completa (accion, entidad, entidad_id, ip, resultado) |
+| `configuracion_sistema` | Configuración clave-valor por tenant |
+
+---
+
+## API Endpoints Principales
+
+### Autenticación y Sistema (`app/web/auth.py`)
 ```
-┌─────────────────────────────────────────────────────┐
-│                   CLIENTE (Browser)                  │
-│  HTML/CSS/JS vanilla + ECharts + fetch() para APIs  │
-└────────────────────┬────────────────────────────────┘
-                     │ HTTP
-                     ▼
-┌─────────────────────────────────────────────────────┐
-│                   NGINX (puerto 80)                  │
-│  Reverse proxy → localhost:5000                      │
-│  Static files servidos directamente (si configura)   │
-└────────────────────┬────────────────────────────────┘
-                     │ HTTP (interno)
-                     ▼
-┌─────────────────────────────────────────────────────┐
-│            GUNICORN (puerto 5000)                    │
-│  Workers síncronos (min(cpu*2+1, 4))                │
-│  Timeout 120s, preload_app=True                      │
-└────────────────────┬────────────────────────────────┘
-                     │ WSGI
-                     ▼
-┌─────────────────────────────────────────────────────┐
-│              FLASK (app.py + blueprints)             │
-│                                                      │
-│  before_request:                                     │
-│    1. generate_request_id                            │
-│    2. _resolver_contextos_request()                  │
-│       → TenantService.resolve_*()                   │
-│       → g.tenant/sede/brand/subscription/terminal   │
-│    3. Guards: tenant suspendido (503), plan vencido  │
-│    4. CSRF validation                                │
-│                                                      │
-│  Routing → @app.route / blueprint auth_bp            │
-│  Decoradores: @login_required, @roles_required, etc. │
-│                                                      │
-│  after_request:                                      │
-│    → Security headers (X-Frame-Options, HSTS, etc.) │
-└────────────────────┬────────────────────────────────┘
-                     │ Python function calls
-                     ▼
-┌────────────────────────────────────┐
-│        data/database.py            │
-│  • _tenant_scope() por hilo        │
-│  • _apply_tenant_scope() en queries│
-│  • get_connection() → SQLite/PG    │
-└────────────────────┬───────────────┘
-                     │ SQL
-                     ▼
-┌────────────────────────────────────┐
-│     SQLite (dev) / PostgreSQL (prod)│
-│     33 tablas, schema auto-migrate  │
-└────────────────────────────────────┘
+GET/POST /login              Login (PIN o password)
+GET      /logout
+GET      /health             Liveness check
+GET      /ready              Readiness check (incluye DB)
+GET/POST /cambiar-password
+POST     /api/cambiar-password
+GET      /api/terminal/lookup   Info de terminal por código (público)
+GET      /api/panaderia/lookup  Info de panadería por código (público)
+GET/POST /api/jornada/*         Apertura/cierre de jornada, activar usuarios
 ```
 
-### Comunicación Front ↔ Back
-
-Existen dos patrones en la misma app:
-
-**1. Server-Side Rendering (SSR) — vistas HTML:**
+### Cajero
 ```
-GET /panadero/pronostico
-  → @login_required → @roles_required
-  → Python fetches data from DB
-  → render_template("panadero_pronostico.html", **ctx)
-  → HTML completo al cliente
+GET  /cajero/pos
+GET  /cajero/ventas
+GET  /cajero/pedidos
+GET  /cajero/pedido/<id>/editar
+POST /api/caja/abrir | /api/caja/cerrar
+POST /api/caja/movimiento
 ```
 
-**2. API JSON — operaciones interactivas:**
+### Mesero
 ```
+GET /mesero/mesas
+GET /mesero/pedido/<mesa_id>
+GET /mesero/pedidos
+```
+
+### Panadero (Dashboards)
+```
+GET /panadero/pronostico       Pronóstico de demanda
+GET /panadero/produccion       Planificación y registro de lotes
+GET /panadero/ventas           Dashboard de ventas
+GET /panadero/historial        Tendencias históricas
+GET /panadero/cartera          Cuentas por cobrar
+GET /panadero/documentos       Facturas/documentos
+GET /panadero/operaciones      Operaciones y ajustes
+GET /panadero/inventario       Stock de ingredientes
+GET /panadero/jornada          Gestión de jornada
+GET /panadero/backups          Backup/restore
+GET /panadero/config           Configuración
+GET /panadero/audit            Log de auditoría
+GET /panadero/estandarizacion  Estandarización de recetas
+GET /panadero/cierre           Cierre diario
+```
+
+### API JSON (selección)
+```
+GET  /api/productos
+POST /api/producto | PUT /api/producto/<id> | DELETE /api/producto/<id>
+POST /api/productos/importar
+GET  /api/pronostico/dashboard
+GET  /api/pronostico/sugerencia
+GET  /api/produccion/contexto | /api/produccion/contexto-masivo
+POST /api/produccion/validar-insumos
+POST /api/produccion/lotes-masivos
+POST /api/produccion/descartar
+GET  /api/inventario/proyeccion-insumos
+GET  /api/historial/dashboard
 POST /api/venta
-  Headers: X-CSRF-Token: <token>
-  Body: { "producto": "Pan Francés", "cantidad": 5, ... }
-  → @login_required
-  → registrar_venta(...)
-  → { "ok": true }
+GET  /api/ventas/hoy
+POST /api/pedido
+POST /api/mesa/<id>/unir-cuentas
+POST /api/usuario | PUT /api/usuario/<id>
+POST /api/usuario/<id>/reset-pin
+POST /api/config/codigo-caja
 ```
 
-Todos los endpoints API retornan `{"ok": true|false, "data": ..., "error": "..."}`.  
-El CSRF token se envía en el header `X-CSRF-Token` (obtenido del meta tag en base.html).
+**Formato de respuesta:** `{"ok": true/false, "data": {...}, "error": "..."}`  
+**Paginación:** `?page=1&size=50` con validación de límite.
 
 ---
 
-## 5. Flujo completo de una request
+## Motor de Pronóstico (`logic/pronostico.py`)
 
-### Request autenticada: `POST /api/venta`
-
+**Modelo v2 — mezcla ponderada de 3 componentes:**
 ```
-1. Browser → nginx → gunicorn → Flask
-
-2. before_request():
-   a. g.request_id = generate_request_id()  # UUID para trazabilidad
-   b. _resolver_contextos_request():
-      - session["usuario"]["panaderia_id"] → TenantService.resolve_by_id()
-      - session["usuario"]["sede_id"]      → TenantService.resolve_sede_by_id()
-      - session["usuario"]["terminal_id"]  → TenantService.resolve_terminal_by_id()
-      - TenantService.get_subscription()   → SubscriptionContext
-      - TenantService.get_branding()       → BrandContext
-   c. g.tenant_context, g.sede_context, g.brand_context,
-      g.subscription_context, g.terminal_context = ...
-   d. set_query_context(tenant_id, sede_id)  # hilo local para DB queries
-   e. TenantService.touch_terminal()         # actualiza last_seen_at
-   f. Guards (solo si usuario autenticado y no platform_superadmin):
-      - if not tenant_context.is_active → abort(503)
-      - if subscription_context.is_expired → abort(402)
-   g. CSRF check (POST/PUT/PATCH/DELETE): X-CSRF-Token == session["_csrf_token"]
-
-3. @login_required:
-   - Verifica "usuario" en session
-   - Verifica edad de sesión (SESSION_LIFETIME_HOURS, default 8h)
-   - Verifica inactividad (SESSION_LIFETIME_HOURS desde _last_activity_ts)
-   - Actualiza session["_last_activity_ts"]
-
-4. @roles_required (si aplica):
-   - _rol_usuario_actual() ∈ roles_permitidos
-
-5. View function: registrar_venta(...)
-   - Llama data/database.py → _tenant_scope() para panaderia_id/sede_id
-   - INSERT INTO ventas (..., panaderia_id=?, sede_id=?)
-   - return {"ok": True}
-
-6. after_request():
-   - X-Request-Id, X-Content-Type-Options, X-Frame-Options,
-     X-XSS-Protection, Referrer-Policy, [HSTS si HTTPS]
-
-7. JSON response → gunicorn → nginx → Browser
+Pronóstico = 50% (promedio histórico por día de semana)
+           + 30% (media móvil últimos 7 días)
+           + 20% (tendencia ajustada)
+           + buffer de seguridad 10%
+           + overlay de encargos confirmados
 ```
 
-### Login operativo (cajero/mesero): `POST /login` (modo=operativo)
+**Constantes:**
+- `BUFFER_SEGURIDAD = 0.10`
+- `DIAS_PROMEDIO_MOVIL = 7`
+- `DIAS_NIVEL_ALTO = 30` (ventana de estabilidad)
+- `OUTLIER_DESVIACIONES = 2.5` (umbral detección de anomalías)
 
-```
-1. Formulario: codigo_panaderia + username_op + pin + terminal_codigo?
+**Funciones clave:**
+| Función | Descripción |
+|---------|-------------|
+| `calcular_pronostico()` | Motor principal de predicción |
+| `calcular_eficiencia()` | Métricas de precisión del forecast |
+| `analizar_tendencia()` | Dirección y magnitud de tendencia |
+| `obtener_historial_pronostico()` | Datos históricos para visualización |
+| `obtener_resumen_pronostico_por_dia_semana()` | Patrones semanales |
+| `calcular_backtesting()` | Validación: ventana deslizante → MAPE, MAE, hit_rate_10%, hit_rate_20% |
+| `obtener_encargos_confirmados_para_fecha()` | Overlay de demanda comprometida |
 
-2. verificar_pin_operativo(codigo_panaderia, username, pin):
-   - JOIN panaderias + usuarios por código y username
-   - Valida pin (hash bcrypt)
-   - _enriquecer_con_membresia() → membership_id autoritativo
-   - if not membership_id → return None (membresía inactiva = deniega)
-
-3. Si usuario válido:
-   - _registrar_sesion(usuario)
-   - if terminal_codigo → obtener_terminal_por_codigo(sede_id, codigo)
-     - if activa → session["usuario"]["terminal_id"] = terminal.id
-
-4. registrar_audit(accion="login", resultado="ok")
-
-5. _redirect_post_login() → /cajero/pos o /mesero/mesas
-```
+**Manejo especial:**
+- División por cero: fallback a 0.0 cuando `suma_pesos == 0`
+- Calidad calculada con CV de la serie de ventas (no sobrante/producido)
+- `_redondear_produccion()` retorna 0 si `valor <= 0` (no fuerza mínimo 1)
+- Días especiales: factores configurables por tenant/sede/fecha
 
 ---
 
-## 6. Modelo de datos
+## Módulos de Funcionalidad
 
-### Tablas por dominio
+### Gestión de Caja
+- Ciclo de vida: Apertura → Movimientos → Cierre con cuadre
+- Diferencia esperado vs real; código de verificación opcional
+- Soporte multi-método: efectivo, tarjeta, transferencia
 
-#### Plataforma / Multi-tenant
+### Gestión de Pedidos (Restaurant)
+- Estados: `pendiente → en_preparacion → listo → pagado → cancelado`
+- Historial de estados con timestamp
+- Modificaciones de ítems (adicionales, exclusiones)
+- División de cuentas entre métodos de pago
+- Impresión de comanda para cocina
 
-| Tabla | Rol | Columnas clave |
-|-------|-----|----------------|
-| `panaderias` | Tenant raíz | `slug`, `activa`, `estado_operativo`, `codigo` |
-| `sedes` | Sub-unidad del tenant | `panaderia_id FK`, `slug`, `codigo` UNIQUE por tenant |
-| `tenant_memberships` | Relación usuario↔tenant | `usuario_id FK`, `panaderia_id FK`, `sede_id FK`, `rol`, `activa` |
-| `tenant_subscriptions` | Plan comercial | `panaderia_id UNIQUE FK`, `plan`, `estado`, `fecha_vencimiento`, `max_*` |
-| `terminales` | POS físico por sede | `sede_id FK`, `codigo` UNIQUE por sede, `tipo`, `last_seen_at` |
-| `tenant_branding` | Marca visual | `panaderia_id FK`, colores, rutas de logo |
+### Encargos (Pre-pedidos)
+- Fecha de entrega separada de la fecha de creación
+- Estados: `pendiente → listo → entregado → cancelado`
+- Pago al momento de entrega soportado
+- Se integran como overlay en el motor de pronóstico
 
-#### Usuarios y seguridad
+### Backup y Recuperación
+- **SQLite:** API nativa con soporte WAL
+- **PostgreSQL:** `pg_dump` con rotación automática (retención 30 días)
+- Jobs runner: modo `once` (cron/systemd) o `daemon` (polling por `JOBS_POLL_SECONDS`)
+- UI de backup en `/panadero/backups`
 
-| Tabla | Rol | Columnas clave |
-|-------|-----|----------------|
-| `usuarios` | Identidad | `username`, `email`, `password_hash`, `pin`, `rol`, `panaderia_id FK`, `sede_id FK` |
-| `login_attempts` | Rate limiting | `scope_key`, `attempt_count`, `locked_until` |
-| `audit_log` | Trazabilidad | `usuario`, `accion`, `entidad`, `entidad_id`, `detalle`, `panaderia_id`, `sede_id` |
+### Inventario y Recetas
+- Stock por sede (`inventario_sede`)
+- Recetas mapeadas a insumos con cantidades y unidades
+- Proyección de insumos necesarios para producción planificada
+- Alertas por stock mínimo
+- Registro de mermas con razón
 
-#### Operaciones
-
-| Tabla | Rol | Columnas clave |
-|-------|-----|----------------|
-| `productos` | Catálogo | `nombre`, `precio`, `categoria`, `es_panaderia`, `stock_minimo`, `panaderia_id` |
-| `ventas` | Transacciones | `venta_grupo`, `referencia_tipo`, `metodo_pago`, `panaderia_id`, `sede_id` |
-| `pedidos` | Mesa + estado | `mesa_id FK`, `mesero`, `estado`, `panaderia_id`, `sede_id` |
-| `pedido_items` | Líneas de pedido | `pedido_id FK`, `producto`, `cantidad`, `precio_unitario` |
-| `pedido_item_modificaciones` | Adicionales / exclusiones | `item_id FK`, `tipo`, `nombre`, `precio` |
-| `mesas` | Física de sala | `numero`, `capacidad`, `ubicacion`, `panaderia_id`, `sede_id` |
-| `encargos` | Pedidos futuros | `fecha_entrega`, `cliente_nombre`, `estado`, `panaderia_id`, `sede_id` |
-| `arqueos_caja` | Control de caja | `abierto_por`, `efectivo_real`, `diferencia`, `panaderia_id`, `sede_id` |
-| `movimientos_caja` | Entradas/salidas | `tipo`, `concepto`, `monto`, `panaderia_id`, `sede_id` |
-
-#### Producción e inventario
-
-| Tabla | Rol | Columnas clave |
-|-------|-----|----------------|
-| `registros_diarios` | Producción diaria | `fecha`, `producto`, `producido`, `vendido`, `sobrante`, `panaderia_id` |
-| `insumos` | Materias primas | `nombre`, `stock`, `stock_minimo`, `unidad`, `panaderia_id` |
-| `recetas` | Proceso de elaboración | `producto`, `rendimiento`, `tiempos`, `temperatura`, `pasos` |
-| `receta_fichas` | Ficha técnica extendida | `panaderia_id` |
-| `producto_componentes` | Insumos por producto | `producto_base`, `insumo FK`, `cantidad_requerida`, `unidad_receta` |
-| `adicionales` | Extras del menú | `nombre`, `precio`, `panaderia_id`, `sede_id` |
-| `mermas` | Pérdidas registradas | `fecha`, `producto`, `cantidad`, `razon` |
-| `dias_especiales` | Factores de demanda | `fecha`, `nombre`, `factor_demanda` |
-| `ajustes_pronostico` | Override manual | `fecha`, `producto`, `ajustado` |
-
-### Claves de aislamiento multi-tenant
-
-Toda tabla operativa tiene columnas `panaderia_id` y/o `sede_id`. Las queries siempre pasan por `_apply_tenant_scope()`:
-
-```python
-# Automático en todas las queries
-filtros = ["activa = 1"]
-params  = []
-_apply_tenant_scope(filtros, params)
-# → agrega "AND panaderia_id = ?" con el id del hilo actual
-```
+### Análisis e Historial
+- KPIs: aprovechamiento (vendido/producido %), desperdicio %, días con quiebre
+- Evolución diaria con dataZoom (slider temporal cuando periodo > 20 días)
+- Diferencias de cierre de caja por día (`chartDifCaja`)
+- Dashboard de ventas: ticket promedio, ventas por hora (24 barras)
+- Exportación CSV de ventas e inventario
 
 ---
 
-## 7. Roles y permisos
+## Releases Completados
 
-### Jerarquía de roles
+### Release 4 — Pronóstico v2 (2026-04-19/21)
+- 6 bugs corregidos en `logic/pronostico.py` (división por cero, calidad, redondeo, blend, encargos, backtesting)
+- Panel backtesting en `panadero_pronostico.html`: KPIs MAPE/MAE/hit_rate, gráfico ECharts, tabla de evaluaciones
 
-```
-platform_superadmin          ← Nivel de plataforma (sin tenant fijo)
-    │
-    └── tenant_admin         ← Admin de una panadería
-            │
-            ├── panadero     ← Operador de producción / supervisor
-            │
-            ├── cajero       ← Punto de venta (login con PIN)
-            │
-            └── mesero       ← Gestión de mesas (login con PIN)
-```
+### Release 5 — Dashboards v2 (2026-04-21)
+- `dashboard_ventas.html`: KPI ticket promedio + gráfico ventas por hora
+- `panadero_historial.html`: KPIs aprovechamiento/desperdicio/quiebres + gráfico diferencias de caja + dataZoom
 
-### Matriz de acceso por rol
+### Pendiente Release 5
+- Drilldown interactivo: click en barra de `chartEvolucionDiaria` filtra tabla al día
+- `echarts-helpers.js`: agregar `heatmapOption`, `stackedBarOption`, `waterfallOption`
 
-| Módulo / Vista | platform_superadmin | tenant_admin | panadero | cajero | mesero |
-|----------------|:-------------------:|:------------:|:--------:|:------:|:------:|
-| Panel de plataforma | ✓ | — | — | — | — |
-| Pronóstico producción | ✓ (bypass) | ✓ | ✓ | — | — |
-| Producción / Historial | ✓ | ✓ | ✓ | — | — |
-| POS (Caja) | ✓ | ✓ | — | ✓ | — |
-| Ventas del cajero | ✓ | ✓ | — | ✓ | — |
-| Pedidos cajero | ✓ | ✓ | — | ✓ | — |
-| Mesas (mesero) | — | ✓ | — | — | ✓ |
-| Pedidos mesero | — | ✓ | — | — | ✓ |
-| Inventario / Insumos | ✓ | ✓ | ✓ | — | — |
-| Configuración | ✓ | ✓ | — | — | — |
-| Usuarios | ✓ | ✓ | ✓ | — | — |
-| Jornada (abrir/cerrar) | ✓ | ✓ | ✓ | — | — |
-| Backups | ✓ | ✓ | ✓ | — | — |
-| Audit log | ✓ | ✓ | — | — | — |
-| Cambiar plan suscripción | ✓ | — | — | — | — |
-| Suspender/activar tenant | ✓ | — | — | — | — |
-
-### Constantes en `app/security.py`
-
-```python
-PLATFORM_ADMIN_ROLE = "platform_superadmin"
-TENANT_ADMIN_ROLE   = "tenant_admin"
-OPERATIONAL_ROLES   = {"panadero", "cajero", "mesero"}
-VALID_ROLES         = {PLATFORM_ADMIN_ROLE, TENANT_ADMIN_ROLE, *OPERATIONAL_ROLES}
-ADMIN_ROLES         = {PLATFORM_ADMIN_ROLE, TENANT_ADMIN_ROLE, "panadero"}
-```
-
-### Comportamiento especial de `platform_superadmin`
-
-- No tiene `panaderia_id` ni `sede_id` en su registro de usuario
-- No requiere `tenant_memberships` activa
-- Bypasa los guards de `abort(503)` (tenant suspendido) y `abort(402)` (plan vencido)
-- Bypasa `@tenant_scope_required` y `@sede_scope_required`
-- No se le fuerza cambio de contraseña
-- Bypasa los límites de plan en creación de productos y usuarios
+### Release 6 — Hardening (próximo)
+- pytest suite (cobertura rutas API críticas)
+- APScheduler externo para backup jobs
+- Paginación estándar `?page=1&size=50` en todos los endpoints de listado
 
 ---
 
-## 8. Reglas de negocio
-
-### Autenticación y acceso
-
-- **Login admin** (tenant_admin, panadero): usuario/email + contraseña (bcrypt, mín. 8 caracteres)
-- **Login operativo** (cajero, mesero): código de panadería + username + PIN de 4 dígitos
-- **Bloqueo por intentos**: 5 intentos fallidos → bloqueo de 5 minutos (configurable via env)
-- **Sesión**: expira a las 8 horas de login O por inactividad de 8 horas (configurable)
-- **Jornada**: cajeros y meseros deben tener `jornada_activa = 1` para poder hacer login operativo; un admin debe abrirla explícitamente
-
-### Producción y stock
-
-- Un producto puede tener `stock_minimo`; si `vendido_hoy >= producido_hoy - stock_minimo`, se genera alerta
-- El "sobrante" del día anterior se usa como `sobrante_inicial` del registro siguiente
-- El descarte de sobrante genera un movimiento que reduce el stock disponible
-- Los insumos se descuentan automáticamente al registrar producción (por la receta asociada)
-
-### Pedidos
-
-- Un pedido pasa por estados: `pendiente → listo → pagado` o `pendiente → cancelado`
-- El historial de estados queda en `pedido_estado_historial`
-- Un mesero solo puede ver sus propios pedidos (filtro `_pedido_visible_para_usuario`)
-- Se puede dividir un pedido (`dividir_pedido_y_cobrar`) — crea un pedido nuevo con los ítems seleccionados
-- Se pueden unificar pedidos de una misma mesa (`unificar_pedidos`)
-
-### Encargos
-
-- Son pedidos futuros con `fecha_entrega`; no afectan stock inmediatamente
-- Estados: `pendiente → confirmado → listo → entregado → cancelado`
-
-### Caja
-
-- Solo puede haber un arqueo abierto por sede por día
-- El cierre registra `efectivo_real` vs `efectivo_esperado`, calcula diferencia
-- Los movimientos de caja (entradas/salidas) ajustan el balance
-
-### Límites de plan
-
-| Plan | Sedes | Usuarios | Productos |
-|------|------:|--------:|----------:|
-| free | 1 | 5 | 50 |
-| starter | 1 | 10 | 100 |
-| pro | 3 | 20 | 500 |
-| enterprise | 999 | 999 | 999 |
-
-- Los límites se verifican al **crear** (no al listar). Si el DB ya tiene más datos de los que permite el plan (caso de downgrade), los existentes no se borran, pero no se pueden agregar nuevos.
-- `platform_superadmin` nunca tiene límites aplicados.
-
-### Días especiales y pronóstico
-
-- Un `dia_especial` tiene un `factor_demanda` (p.ej. 1.5 para Navidad)
-- Este factor multiplica la sugerencia base del pronóstico
-- El ajuste manual (`ajustes_pronostico`) permite al panadero sobreescribir la sugerencia
-
----
-
-## 9. Multi-tenancy
-
-### Modelo de aislamiento
-
-El sistema usa un **discriminador de columna** (`panaderia_id` / `sede_id`) en todas las tablas operativas. No hay bases de datos separadas por tenant.
-
-### Resolución del tenant por request
-
-En `before_request`, `_resolver_contextos_request()` sigue esta cadena:
-
-```
-1. ¿Hay usuario en sesión con panaderia_id?
-   → TenantService.resolve_by_id(session_panaderia_id)
-
-2. ¿No hay usuario en sesión?
-   → Intenta resolución por dominio del host: TenantService.resolve_by_domain(host)
-
-3. Fallback:
-   → TenantService.resolve_default() (primera panadería activa en DB)
-
-4. Sede:
-   → TenantService.resolve_sede_by_id(session_sede_id) || resolve_sede_default(tenant_id)
-
-5. Terminal (opcional, login operativo):
-   → TenantService.resolve_terminal_by_id(session_terminal_id) si existe en sesión
-```
-
-Resultado: `g.tenant_context`, `g.sede_context`, `g.subscription_context`, `g.terminal_context`, `g.brand_context` disponibles en toda request.
-
-### Membresías (`tenant_memberships`)
-
-La tabla separa la **identidad** del usuario de su **pertenencia** al tenant:
-
-- Un usuario puede tener membresías en múltiples panaderías (multi-tenant futuro)
-- Al hacer login, `_enriquecer_con_membresia()` sobrescribe `rol`, `panaderia_id` y `sede_id` con los valores de la membresía activa
-- Si un usuario no tiene membresía activa → login denegado (aunque la contraseña sea correcta)
-
-### Suscripciones y suspensión
-
-| Condición | Código HTTP | Quién puede acceder |
-|-----------|:-----------:|---------------------|
-| Tenant `estado_operativo != 'activa\|prueba'` | 503 | Solo `platform_superadmin` |
-| Suscripción `is_expired` | 402 | Solo `platform_superadmin` |
-| Membresía inactiva | Login denegado | — |
-
----
-
-## 10. Autenticación y sesiones
-
-### Ciclo completo de sesión
-
-```
-1. POST /login
-   → Verificación de credenciales (bcrypt para password / hash para PIN)
-   → _enriquecer_con_membresia()  ← hace membership_id autoritativo
-   → session["usuario"] = {
-       id, nombre, rol, panaderia_id, sede_id,
-       membership_id, terminal_id?,
-       must_change_password
-     }
-   → session["_login_ts"] = now
-   → session["_last_activity_ts"] = now
-   → session["_csrf_token"] = secrets.token_hex(32)
-
-2. Cada request autenticada
-   → @login_required actualiza _last_activity_ts
-   → X-CSRF-Token validado contra session["_csrf_token"]
-
-3. GET /logout
-   → session.clear()
-```
-
-### Seguridad de la cookie de sesión
-
-| Atributo | Valor |
-|----------|-------|
-| `HttpOnly` | True |
-| `SameSite` | Lax |
-| `Secure` | True si `FORCE_HTTPS`, `COOKIE_SECURE`, Railway o `PREFERRED_URL_SCHEME=https` |
-| `Permanent` | True (controlado por `SESSION_LIFETIME_HOURS`) |
-
----
-
-## 11. Seguridad
-
-### Cabeceras HTTP (after_request)
-
-```
-X-Request-Id: <uuid>
-X-Content-Type-Options: nosniff
-X-Frame-Options: SAMEORIGIN
-X-XSS-Protection: 1; mode=block
-Referrer-Policy: strict-origin-when-cross-origin
-Strict-Transport-Security: max-age=63072000; includeSubDomains  ← solo si HTTPS
-```
-
-### CSRF
-
-- Token almacenado en sesión, regenerado en cada login
-- Validado en `before_request` para métodos mutantes (`POST, PUT, PATCH, DELETE`)
-- El endpoint `/login` está exento (crea la sesión)
-- Enviado desde el front en el header `X-CSRF-Token` o el campo oculto `_csrf_token`
-
-### Rate limiting de login
-
-- `login_attempts` tabla con `scope_key = "login:ip:<ip>"`
-- Máximo 5 intentos (configurable `MAX_LOGIN_ATTEMPTS`)
-- Bloqueo de 5 minutos (configurable `LOGIN_LOCKOUT_MINUTES`)
-- Se limpia automáticamente al login exitoso
-
-### Contraseñas y PINs
-
-- Contraseñas: `bcrypt` (werkzeug `generate_password_hash`)
-- PINs: hash configurable (no texto plano)
-- Mínimo 8 caracteres para contraseñas, 4 para PINs
-
-### Inyección SQL
-
-- Queries usan siempre parámetros posicionales (`?` o `%s`): sin concatenación de strings con datos de usuario
-- No hay ORM, pero el patrón de parametrización es consistente
-
-### Secret key
-
-- Requiere `FLASK_SECRET_KEY` en entorno
-- Si no se configura, genera `secrets.token_hex(32)` en runtime + emite `warnings.warn`
-- En producción Railway, la env var debe estar configurada explícitamente
-
----
-
-## 12. Algoritmo de pronóstico
-
-### Modelo
-
-El pronóstico usa un **promedio móvil ponderado** combinando tres señales:
-
-```
-produccion_sugerida = (
-    0.50 * promedio_mismo_dia_semana   +  # histórico del mismo día (lunes, martes…)
-    0.30 * promedio_ultimos_7_dias     +  # tendencia reciente
-    0.20 * ajuste_tendencia            # "subiendo" x1.08 | "bajando" x0.95 | "estable" x1.00
-) × factor_dia_especial               # multiplicador si es día especial
-  × (1 + BUFFER_SEGURIDAD)            # +10% de colchón
-```
-
-### Calidad del pronóstico (`nivel_calidad` 0–6)
-
-| Nivel | Condición |
-|-------|-----------|
-| 0 | Sin historial |
-| 1–2 | < 7 días de datos |
-| 3–4 | 7–30 días |
-| 5–6 | > 30 días con consistencia |
-
-### Detección de outliers
-
-- Registros con desviación > 2.5σ de la media se excluyen del cálculo (evita que días atípicos sesguen el modelo)
-
-### Resultado devuelto (`ResultadoPronostico`)
-
-```python
-@dataclass
-class ResultadoPronostico:
-    producto: str
-    produccion_sugerida: int
-    venta_estimada: int
-    modelo_usado: str          # "promedio_ponderado" | "valor_base" | etc.
-    promedio_ventas: float
-    dias_historial: int
-    nivel_calidad: float       # 0.0 – 6.0
-    estado: str                # "bien" | "alerta" | "problema"
-    mensaje: str
-    confianza: str             # "poca" | "media" | "buena"
-    detalles: dict             # breakdown por componente
-```
-
----
-
-## 13. Despliegue e infraestructura
-
-### Docker Compose (producción)
-
-```
-Browser → Nginx (:80) → Gunicorn (:5000) → Flask → PostgreSQL (externo)
-```
-
-| Servicio | Imagen | Puerto | Health check |
-|----------|--------|--------|--------------|
-| `web` | python:3.11-slim | 5000 (interno) | `GET /health` |
-| `nginx` | nginx:1.27-alpine | 80 (externo) | `wget /health` |
-
-### Variables de entorno críticas
-
-| Variable | Descripción | Requerida |
-|----------|-------------|-----------|
-| `FLASK_SECRET_KEY` | Firma de sesiones | **Sí** (prod) |
-| `DATABASE_URL` | `postgresql://...` | **Sí** (prod) |
-| `SESSION_LIFETIME_HOURS` | Duración de sesión (default: 8) | No |
-| `GUNICORN_WORKERS` | Workers (default: min(cpu*2+1, 4)) | No |
-| `FORCE_HTTPS` / `COOKIE_SECURE` | Activa HTTPS cookie | No |
-| `RAILWAY_ENVIRONMENT` | Detecta Railway automáticamente | No |
-| `MAX_LOGIN_ATTEMPTS` | (default: 5) | No |
-| `LOGIN_LOCKOUT_MINUTES` | (default: 5) | No |
-
-### Backup automático
-
-- APScheduler corre dentro del proceso Flask
-- Job: `_backup_diario` a las **23:00** cada día
-- Retención: 30 días (configurable), máximo 50 backups
-- SQLite: `sqlite3.connect().backup()` nativo
-- PostgreSQL: `pg_dump` externo (requiere `postgresql-client` en el contenedor)
-
-### Migraciones de schema
-
-No hay framework de migraciones. El sistema usa un patrón idempotente propio:
-
-```python
-def inicializar_base_de_datos():
-    # 1. CREATE TABLE IF NOT EXISTS (todas las tablas)
-    # 2. Migraciones en orden:
-    _migrar_plataforma_base(conn)    # columnas legacy
-    _migrar_jornada(conn)            # jornada operativa
-    _migrar_constraints_multitenant(conn)  # Fase 0: UNIQUE por tenant
-    _migrar_fase1(conn)              # estado_operativo, created_by
-    _migrar_fase2(conn)              # tenant_memberships
-    _migrar_fase3(conn)              # tenant_subscriptions
-    _migrar_fase5(conn)              # terminales
-    # + índices complementarios
-```
-
-Cada `_migrar_*` usa `_ejecutar_migracion_tolerante()` que ignora `OperationalError` si la columna/índice ya existe.
-
----
-
-## 14. Puntos de extensión y deuda técnica
-
-### Fortalezas actuales
-
-- **Aislamiento multi-tenant robusto**: `panaderia_id`/`sede_id` en todas las tablas, con scope automático por hilo
-- **Contexto de request bien definido**: dataclasses `frozen=True` que pasan por `g` sin mutaciones accidentales
-- **Autenticación en dos niveles**: contraseña larga para admins, PIN para operativos
-- **Trazabilidad completa**: `audit_log` + `request_id` en cada respuesta
-- **Seguridad HTTP correcta**: CSRF, cabeceras, cookie segura, rate limiting
-- **Portabilidad de BD**: funciona con SQLite (dev) y PostgreSQL (prod) sin cambiar código de negocio
-- **Pronóstico funcional**: modelo liviano con datos reales, sin dependencias de ML pesadas
-
-### Deuda técnica identificada
-
-| Área | Problema | Impacto |
-|------|----------|---------|
-| **app.py monolítico** | >4000 líneas en un solo archivo. Rutas de caja, pedidos, inventario, producción, plataforma y más conviven sin separación en blueprints | Mantenimiento difícil a medida que crece |
-| **database.py monolítico** | ~3800 líneas. Sin separación por dominio (ventas, inventario, pedidos, etc.) | Dificulta tests unitarios y ownership |
-| **Sin tests automáticos** | No hay suite de tests (`pytest`). Las migraciones y reglas de negocio solo se validan en runtime | Riesgo de regresiones |
-| **APScheduler en proceso** | El backup automático corre dentro del worker de Gunicorn. Con múltiples workers, puede ejecutarse N veces | Con `preload_app=True` y forks puede ser problemático en prod |
-| **Jornada vs membresía** | `jornada_activa` en la tabla `usuarios` es un flag global, no por sede/terminal. Puede generar colisiones si un cajero tiene membresías en múltiples sedes | Inconsistencia con el modelo de membresías |
-| **No hay tenant_admin panel** | El `tenant_admin` usa las mismas vistas del `panadero`. No tiene panel propio de gestión (sedes, membresías, invitaciones) | Funcionalidad SaaS incompleta |
-| **Sin invalidación de sesión server-side** | Al desactivar un usuario o membresía, su sesión activa sigue válida hasta el timeout natural (8h) | Riesgo de acceso post-revocación |
-| **Seeding acoplado a migración** | Los datos iniciales (CAJA-01 por sede, categorías, productos base) se insertan dentro de `inicializar_base_de_datos`. En una arquitectura de fixtures separados sería más limpio | Menor riesgo, más cosmético |
-| **Sin paginación en listados** | Las APIs de ventas, historial y pedidos devuelven todos los registros (solo con `LIMIT`). Sin paginación estándar `page/size` | Performance en bases de datos grandes |
-| **ECharts desde CDN** | Dependencia de red para las gráficas. Si el CDN falla y el fallback también, las gráficas no cargan | Disponibilidad en entornos sin internet |
-
-### Próximos pasos recomendados
-
-1. **Refactor en blueprints**: extraer `cajero`, `mesero`, `panadero`, `plataforma` como blueprints separados registrados en `app.py`
-2. **Tests**: `pytest` con fixtures SQLite en memoria para los dominios críticos (ventas, pronóstico, membresías)
-3. **Panel tenant_admin**: gestión de sedes, invitación de usuarios, view de su propia suscripción
-4. **Invalidación de sesión server-side**: tabla `sesiones_invalidas` o Redis con `SESSION_SECRET` rotable
-5. **Celery / APScheduler externo**: mover el backup automático fuera del proceso Flask para evitar ejecuciones duplicadas en multi-worker
-6. **Paginación estándar**: `?page=1&size=50` en todos los listados de la API
-
----
-
-*Documento generado con base en el código fuente real. Para mantenerlo actualizado, revisar cada vez que se agreguen tablas, rutas o reglas de negocio nuevas.*
+## Decisiones de Diseño
+
+- **Encargos como overlay:** `obtener_encargos_confirmados_para_fecha` suma demanda comprometida sobre el forecast base — no modifica el modelo, se muestra en capa separada.
+- **`session_version` check:** Verificación en cada request garantiza revocación inmediata de sesiones sin depender de expiración de cookie.
+- **Monolito intencional:** `app.py` y `data/database.py` se mantienen monolíticos para simplicidad de deploy; blueprints en `app/web/` para código nuevo.
+- **Migraciones idempotentes:** `data/database.py` ejecuta `CREATE TABLE IF NOT EXISTS` y `ALTER TABLE ... ADD COLUMN` con verificación; safe para redeploys.
+- **`_apply_tenant_scope`:** Toda función DB que accede a datos de panadería debe pasar por este helper — garantiza aislamiento multi-tenant.

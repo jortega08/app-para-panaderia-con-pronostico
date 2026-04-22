@@ -61,6 +61,18 @@ class PGCursorAdapterTestCase(unittest.TestCase):
         self.assertIn("RETURNING id", cursor.calls[0][0])
         self.assertIsNone(wrapped.lastrowid)
 
+    def test_insert_returning_includes_pos_and_comanda_tables(self) -> None:
+        for table_name in ("venta_headers", "venta_items", "comandas"):
+            with self.subTest(table=table_name):
+                cursor = _FakeCursor(fetchone_result=(321,))
+                wrapped = _PGCursor(cursor)
+
+                wrapped.execute(f"INSERT INTO {table_name} (created_at) VALUES ('2026-04-22 16:40:27')")
+
+                self.assertEqual(len(cursor.calls), 1)
+                self.assertIn("RETURNING id", cursor.calls[0][0])
+                self.assertEqual(wrapped.lastrowid, 321)
+
 
 if __name__ == "__main__":
     unittest.main()

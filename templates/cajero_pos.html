@@ -2721,7 +2721,10 @@ async function confirmPayment() {
         });
         const d1 = await r1.json();
         if (!d1.ok) throw new Error(d1.error || 'Error al iniciar venta');
-        const ventaId = d1.venta_id;
+        const ventaId = Number(d1.venta_id);
+        if (!Number.isInteger(ventaId) || ventaId <= 0) {
+            throw new Error('El servidor no devolvio un venta_id valido al iniciar la venta.');
+        }
 
         // 2. Items
         const items = cart.map(item => ({
@@ -2843,7 +2846,10 @@ async function suspenderVentaActual() {
         });
         const d1 = await r1.json();
         if (!d1.ok) throw new Error(d1.error);
-        const ventaId = d1.venta_id;
+        const ventaId = Number(d1.venta_id);
+        if (!Number.isInteger(ventaId) || ventaId <= 0) {
+            throw new Error('El servidor no devolvio un venta_id valido al iniciar la venta.');
+        }
 
         const items = cart.map(item => ({
             producto_id: item.productId, producto: item.nombre, cantidad: item.cantidad,

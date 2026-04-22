@@ -178,10 +178,26 @@ class _PGCursor:
         if not pg_sql.strip():
             return self
 
-        # Emular el lastrowid de SQLite devolviendo el id insertado via RETURNING id
-        # solo en las tablas donde sabemos que el codigo fuente espera el lastrowid
+        # Emular el lastrowid de SQLite devolviendo el id insertado via RETURNING id.
+        # En PostgreSQL esto evita propagar IDs nulos a flujos que dependen de inserts
+        # encadenados, como POS transaccional y comandas.
         match_insert = re.match(r"^\s*INSERT\s+(?:OR\s+IGNORE\s+)?INTO\s+([a-zA-Z0-9_]+)", sql, re.IGNORECASE)
-        returning_tables = {"pedidos", "productos", "pedido_items", "movimientos_caja", "arqueos_caja"}
+        returning_tables = {
+            "arqueos_caja",
+            "clientes",
+            "comandas",
+            "cuentas_por_cobrar",
+            "documento_envios",
+            "documentos_emitidos",
+            "encargos",
+            "mesas",
+            "movimientos_caja",
+            "pedido_items",
+            "pedidos",
+            "productos",
+            "venta_headers",
+            "venta_items",
+        }
         
         if match_insert and match_insert.group(1).lower() in returning_tables and "RETURNING" not in pg_sql.upper():
             pg_sql = pg_sql.rstrip().rstrip(";") + " RETURNING id"
