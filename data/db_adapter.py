@@ -158,6 +158,21 @@ class _PGCursor:
     def description(self):
         return self._cur.description
 
+    def _execute_native(self, sql: str, params=()) -> None:
+        # Psycopg2 interpreta literales como '%estado%' si se le pasa un tuple
+        # vacio. Cuando no hay parametros reales, ejecutamos el SQL "en crudo".
+        if params is None:
+            self._cur.execute(sql)
+            return
+        try:
+            has_params = len(params) > 0
+        except TypeError:
+            has_params = True
+        if has_params:
+            self._cur.execute(sql, params)
+            return
+        self._cur.execute(sql)
+
     def execute(self, sql: str, params=()) -> "_PGCursor":
         pg_sql = _translate_sql_for_pg(sql)
         if not pg_sql.strip():
@@ -170,13 +185,16 @@ class _PGCursor:
         
         if match_insert and match_insert.group(1).lower() in returning_tables and "RETURNING" not in pg_sql.upper():
             pg_sql = pg_sql.rstrip().rstrip(";") + " RETURNING id"
-            self._cur.execute(pg_sql, params or ())
+            self._execute_native(pg_sql, params)
             
             # Recuperar el ID insertado
             row = self._cur.fetchone()
-            self.lastrowid = row[0] if row else None
+            try:
+                self.lastrowid = row[0] if row else None
+            except (IndexError, KeyError, TypeError):
+                self.lastrowid = None
         else:
-            self._cur.execute(pg_sql, params or ())
+            self._execute_native(pg_sql, params)
             self.lastrowid = None
 
         self.rowcount = self._cur.rowcount
