@@ -1114,22 +1114,26 @@ async function enviarPedido() {
     let motivoActualizacion = '';
 
     if (pedidoEditableId) {
-        if (EDITOR_ROLE !== 'cajero') {
-            Toast.error('Solo caja puede editar pedidos existentes.');
+        if (!['cajero', 'mesero'].includes(EDITOR_ROLE)) {
+            Toast.error('No tienes permiso para editar pedidos existentes.');
             return;
         }
-        const motivo = await appPrompt({
-            title: 'Motivo del ajuste',
-            message: 'Cada ajuste del pedido se notifica al admin y queda guardado en el historial.',
-            label: 'Razon del cambio',
-            placeholder: 'Ej: cliente cambio bebida y agrego postre',
-            confirmText: 'Guardar motivo',
-        });
-        if (motivo === null) return;
-        motivoActualizacion = String(motivo || '').trim();
-        if (motivoActualizacion.length < UPDATE_REASON_MIN) {
-            Toast.warning('Escribe una razon de al menos 10 caracteres.');
-            return;
+        if (EDITOR_ROLE === 'cajero') {
+            const motivo = await appPrompt({
+                title: 'Motivo del ajuste',
+                message: 'Cada ajuste del pedido se notifica al admin y queda guardado en el historial.',
+                label: 'Razon del cambio',
+                placeholder: 'Ej: cliente cambio bebida y agrego postre',
+                confirmText: 'Guardar motivo',
+            });
+            if (motivo === null) return;
+            motivoActualizacion = String(motivo || '').trim();
+            if (motivoActualizacion.length < UPDATE_REASON_MIN) {
+                Toast.warning('Escribe una razon de al menos 10 caracteres.');
+                return;
+            }
+        } else {
+            motivoActualizacion = 'Ajuste realizado por mesero';
         }
     }
 
@@ -1148,11 +1152,14 @@ async function enviarPedido() {
         const data = await res.json();
         if (data.ok) {
             closeMobileOrderPanel();
-            if (data.comanda_id) {
+            if (data.comanda_id && EDITOR_ROLE === 'cajero') {
                 abrirComanda(data.comanda_id, 'imprimir', true);
             }
             if (data.accion === 'agregado') {
                 Toast.success('Pedido actualizado y comanda lista para cocina.');
+                setTimeout(() => { window.location.href = PEDIDO_RETURN_URL; }, 900);
+            } else if (pedidoEditableId) {
+                Toast.success('Cambios guardados y comanda actualizada.');
                 setTimeout(() => { window.location.href = PEDIDO_RETURN_URL; }, 900);
             } else {
                 Toast.success('Pedido enviado a cocina.');

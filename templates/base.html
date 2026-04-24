@@ -240,6 +240,7 @@
             </a>
             <a href="{{ url_for('mesero_pedidos') }}" class="{% if active_page == 'pedidos' %}active{% endif %}">
                 <span class="material-symbols-outlined">receipt_long</span> Mis Pedidos
+                <span class="nav-counter" id="meseroOrdersBadge" data-pending-orders-badge hidden>0</span>
             </a>
         </nav>
     </header>
@@ -334,6 +335,7 @@
         <a href="{{ url_for('mesero_pedidos') }}" class="mobile-bottom-link {% if active_page == 'pedidos' %}active{% endif %}">
             <span class="material-symbols-outlined">receipt_long</span>
             <span>Pedidos</span>
+            <span class="mobile-bottom-badge" id="meseroOrdersBottomBadge" data-pending-orders-badge hidden>0</span>
         </a>
         <button type="button" class="mobile-bottom-link mobile-bottom-link-button" onclick="toggleNotifPanel()" aria-label="Alertas">
             <span class="material-symbols-outlined">notifications</span>
@@ -1256,18 +1258,17 @@
     </script>
     {% endif %}
 
-    {% if layout == 'cajero' %}
+    {% if layout in ['cajero', 'mesero'] %}
     <script>
         (function () {
-            const badge = document.getElementById('pendingOrdersBadge');
-            const mobileBadge = document.getElementById('pendingOrdersBottomBadge');
-            if (!badge && !mobileBadge) return;
+            const badges = Array.from(document.querySelectorAll('[data-pending-orders-badge]'));
+            if (!badges.length) return;
 
             let knownPendingIds = new Set();
             let initialized = false;
 
             function syncPendingBadges(total) {
-                [badge, mobileBadge].forEach(function(target) {
+                badges.forEach(function(target) {
                     if (!target) return;
                     if (total > 0) {
                         target.hidden = false;
@@ -1298,8 +1299,9 @@
                     syncPendingBadges(total);
 
                     if (nuevos.length) {
-                        AppUI.pulseElement(badge);
-                        AppUI.pulseElement(mobileBadge);
+                        badges.forEach(function(target) {
+                            AppUI.pulseElement(target);
+                        });
                         knownPendingIds = nextIds;
                         initialized = true;
                         return;

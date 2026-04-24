@@ -284,6 +284,9 @@
                 </a>
                 {% endif %}
                 {% if p.estado not in ('pagado', 'cancelado') %}
+                <a class="btn btn-outline btn-sm" href="{{ url_for('mesero_editar_pedido', pedido_id=p.id) }}">
+                    Editar pedido
+                </a>
                 <a class="btn btn-outline btn-sm" href="{{ url_for('mesero_pedido', mesa_id=p.mesa_id) }}">
                     Tomar pedido adicional
                 </a>

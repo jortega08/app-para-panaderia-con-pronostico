@@ -2338,19 +2338,68 @@ def _sincronizar_inventario_sede_inicial(conn, sede_id: int) -> None:
         )
 
 
-def _limpiar_duplicados_null_conn(conn, tabla: str, clave: str) -> None:
+def _limpiar_duplicados_null_conn(
+    conn,
+    tabla: str,
+    clave: str | tuple[str, ...],
+) -> None:
     """
-    Elimina filas con panaderia_id=NULL cuya clave ya existe con panaderia_id asignado.
-    Necesario cuando hubo seedings parciales antes de que se aplicara el constraint multitenant.
+    Elimina duplicados legacy en SQLite antes de asignar panaderia_id.
+
+    1. Borra filas con panaderia_id=NULL si la misma clave ya existe con panaderia_id asignado.
+    2. Compacta filas repetidas con panaderia_id=NULL, conservando la de menor id.
     """
     if DB_TYPE != "sqlite":
         return
+
+    claves = (clave,) if isinstance(clave, str) else tuple(clave)
+    if not claves:
+        return
+
+    columnas = ", ".join(claves)
+    comparacion = " AND ".join(f"dup.{columna} = base.{columna}" for columna in claves)
+
     try:
         conn.execute("PRAGMA foreign_keys = OFF")
-        conn.execute(
-            f"DELETE FROM {tabla} WHERE panaderia_id IS NULL AND {clave} IN "
-            f"(SELECT {clave} FROM {tabla} WHERE panaderia_id IS NOT NULL)",
-        )
+
+        eliminadas_solapadas = conn.execute(
+            f"""
+            DELETE FROM {tabla} AS base
+            WHERE base.panaderia_id IS NULL
+              AND EXISTS (
+                  SELECT 1
+                  FROM {tabla} AS dup
+                  WHERE dup.panaderia_id IS NOT NULL
+                    AND {comparacion}
+              )
+            """
+        ).rowcount or 0
+        if eliminadas_solapadas:
+            logger.info(
+                "migracion sqlite: se eliminaron %s filas legacy solapadas en %s",
+                eliminadas_solapadas,
+                tabla,
+            )
+
+        eliminadas_repetidas = conn.execute(
+            f"""
+            DELETE FROM {tabla}
+            WHERE panaderia_id IS NULL
+              AND id NOT IN (
+                  SELECT MIN(id)
+                  FROM {tabla}
+                  WHERE panaderia_id IS NULL
+                  GROUP BY {columnas}
+              )
+            """
+        ).rowcount or 0
+        if eliminadas_repetidas:
+            logger.info(
+                "migracion sqlite: se compactaron %s filas NULL repetidas en %s",
+                eliminadas_repetidas,
+                tabla,
+            )
+
         conn.execute("PRAGMA foreign_keys = ON")
     except Exception:
         try:
@@ -2467,16 +2516,17 @@ def _resolver_panaderia_legacy_recetas_conn(conn) -> int | None:
 def _alinear_tablas_recetas_conn(conn) -> None:
     tenant_id = _resolver_panaderia_legacy_recetas_conn(conn)
     tablas = (
-        ("recetas", "idx_recetas_tenant"),
-        ("receta_fichas", "idx_receta_fichas_tenant"),
-        ("producto_componentes", "idx_prod_comp_tenant"),
+        ("recetas", "idx_recetas_tenant", ("producto", "insumo_id")),
+        ("receta_fichas", "idx_receta_fichas_tenant", ("producto",)),
+        ("producto_componentes", "idx_prod_comp_tenant", ("producto", "componente_producto")),
     )
 
-    for nombre_tabla, index_name in tablas:
+    for nombre_tabla, index_name, claves_unicas in tablas:
         if not _tabla_existe_conn(conn, nombre_tabla):
             continue
         _ejecutar_migracion_tolerante(conn, f"ALTER TABLE {nombre_tabla} ADD COLUMN panaderia_id INTEGER")
         if tenant_id is not None:
+            _limpiar_duplicados_null_conn(conn, nombre_tabla, claves_unicas)
             conn.execute(
                 f"UPDATE {nombre_tabla} SET panaderia_id = COALESCE(panaderia_id, ?)",
                 (tenant_id,),
@@ -11478,19 +11528,21 @@ def _etiqueta_ordinal_actualizacion(numero: int) -> str:
 
 def actualizar_pedido(pedido_id: int, actualizado_por: str, items: list[dict],
                       notas: str = "", motivo: str = "", rol: str = "") -> dict:
-    """Actualiza un pedido existente. Solo caja puede hacerlo."""
+    """Actualiza un pedido existente y regenera su comanda."""
     ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    actualizado_por = str(actualizado_por or "").strip() or "Caja"
+    actualizado_por = str(actualizado_por or "").strip() or "Operacion"
     motivo = str(motivo or "").strip()
     rol = str(rol or "").strip().lower()
     items = normalizar_items_pedido(items)
 
     try:
         with get_connection() as conn:
-            if rol != "cajero":
-                return {"ok": False, "error": "Solo caja puede editar pedidos existentes", "status": 403}
-            if len(motivo) < 10:
+            if rol not in ("cajero", "mesero"):
+                return {"ok": False, "error": "Solo caja o meseros pueden editar pedidos existentes", "status": 403}
+            if rol == "cajero" and len(motivo) < 10:
                 return {"ok": False, "error": "Debes escribir una razon de al menos 10 caracteres", "status": 400}
+            if rol == "mesero" and not motivo:
+                motivo = "Ajuste realizado por mesero"
             if not items:
                 return {"ok": False, "error": "No hay items validos para el pedido", "status": 400}
 
@@ -11506,7 +11558,8 @@ def actualizar_pedido(pedido_id: int, actualizado_por: str, items: list[dict],
 
             numero_actualizacion = _contar_actualizaciones_pedido_conn(conn, pedido_id) + 1
             ordinal = _etiqueta_ordinal_actualizacion(numero_actualizacion)
-            detalle_historial = f"Actualizacion {ordinal} por caja. Motivo: {motivo}"
+            actor_label = "mesero" if rol == "mesero" else "caja"
+            detalle_historial = f"Actualizacion {ordinal} por {actor_label}. Motivo: {motivo}"
 
             _reemplazar_pedido_conn(conn, pedido_id, items, notas, estado="listo")
             _registrar_historial_estado_pedido(

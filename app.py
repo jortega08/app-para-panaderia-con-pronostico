@@ -1797,6 +1797,51 @@ def mesero_pedido(mesa_id):
                            layout="mesero", active_page="mesas")
 
 
+@app.route("/mesero/pedido/<int:pedido_id>/editar")
+@login_required
+@roles_required("mesero", "tenant_admin", "platform_superadmin")
+def mesero_editar_pedido(pedido_id):
+    pedido = obtener_pedido(pedido_id)
+    if not pedido:
+        flash("Pedido no encontrado", "error")
+        return redirect(url_for("mesero_pedidos"))
+    if not _pedido_visible_para_usuario(pedido):
+        flash("No puedes editar pedidos de otro mesero", "error")
+        return redirect(url_for("mesero_pedidos"))
+    if str(pedido.get("estado", "") or "").strip() in ("pagado", "cancelado"):
+        flash("Ese pedido ya no se puede editar", "warning")
+        return redirect(url_for("mesero_pedidos"))
+
+    productos = obtener_productos_con_precio()
+    categorias = obtener_categorias_producto()
+    for p in productos:
+        p["icono"] = icono(p["nombre"], p.get("categoria"))
+        p["color"] = color_prod(p["nombre"])
+
+    mesa = {
+        "id": pedido.get("mesa_id"),
+        "numero": pedido.get("mesa_numero"),
+        "nombre": pedido.get("mesa_nombre") or f"Mesa {pedido.get('mesa_numero') or '?'}",
+    }
+
+    return render_template(
+        "mesero_pedido.html",
+        mesa=mesa,
+        productos=productos,
+        categorias=categorias,
+        adicionales=_obtener_adicionales_operativos(),
+        pedido_editable=pedido,
+        editor_role="mesero",
+        pedido_page_title=f"Mesa {mesa['numero']} - Editar pedido",
+        pedido_page_copy="Ajusta productos, cantidades o notas. Al guardar se enviara una comanda actualizada a cocina.",
+        pedido_submit_label="Guardar cambios",
+        pedido_return_url=url_for("mesero_pedidos"),
+        pedido_return_label="Salir a pedidos",
+        layout="mesero",
+        active_page="pedidos",
+    )
+
+
 @app.route("/mesero/pedidos")
 @login_required
 @roles_required("mesero", "tenant_admin", "platform_superadmin")
@@ -3774,8 +3819,13 @@ def api_crear_pedido():
         }), 400
 
     if pedido_id is not None:
-        if rol_actual != "cajero":
-            return jsonify({"ok": False, "error": "Solo caja puede editar pedidos existentes"}), 403
+        if rol_actual not in ("cajero", "mesero"):
+            return jsonify({"ok": False, "error": "Solo caja o el mesero responsable pueden editar pedidos existentes"}), 403
+        pedido_actual = obtener_pedido(pedido_id)
+        if not pedido_actual:
+            return jsonify({"ok": False, "error": "Pedido no encontrado"}), 404
+        if rol_actual == "mesero" and not _pedido_visible_para_usuario(pedido_actual):
+            return jsonify({"ok": False, "error": "No puedes editar pedidos de otro mesero"}), 403
         resultado = actualizar_pedido(
             pedido_id,
             usuario_actual,
