@@ -6043,7 +6043,7 @@ def api_estado_encargo(encargo_id):
 @app.route("/api/encargo/<int:encargo_id>", methods=["DELETE"])
 @login_required
 def api_eliminar_encargo(encargo_id):
-    if _rol_usuario_actual() not in ("cajero", "panadero"):
+    if _rol_usuario_actual() not in ("cajero", "panadero", "tenant_admin", PLATFORM_ADMIN_ROLE):
         return jsonify({"ok": False, "error": "Sin permiso"}), 403
     resultado = eliminar_encargo(encargo_id)
     return jsonify(resultado), 200 if resultado.get("ok") else 400
@@ -6417,6 +6417,24 @@ def api_obtener_encargo_v2(encargo_id: int):
     if not enc:
         return jsonify({"ok": False, "error": "Encargo no encontrado"}), 404
     return jsonify({"ok": True, "encargo": enc})
+
+
+@app.route("/api/encargo/v2/<int:encargo_id>", methods=["DELETE"])
+@login_required
+def api_eliminar_encargo_v2(encargo_id: int):
+    roles_ok = {"cajero", "tenant_admin", PLATFORM_ADMIN_ROLE}
+    if _rol_usuario_actual() not in roles_ok:
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    resultado = eliminar_encargo(encargo_id)
+    if resultado.get("ok"):
+        registrar_audit(
+            usuario=_nombre_usuario_actual(),
+            accion="eliminar_encargo",
+            entidad="encargo",
+            entidad_id=str(encargo_id),
+            detalle=f"Encargo #{encargo_id} eliminado",
+        )
+    return jsonify(resultado), 200 if resultado.get("ok") else 400
 
 
 @app.route("/api/encargos/v2", methods=["GET"])

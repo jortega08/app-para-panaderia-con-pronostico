@@ -385,7 +385,7 @@
                     <button class="btn btn-outline btn-sm" onclick="cambiarEstado({{ enc.id }}, 'programado')">Revertir a programado</button>
                     {% endif %}
                 {% endif %}
-                {% if puede_eliminar_encargo and e in ('cotizacion', 'cancelado') %}
+                {% if puede_eliminar_encargo %}
                 <button class="btn btn-danger-outline btn-sm" onclick="eliminarEncargo({{ enc.id }})">Eliminar</button>
                 {% endif %}
             </div>
@@ -1077,10 +1077,14 @@ async function marcarRecordatorioVisto(id) {
 }
 
 async function eliminarEncargo(id) {
-    const ok = await appConfirm('¿Eliminar este encargo? Solo se pueden eliminar cotizaciones y cancelados.', { title: 'Eliminar encargo', type: 'danger' });
+    const ok = await appConfirm('Eliminar este encargo borrara sus productos, pagos, documentos y trazabilidad asociados. Esta accion no se puede deshacer.', { title: 'Eliminar encargo', type: 'danger' });
     if (!ok) return;
     try {
-        const res = await fetch(`/api/encargo/${id}`, { method: 'DELETE' });
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+        const res = await fetch(`/api/encargo/v2/${id}`, {
+            method: 'DELETE',
+            headers: { 'X-CSRF-Token': csrfToken },
+        });
         const data = await res.json();
         if (!data.ok) throw new Error(data.error || 'Error');
         Toast.success('Encargo eliminado.');

@@ -14968,15 +14968,62 @@ def actualizar_estado_encargo(encargo_id: int, estado: str,
 
 def eliminar_encargo(encargo_id: int) -> dict:
     try:
+        encargo_id = int(encargo_id or 0)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "Encargo invalido"}
+    if encargo_id <= 0:
+        return {"ok": False, "error": "Encargo invalido"}
+
+    try:
         with get_connection() as conn:
-            affected = conn.execute(
-                "DELETE FROM encargos WHERE id = ? AND estado IN ('pendiente','cancelado')",
-                (encargo_id,)
-            ).rowcount
+            filtros = ["id = ?"]
+            params: list = [encargo_id]
+            _apply_tenant_scope(filtros, params)
+            encargo = conn.execute(
+                f"SELECT id, cliente, estado, total FROM encargos WHERE {' AND '.join(filtros)}",
+                tuple(params),
+            ).fetchone()
+            if not encargo:
+                return {"ok": False, "error": "Encargo no encontrado"}
+
+            documentos = conn.execute(
+                "SELECT id FROM documentos_emitidos WHERE origen_tipo = 'encargo' AND origen_id = ?",
+                (encargo_id,),
+            ).fetchall()
+            documento_ids = [int(row["id"]) for row in documentos]
+            cuentas = conn.execute(
+                "SELECT id FROM cuentas_por_cobrar WHERE origen_tipo = 'encargo' AND origen_id = ?",
+                (encargo_id,),
+            ).fetchall()
+            cuenta_ids = [int(row["id"]) for row in cuentas]
+            if cuenta_ids:
+                placeholders = ",".join("?" * len(cuenta_ids))
+                conn.execute(
+                    f"DELETE FROM cuenta_cobros WHERE cuenta_id IN ({placeholders})",
+                    tuple(cuenta_ids),
+                )
+                conn.execute(
+                    f"DELETE FROM cuentas_por_cobrar WHERE id IN ({placeholders})",
+                    tuple(cuenta_ids),
+                )
+            if documento_ids:
+                placeholders = ",".join("?" * len(documento_ids))
+                conn.execute(
+                    f"DELETE FROM documento_envios WHERE documento_id IN ({placeholders})",
+                    tuple(documento_ids),
+                )
+                conn.execute(
+                    f"DELETE FROM documentos_emitidos WHERE id IN ({placeholders})",
+                    tuple(documento_ids),
+                )
+
+            conn.execute("DELETE FROM encargo_avisos WHERE encargo_id = ?", (encargo_id,))
+            conn.execute("DELETE FROM encargo_eventos WHERE encargo_id = ?", (encargo_id,))
+            conn.execute("DELETE FROM encargo_pagos WHERE encargo_id = ?", (encargo_id,))
+            conn.execute("DELETE FROM encargo_items WHERE encargo_id = ?", (encargo_id,))
+            conn.execute("DELETE FROM encargos WHERE id = ?", (encargo_id,))
             conn.commit()
-        if affected == 0:
-            return {"ok": False, "error": "Solo se pueden eliminar encargos pendientes o cancelados"}
-        return {"ok": True}
+        return {"ok": True, "encargo_id": encargo_id}
     except Exception as e:
         logger.error(f"eliminar_encargo: {e}")
         return {"ok": False, "error": str(e)}
