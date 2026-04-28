@@ -109,8 +109,9 @@
                 <label>Mostrar:</label>
                 <select id="filtroEstado" class="form-input form-input-sm" style="width: auto;"
                     onchange="filtrarPedidos()">
-                    <option value="listo" selected>Por cobrar</option>
-                    <option value="pagado">Pagados</option>
+                    <option value="por_cobrar" selected>Por cobrar</option>
+                    <option value="pendientes">Pendientes por entregar</option>
+                    <option value="historial_turno">Historial del turno</option>
                     <option value="todos">Todos</option>
                 </select>
             </div>
@@ -226,6 +227,9 @@
                         {% elif p['estado'] == 'cancelado' %}Cancelado
                         {% endif %}
                     </span>
+                    {% if p['mesa_pendiente_atencion'] %}
+                    <span class="pedido-badge pedido-badge-pendiente">Mesa por atender</span>
+                    {% endif %}
                 </div>
                 <span class="pedido-total">${{ '{:,.0f}'.format(p['total'] or 0) }}</span>
             </div>
@@ -606,6 +610,7 @@
     let mesaFiltroActual = 'todas';
     let _clientesPedidoBuscados = [];
     let _clientePedidoDebounce = null;
+    const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 
     function money(value) {
         return window.AppUI
@@ -634,7 +639,12 @@
         const filtro = document.getElementById('filtroEstado').value;
         let visibles = 0;
         document.querySelectorAll('.pedido-card').forEach(card => {
-            const coincideEstado = filtro === 'todos' || card.dataset.estado === filtro;
+            const estado = card.dataset.estado || '';
+            const coincideEstado =
+                filtro === 'todos'
+                || (filtro === 'por_cobrar' && estado === 'listo')
+                || (filtro === 'pendientes' && ['pendiente', 'en_preparacion'].includes(estado))
+                || (filtro === 'historial_turno' && ['pagado', 'cancelado'].includes(estado));
             const coincideMesa = mesaFiltroActual === 'todas' || String(card.dataset.mesa || '') === mesaFiltroActual;
             const mostrar = coincideEstado && coincideMesa;
             card.style.display = mostrar ? '' : 'none';
@@ -1073,11 +1083,6 @@
             Toast.warning('Selecciona o crea un cliente antes de registrar credito.');
             return;
         }
-        if (chargeContext.emitirDocumento && !datosDocumento.nombre) {
-            Toast.warning('Ingresa el nombre o razon social para emitir el documento.');
-            return;
-        }
-
         if (mixto) {
             const monto1 = Number(document.getElementById('chargeMontoM1').value || 0);
             const monto2Calc = Math.max(totalCobro - monto1, 0);

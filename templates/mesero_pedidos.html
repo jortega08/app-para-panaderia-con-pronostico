@@ -165,7 +165,7 @@
             <div class="mesa-filter-head">
                 <div>
                     <strong>Estado del pedido</strong>
-                    <span>Cambia entre listos para caja, pendientes y cancelados.</span>
+                    <span>Cambia entre por cobrar, pendientes e historial del turno.</span>
                 </div>
             </div>
             <div class="mesa-filter-strip">
@@ -222,6 +222,12 @@
                         {% elif p.estado == 'cancelado' %}Cancelado
                         {% endif %}
                     </span>
+                    {% if p.mesa_pendiente_atencion %}
+                    <span class="pedido-badge pedido-badge-pendiente">Mesa por atender</span>
+                    {% endif %}
+                    {% if p.entrega_completa %}
+                    <span class="pedido-badge pedido-badge-listo" data-pedido-entrega-badge="{{ p.id }}">Entregado</span>
+                    {% endif %}
                 </div>
                 <span class="pedido-total">${{ '{:,.0f}'.format(p.total or 0) }}</span>
             </div>
@@ -267,6 +273,53 @@
                 {% endfor %}
             </div>
 
+            {% if p.estado not in ('pagado', 'cancelado') %}
+            <div class="mesero-checklist" data-pedido-checklist="{{ p.id }}">
+                <div class="mesero-checklist-head">
+                    <div class="pedido-section-title" style="margin: 0;">Checklist de entrega</div>
+                    <strong data-pedido-entrega-resumen="{{ p.id }}">{{ p.cantidad_entregada_total or 0 }}/{{ p.cantidad_total_entrega or 0 }}</strong>
+                </div>
+                {% for item in p["items"] %}
+                {% set entregada = item.cantidad_entregada or 0 %}
+                {% set total_item = item.cantidad or 0 %}
+                {% set progreso = ((entregada / total_item) * 100) if total_item else 0 %}
+                <div class="mesero-item-row{% if item.entrega_completa %} is-complete{% endif %}"
+                     data-entrega-row="{{ item.id }}"
+                     data-pedido-id="{{ p.id }}"
+                     data-item-id="{{ item.id }}"
+                     data-total="{{ item.cantidad }}"
+                    data-entregada="{{ entregada }}">
+                    <div class="mesero-item-main">
+                        <div class="mesero-item-title">
+                            <strong>{{ item.producto }} - {{ item.cantidad }}</strong>
+                            <span data-entrega-label="{{ item.id }}">
+                                Entregado {{ item.cantidad_entregada or 0 }}/{{ item.cantidad }} - pendiente {{ item.cantidad_pendiente_entrega or 0 }}
+                            </span>
+                        </div>
+                        <span class="mesero-item-check" data-entrega-check="{{ item.id }}" aria-hidden="true">
+                            <span class="material-symbols-outlined">check_circle</span>
+                        </span>
+                        <div class="mesero-item-progress" aria-hidden="true">
+                            <span data-entrega-progress="{{ item.id }}" style="width: {{ progreso }}%;"></span>
+                        </div>
+                    </div>
+                    <div class="mesero-item-actions">
+                        <button type="button" class="mesero-step-btn" data-entrega-action="decrement" aria-label="Restar entregado">
+                            <span class="material-symbols-outlined">remove</span>
+                        </button>
+                        <button type="button" class="mesero-step-btn mesero-step-btn-primary" data-entrega-action="deliver">
+                            <span class="material-symbols-outlined">check</span>
+                            Entregar 1
+                        </button>
+                        <button type="button" class="mesero-step-btn" data-entrega-action="increment" aria-label="Sumar entregado">
+                            <span class="material-symbols-outlined">add</span>
+                        </button>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
             {% if p.notas %}
             <div class="pedido-notas"><span class="material-symbols-outlined">edit_note</span> {{ p.notas }}</div>
             {% endif %}
@@ -308,9 +361,9 @@
         <div class="card-body" style="text-align: center; padding: 40px;">
             <span style="font-size: 48px; opacity: 0.4;"><span class="material-symbols-outlined" style="font-size: 48px;">assignment</span></span>
             <p class="text-muted" style="margin-top: 12px;">
-                {% if filtro_estado == 'cancelado' %}
-                No tienes pedidos cancelados hoy.
-                {% elif filtro_estado == 'pendiente' %}
+                {% if filtro_estado == 'historial_turno' %}
+                No tienes pedidos pagados o cancelados hoy.
+                {% elif filtro_estado == 'pendientes' %}
                 No tienes pedidos pendientes por revisar.
                 {% else %}
                 No tienes pedidos listos para caja en este momento.
@@ -526,4 +579,5 @@ filtrarPedidosPorMesa();
 
 setTimeout(function() { location.reload(); }, 30000);
 </script>
+<script src="{{ url_for('static', filename='js/pages/mesero_pedidos.js', v='20260427-checklist') }}"></script>
 {% endblock %}

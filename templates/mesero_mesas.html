@@ -76,6 +76,19 @@
     color: var(--text-muted);
     word-break: break-all;
 }
+.mesa-atencion-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    margin-top: 8px;
+    padding: 5px 9px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.18);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+}
 @media (max-width: 720px) {
     .mesa-qr-choice-row,
     .mesa-qr-preview {
@@ -100,7 +113,9 @@
 
     <div class="mesas-grid">
         {% for mesa in mesas %}
-        <a href="{{ url_for('mesero_pedido', mesa_id=mesa.id) }}" class="mesa-card mesa-{{ mesa.estado_mesa }}">
+        <a href="{{ url_for('mesero_pedido', mesa_id=mesa.id) }}"
+           class="mesa-card mesa-{{ mesa.estado_mesa }}{% if mesa.pendiente_atencion %} mesa-card--alerta{% endif %}"
+           data-mesa-card="{{ mesa.id }}">
             <div class="mesa-numero">{{ mesa.numero }}</div>
             <div class="mesa-nombre">{{ mesa.nombre }}</div>
             {% if mesa.estado_mesa == 'libre' %}
@@ -117,6 +132,12 @@
             <span class="mesa-badge mesa-badge-listo">Listo para caja</span>
             <div class="mesa-info">{{ mesa.num_pedidos }} pedido{{ 's' if mesa.num_pedidos != 1 else '' }}</div>
             <div class="mesa-total">${{ '{:,.0f}'.format(mesa.total_mesa or 0) }}</div>
+            {% endif %}
+            {% if mesa.pendiente_atencion %}
+            <span class="mesa-atencion-badge" data-mesa-alert-badge>
+                <span class="material-symbols-outlined" style="font-size:14px;">notifications_active</span>
+                Por atender
+            </span>
             {% endif %}
         </a>
         {% endfor %}
@@ -252,4 +273,5 @@ document.addEventListener('keydown', (event) => {
     }
 });
 </script>
+<script src="{{ url_for('static', filename='js/pages/mesero_mesas.js', v='20260427-avisos') }}"></script>
 {% endblock %}

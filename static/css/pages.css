@@ -1,1 +1,252 @@
 /* Pages modular placeholder for the phased frontend migration. */
+
+.mesa-card.mesa-card--alerta {
+  background: #dc2626;
+  border-color: #b91c1c;
+  color: #fff;
+  box-shadow: 0 14px 32px rgba(185, 28, 28, 0.26);
+}
+
+.mesa-card.mesa-card--alerta .mesa-numero,
+.mesa-card.mesa-card--alerta .mesa-nombre,
+.mesa-card.mesa-card--alerta .mesa-info,
+.mesa-card.mesa-card--alerta .mesa-total {
+  color: #fff;
+}
+
+.mesa-card.mesa-card--alerta .mesa-badge {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+.mesero-checklist {
+  display: grid;
+  gap: 10px;
+  padding: 0 16px 14px;
+}
+
+.mesero-checklist-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0 4px;
+  background: var(--bg, #fffaf3);
+}
+
+.mesero-checklist-head strong {
+  min-width: 52px;
+  text-align: right;
+  color: #166534;
+}
+
+.mesero-item-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: stretch;
+  padding: 10px;
+  border: 1px solid rgba(139, 85, 19, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.mesero-item-row.is-complete {
+  border-color: rgba(22, 101, 52, 0.28);
+  background: rgba(22, 101, 52, 0.08);
+}
+
+.mesero-item-main {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  gap: 8px;
+  align-items: center;
+}
+
+.mesero-item-title {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.mesero-item-title strong {
+  min-width: 0;
+  font-size: 16px;
+  line-height: 1.2;
+  color: var(--text, #23160d);
+  overflow-wrap: anywhere;
+}
+
+.mesero-item-title span {
+  color: var(--text-muted, #75695d);
+  font-size: 13px;
+}
+
+.mesero-item-check {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  color: #16a34a;
+  opacity: 0;
+}
+
+.mesero-item-row.is-complete .mesero-item-check {
+  opacity: 1;
+}
+
+.mesero-item-progress {
+  grid-column: 1 / -1;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(139, 85, 19, 0.12);
+}
+
+.mesero-item-progress span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: #16a34a;
+  transition: width 0.18s ease;
+}
+
+.mesero-item-actions {
+  display: grid;
+  grid-template-columns: 52px minmax(118px, 1fr) 52px;
+  gap: 8px;
+}
+
+.mesero-step-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 48px;
+  border: 1px solid rgba(139, 85, 19, 0.18);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text, #23160d);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.mesero-step-btn .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.mesero-step-btn-primary {
+  background: #166534;
+  border-color: #166534;
+  color: #fff;
+}
+
+.mesero-step-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.encargo-produccion-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.encargo-produccion-chip.is-production {
+  background: rgba(37, 99, 235, 0.12);
+  color: #1d4ed8;
+}
+
+.encargo-produccion-chip.is-ready {
+  background: rgba(22, 101, 52, 0.12);
+  color: #166534;
+}
+
+.encargo-historial-box {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(139, 85, 19, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.encargo-historial-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.timeline-encargo {
+  display: grid;
+  gap: 10px;
+}
+
+.timeline-encargo-item {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.timeline-encargo-icon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(193, 120, 23, 0.12);
+  color: var(--primary-dark, #8b5513);
+}
+
+.timeline-encargo-icon .material-symbols-outlined {
+  font-size: 15px;
+}
+
+.timeline-encargo-title {
+  font-weight: 800;
+  color: var(--text, #23160d);
+  text-transform: capitalize;
+}
+
+.timeline-encargo-meta,
+.timeline-encargo-note,
+.timeline-encargo-change {
+  font-size: 12px;
+  color: var(--text-muted, #75695d);
+}
+
+.timeline-encargo-change {
+  margin-top: 3px;
+  color: var(--text-sec, #4f4236);
+}
+
+.bell-badge,
+.notif-bell-badge {
+  line-height: 1;
+}
+
+@media (max-width: 720px) {
+  .mesero-item-row {
+    grid-template-columns: 1fr;
+  }
+
+  .mesero-item-actions {
+    grid-template-columns: 56px minmax(0, 1fr) 56px;
+  }
+
+  .mesero-step-btn {
+    min-height: 52px;
+  }
+}

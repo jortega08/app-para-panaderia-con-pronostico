@@ -1722,6 +1722,7 @@ def inicializar_base_de_datos() -> None:
         _migrar_fase12(conn)
         _migrar_fase13(conn)
         _migrar_fase14(conn)
+        _migrar_fase15(conn)
         _ejecutar_migracion_tolerante(conn, "CREATE INDEX IF NOT EXISTS idx_audit_panaderia_sede_fecha ON audit_log(panaderia_id, sede_id, fecha)")
         _ejecutar_migracion_tolerante(conn, "CREATE INDEX IF NOT EXISTS idx_login_attempts_updated_at ON login_attempts(updated_at)")
         _ejecutar_migracion_tolerante(conn, "CREATE INDEX IF NOT EXISTS idx_sedes_panaderia_slug ON sedes(panaderia_id, slug)")
@@ -2827,6 +2828,13 @@ def _migrar_constraints_multitenant(conn) -> None:
     Solo aplica en SQLite; PostgreSQL requiere DDL diferente.
     """
     if DB_TYPE != "sqlite":
+        for stmt in (
+            "ALTER TABLE registros_diarios DROP CONSTRAINT IF EXISTS registros_diarios_fecha_producto_key",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_registros_diarios_fecha_producto_tenant ON registros_diarios(fecha, producto, panaderia_id, sede_id)",
+            "ALTER TABLE ajustes_pronostico DROP CONSTRAINT IF EXISTS ajustes_pronostico_fecha_producto_key",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_ajustes_pronostico_fecha_producto_tenant ON ajustes_pronostico(fecha, producto, panaderia_id, sede_id)",
+        ):
+            _ejecutar_migracion_tolerante(conn, stmt)
         return
 
     tenant = obtener_panaderia_principal_conn(conn)
@@ -3550,6 +3558,39 @@ def _reparar_foreign_keys_tablas_temporales(conn) -> None:
                 ),
             )
 
+        if '_ins_old' in _sql_tabla("recetas"):
+            _rebuild_table(
+                "recetas",
+                """
+                CREATE TABLE recetas (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    producto      TEXT NOT NULL,
+                    insumo_id     INTEGER NOT NULL,
+                    cantidad      REAL NOT NULL DEFAULT 1.0,
+                    unidad_receta TEXT NOT NULL DEFAULT 'unidad',
+                    panaderia_id  INTEGER,
+                    UNIQUE(producto, insumo_id, panaderia_id),
+                    FOREIGN KEY (insumo_id) REFERENCES insumos(id)
+                )
+                """,
+                """
+                SELECT id, producto, insumo_id,
+                       COALESCE(cantidad, 1.0) AS cantidad,
+                       COALESCE(unidad_receta, 'unidad') AS unidad_receta,
+                       panaderia_id
+                FROM recetas
+                ORDER BY id
+                """,
+                """
+                INSERT INTO {table} (id, producto, insumo_id, cantidad, unidad_receta, panaderia_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                lambda row: (
+                    row["id"], row["producto"], row["insumo_id"], row["cantidad"],
+                    row["unidad_receta"], row["panaderia_id"],
+                ),
+            )
+
         sql_adicional_insumos = _sql_tabla("adicional_insumos")
         if '_ins_old' in sql_adicional_insumos or '_adic_old' in sql_adicional_insumos:
             _rebuild_table(
@@ -3867,6 +3908,55 @@ _ESTADOS_ENCARGO_VALIDOS = (
     "programado", "listo", "entregado", "cancelado",
 )
 
+
+def _normalizar_tipo_doc_encargo(tipo_doc: str | None) -> str:
+    tipo = str(tipo_doc or "").strip().upper()
+    return tipo if tipo in {"CC", "NIT"} else ""
+
+
+def _normalizar_items_encargo(items: list[dict] | None) -> tuple[list[dict], str | None]:
+    normalizados: list[dict] = []
+    for it in items or []:
+        try:
+            cantidad = int(it.get("cantidad", 0) or 0)
+        except (TypeError, ValueError):
+            return [], "Cantidad invalida en uno de los productos"
+        if cantidad <= 0:
+            continue
+
+        producto = str(it.get("producto", "") or "").strip()
+        if not producto:
+            return [], "Producto invalido en el encargo"
+
+        try:
+            precio_aplicado = float(it.get("precio_aplicado", it.get("precio_unitario", 0)) or 0)
+            precio_base = float(it.get("precio_base", precio_aplicado) or 0)
+        except (TypeError, ValueError):
+            return [], f"Precio invalido para {producto}"
+        precio_aplicado = round(max(precio_aplicado, 0.0), 2)
+        precio_base = round(max(precio_base, 0.0), 2)
+        motivo_precio = str(it.get("motivo_precio", "") or "").strip()
+        if abs(precio_aplicado - precio_base) > 0.005 and not motivo_precio:
+            return [], f"Indica el motivo del precio personalizado para {producto}"
+
+        try:
+            producto_id = int(it.get("producto_id", 0) or 0) or None
+        except (TypeError, ValueError):
+            producto_id = None
+
+        normalizados.append({
+            "producto_id": producto_id,
+            "producto": producto,
+            "cantidad": cantidad,
+            "precio_unitario": precio_aplicado,
+            "precio_base": precio_base,
+            "precio_aplicado": precio_aplicado,
+            "motivo_precio": motivo_precio,
+            "autorizado_por": str(it.get("autorizado_por", "") or "").strip(),
+            "notas": str(it.get("notas", "") or "").strip(),
+        })
+    return normalizados, None
+
 _ORIGENES_CXC_VALIDOS = {"venta", "pedido", "encargo"}
 _ESTADOS_CXC_VALIDOS = {"abierta", "parcial", "pagada", "vencida", "cancelada"}
 
@@ -4031,6 +4121,7 @@ def crear_cliente(nombre: str, telefono: str = "", email: str = "",
         return {"ok": False, "error": "El nombre es obligatorio"}
     panaderia_id, sede_id = _tenant_scope()
     creado_en = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    panaderia_id, sede_id = _tenant_scope()
     try:
         with get_connection() as conn:
             cur = conn.execute("""
@@ -4995,18 +5086,26 @@ def crear_encargo_v2(
     canal_venta: str = "tienda", tipo_encargo: str = "orden",
     direccion_entrega: str = "", cliente_id: int | None = None,
     estado_inicial: str = "confirmado",
+    tipo_doc: str = "", numero_doc: str = "", email: str = "",
+    direccion_documento: str = "", fecha_produccion: str = "",
+    recordatorio_entrega_en: str = "",
 ) -> dict:
-    if not fecha_entrega or not cliente.strip():
+    cliente = str(cliente or "").strip()
+    if not fecha_entrega or not cliente:
         return {"ok": False, "error": "Fecha de entrega y cliente son obligatorios"}
-    if not items:
+    items_normalizados, error_items = _normalizar_items_encargo(items)
+    if error_items:
+        return {"ok": False, "error": error_items}
+    if not items_normalizados:
         return {"ok": False, "error": "Debe incluir al menos un producto"}
     if estado_inicial not in _ESTADOS_ENCARGO_VALIDOS:
         estado_inicial = "confirmado"
 
     creado_en = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    panaderia_id, sede_id = _tenant_scope()
     total = round(sum(
         float(it.get("precio_unitario", 0) or 0) * int(it.get("cantidad", 1) or 1)
-        for it in items
+        for it in items_normalizados
     ), 2)
     anticipo = max(0.0, round(float(anticipo or 0), 2))
     saldo = round(total - anticipo, 2)
@@ -5021,34 +5120,43 @@ def crear_encargo_v2(
                     fecha_entrega, hora_entrega, cliente, cliente_id, empresa, telefono,
                     notas, estado, registrado_por, creado_en, total, anticipo, saldo_pendiente,
                     canal_venta, tipo_encargo, direccion_entrega, recordatorio_enviado,
-                    panaderia_id, sede_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+                    tipo_doc, numero_doc, email, direccion_documento, fecha_produccion,
+                    recordatorio_entrega_en, recordatorio_visto_en, panaderia_id, sede_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, '', ?, ?)
             """, (
-                fecha_entrega, hora_entrega.strip(), cliente.strip(),
+                fecha_entrega, hora_entrega.strip(), cliente,
                 int(cliente_id) if cliente_id else None,
                 empresa.strip(), telefono.strip(), notas.strip(),
                 estado_inicial, registrado_por.strip(), creado_en,
                 total, anticipo, saldo,
                 canal_venta, tipo_encargo, direccion_entrega.strip(),
+                _normalizar_tipo_doc_encargo(tipo_doc), str(numero_doc or "").strip(),
+                str(email or "").strip(), str(direccion_documento or "").strip(),
+                str(fecha_produccion or "").strip(), str(recordatorio_entrega_en or "").strip(),
                 panaderia_id, sede_id,
             ))
             encargo_id = cur.lastrowid
 
-            for it in items:
+            for it in items_normalizados:
                 cantidad = int(it.get("cantidad", 0) or 0)
                 precio = float(it.get("precio_unitario", 0) or 0)
                 if cantidad <= 0:
                     continue
                 conn.execute("""
                     INSERT INTO encargo_items
-                        (encargo_id, producto_id, producto, cantidad, precio_unitario, subtotal, notas)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                        (encargo_id, producto_id, producto, cantidad, precio_unitario, subtotal,
+                         notas, precio_base, precio_aplicado, motivo_precio, autorizado_por)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     encargo_id,
-                    int(it.get("producto_id", 0) or 0) or None,
+                    it.get("producto_id"),
                     str(it.get("producto", "") or "").strip(),
                     cantidad, precio, round(precio * cantidad, 2),
                     str(it.get("notas", "") or "").strip(),
+                    float(it.get("precio_base", precio) or 0),
+                    float(it.get("precio_aplicado", precio) or 0),
+                    str(it.get("motivo_precio", "") or "").strip(),
+                    str(it.get("autorizado_por", "") or "").strip(),
                 ))
 
             if anticipo > 0:
@@ -5074,12 +5182,19 @@ def actualizar_encargo(
     empresa: str = "", notas: str = "", hora_entrega: str = "",
     telefono: str = "", canal_venta: str = "tienda", tipo_encargo: str = "orden",
     direccion_entrega: str = "", cliente_id: int | None = None,
+    tipo_doc: str = "", numero_doc: str = "", email: str = "",
+    direccion_documento: str = "", fecha_produccion: str = "",
+    recordatorio_entrega_en: str = "",
 ) -> dict:
-    if not fecha_entrega or not cliente.strip():
+    cliente = str(cliente or "").strip()
+    if not fecha_entrega or not cliente:
         return {"ok": False, "error": "Fecha de entrega y cliente son obligatorios"}
+    items_normalizados, error_items = _normalizar_items_encargo(items)
+    if error_items:
+        return {"ok": False, "error": error_items}
     total = round(sum(
         float(it.get("precio_unitario", 0) or 0) * int(it.get("cantidad", 1) or 1)
-        for it in (items or [])
+        for it in items_normalizados
     ), 2)
     try:
         cliente_id_resuelto = int(cliente_id or 0) or None
@@ -5099,32 +5214,42 @@ def actualizar_encargo(
             conn.execute("""
                 UPDATE encargos SET
                     fecha_entrega=?, hora_entrega=?, cliente=?, cliente_id=?, empresa=?,
-                    telefono=?, notas=?, total=?, saldo_pendiente=total - anticipo,
-                    canal_venta=?, tipo_encargo=?, direccion_entrega=?
+                    telefono=?, notas=?, total=?, saldo_pendiente=?,
+                    canal_venta=?, tipo_encargo=?, direccion_entrega=?, tipo_doc=?,
+                    numero_doc=?, email=?, direccion_documento=?, fecha_produccion=?,
+                    recordatorio_entrega_en=?
                 WHERE id=?
             """, (
-                fecha_entrega, hora_entrega.strip(), cliente.strip(),
+                fecha_entrega, hora_entrega.strip(), cliente,
                 cliente_id_resuelto,
-                empresa.strip(), telefono.strip(), notas.strip(), total,
+                empresa.strip(), telefono.strip(), notas.strip(), total, saldo_estimado,
                 canal_venta, tipo_encargo, direccion_entrega.strip(),
+                _normalizar_tipo_doc_encargo(tipo_doc), str(numero_doc or "").strip(),
+                str(email or "").strip(), str(direccion_documento or "").strip(),
+                str(fecha_produccion or "").strip(), str(recordatorio_entrega_en or "").strip(),
                 encargo_id,
             ))
             conn.execute("DELETE FROM encargo_items WHERE encargo_id=?", (encargo_id,))
-            for it in (items or []):
+            for it in items_normalizados:
                 cantidad = int(it.get("cantidad", 0) or 0)
                 precio = float(it.get("precio_unitario", 0) or 0)
                 if cantidad <= 0:
                     continue
                 conn.execute("""
                     INSERT INTO encargo_items
-                        (encargo_id, producto_id, producto, cantidad, precio_unitario, subtotal, notas)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                        (encargo_id, producto_id, producto, cantidad, precio_unitario, subtotal,
+                         notas, precio_base, precio_aplicado, motivo_precio, autorizado_por)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     encargo_id,
-                    int(it.get("producto_id", 0) or 0) or None,
+                    it.get("producto_id"),
                     str(it.get("producto", "") or "").strip(),
                     cantidad, precio, round(precio * cantidad, 2),
                     str(it.get("notas", "") or "").strip(),
+                    float(it.get("precio_base", precio) or 0),
+                    float(it.get("precio_aplicado", precio) or 0),
+                    str(it.get("motivo_precio", "") or "").strip(),
+                    str(it.get("autorizado_por", "") or "").strip(),
                 ))
             _sincronizar_credito_encargo_conn(conn, encargo_id)
             conn.commit()
@@ -5146,6 +5271,21 @@ def actualizar_estado_encargo_v2(encargo_id: int, estado: str, usuario: str = ""
         return {"ok": affected > 0, "error": "Encargo no encontrado" if affected == 0 else None}
     except Exception as e:
         logger.error(f"actualizar_estado_encargo_v2: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+def marcar_recordatorio_encargo_visto(encargo_id: int, usuario: str = "") -> dict:
+    visto_en = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with get_connection() as conn:
+            affected = conn.execute(
+                "UPDATE encargos SET recordatorio_visto_en=? WHERE id=?",
+                (visto_en, encargo_id),
+            ).rowcount
+            conn.commit()
+        return {"ok": affected > 0, "recordatorio_visto_en": visto_en, "error": "Encargo no encontrado" if affected == 0 else None}
+    except Exception as e:
+        logger.error(f"marcar_recordatorio_encargo_visto: {e}")
         return {"ok": False, "error": str(e)}
 
 
@@ -5257,7 +5397,9 @@ def obtener_encargos_v2(estado: str | None = None, fecha_entrega: str | None = N
             SELECT e.id, e.panaderia_id, e.sede_id, e.fecha_entrega, e.hora_entrega, e.cliente, e.cliente_id,
                    e.empresa, e.telefono, e.notas, e.estado, e.registrado_por,
                    e.creado_en, e.total, e.anticipo, e.saldo_pendiente,
-                   e.canal_venta, e.tipo_encargo, e.direccion_entrega, e.recordatorio_enviado
+                   e.canal_venta, e.tipo_encargo, e.direccion_entrega, e.recordatorio_enviado,
+                   e.tipo_doc, e.numero_doc, e.email, e.direccion_documento,
+                   e.fecha_produccion, e.recordatorio_entrega_en, e.recordatorio_visto_en
             FROM encargos e
             {where}
             ORDER BY e.fecha_entrega ASC, e.creado_en DESC
@@ -5270,7 +5412,8 @@ def obtener_encargos_v2(estado: str | None = None, fecha_entrega: str | None = N
         placeholders = ",".join("?" * len(ids))
         items = conn.execute(f"""
             SELECT id, encargo_id, producto_id, producto, cantidad,
-                   precio_unitario, subtotal, notas
+                   precio_unitario, subtotal, notas, precio_base, precio_aplicado,
+                   motivo_precio, autorizado_por
             FROM encargo_items WHERE encargo_id IN ({placeholders}) ORDER BY id ASC
         """, ids).fetchall()
         pagos = conn.execute(f"""
@@ -5339,13 +5482,15 @@ def obtener_encargo_v2(encargo_id: int) -> dict | None:
             SELECT id, panaderia_id, sede_id, fecha_entrega, hora_entrega, cliente, cliente_id, empresa, telefono,
                    notas, estado, registrado_por, creado_en, total, anticipo,
                    saldo_pendiente, canal_venta, tipo_encargo, direccion_entrega,
-                   recordatorio_enviado
+                   recordatorio_enviado, tipo_doc, numero_doc, email, direccion_documento,
+                   fecha_produccion, recordatorio_entrega_en, recordatorio_visto_en
             FROM encargos WHERE id=?
         """, (encargo_id,)).fetchone()
         if not row:
             return None
         items = conn.execute("""
-            SELECT id, encargo_id, producto_id, producto, cantidad, precio_unitario, subtotal, notas
+            SELECT id, encargo_id, producto_id, producto, cantidad, precio_unitario, subtotal,
+                   notas, precio_base, precio_aplicado, motivo_precio, autorizado_por
             FROM encargo_items WHERE encargo_id=? ORDER BY id ASC
         """, (encargo_id,)).fetchall()
         pagos = conn.execute("""
@@ -5355,6 +5500,309 @@ def obtener_encargo_v2(encargo_id: int) -> dict | None:
     d["items"] = [_row_to_dict(it) for it in items]
     d["pagos"] = [_row_to_dict(p) for p in pagos]
     return d
+
+
+def _utc_iso_seconds() -> str:
+    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+
+def registrar_evento_encargo(
+    encargo_id: int,
+    tipo: str,
+    valor_anterior: object = "",
+    valor_nuevo: object = "",
+    notas: str = "",
+    usuario: str = "",
+) -> dict:
+    """Registra un evento de trazabilidad del encargo, omitiendo cambios sin diferencia."""
+    tipos_validos = {
+        "estado", "fecha_entrega", "fecha_produccion", "pago", "edicion", "recordatorio",
+    }
+    tipo_evento = str(tipo or "edicion").strip().lower()
+    if tipo_evento not in tipos_validos:
+        tipo_evento = "edicion"
+
+    anterior = "" if valor_anterior is None else str(valor_anterior)
+    nuevo = "" if valor_nuevo is None else str(valor_nuevo)
+    nota = str(notas or "").strip()
+    if anterior == nuevo and not nota:
+        return {"ok": True, "skipped": True}
+
+    try:
+        encargo_id = int(encargo_id or 0)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "Encargo invalido"}
+    if encargo_id <= 0:
+        return {"ok": False, "error": "Encargo invalido"}
+
+    try:
+        with get_connection() as conn:
+            encargo = conn.execute(
+                "SELECT id, panaderia_id, sede_id FROM encargos WHERE id = ?",
+                (encargo_id,),
+            ).fetchone()
+            if not encargo:
+                return {"ok": False, "error": "Encargo no encontrado"}
+            registrado_en = _utc_iso_seconds()
+            cur = conn.execute(
+                """
+                INSERT INTO encargo_eventos (
+                    encargo_id, tipo, valor_anterior, valor_nuevo, notas,
+                    registrado_por, registrado_en, panaderia_id, sede_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    encargo_id,
+                    tipo_evento,
+                    anterior,
+                    nuevo,
+                    nota,
+                    str(usuario or "").strip(),
+                    registrado_en,
+                    encargo["panaderia_id"],
+                    encargo["sede_id"],
+                ),
+            )
+            evento_id = cur.lastrowid
+            conn.commit()
+        return {"ok": True, "evento_id": evento_id, "registrado_en": registrado_en}
+    except Exception as exc:
+        logger.error(f"registrar_evento_encargo: {exc}")
+        return {"ok": False, "error": str(exc)}
+
+
+def listar_eventos_encargo(encargo_id: int, limite: int = 80) -> list[dict]:
+    try:
+        encargo_id = int(encargo_id or 0)
+    except (TypeError, ValueError):
+        return []
+    if encargo_id <= 0:
+        return []
+
+    filtros = ["encargo_id = ?"]
+    params: list = [encargo_id]
+    _apply_tenant_scope(filtros, params)
+    limite = max(1, min(int(limite or 80), 200))
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT id, encargo_id, tipo, valor_anterior, valor_nuevo, notas,
+                   registrado_por, registrado_en, panaderia_id, sede_id
+            FROM encargo_eventos
+            WHERE {' AND '.join(filtros)}
+            ORDER BY registrado_en DESC, id DESC
+            LIMIT ?
+            """,
+            tuple([*params, limite]),
+        ).fetchall()
+    return [_row_to_dict(row) for row in rows]
+
+
+def aviso_encargo_ya_enviado(encargo_id: int, fecha_envio: str, canal: str) -> bool:
+    try:
+        encargo_id = int(encargo_id or 0)
+    except (TypeError, ValueError):
+        return False
+    if encargo_id <= 0:
+        return False
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT 1 AS existe
+            FROM encargo_avisos
+            WHERE encargo_id = ? AND fecha_envio = ? AND canal = ?
+            LIMIT 1
+            """,
+            (encargo_id, str(fecha_envio or "").strip(), str(canal or "").strip()),
+        ).fetchone()
+    return bool(row)
+
+
+def marcar_aviso_enviado(encargo_id: int, fecha_envio: str, canal: str) -> bool:
+    try:
+        encargo_id = int(encargo_id or 0)
+    except (TypeError, ValueError):
+        return False
+    fecha = str(fecha_envio or "").strip()
+    canal_txt = str(canal or "").strip()
+    if encargo_id <= 0 or not fecha or not canal_txt:
+        return False
+
+    try:
+        with get_connection() as conn:
+            encargo = conn.execute(
+                "SELECT panaderia_id, sede_id FROM encargos WHERE id = ?",
+                (encargo_id,),
+            ).fetchone()
+            if not encargo:
+                return False
+            cur = conn.execute(
+                """
+                INSERT INTO encargo_avisos (
+                    encargo_id, fecha_envio, canal, enviado_en, panaderia_id, sede_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(encargo_id, fecha_envio, canal) DO NOTHING
+                """,
+                (
+                    encargo_id,
+                    fecha,
+                    canal_txt,
+                    _utc_iso_seconds(),
+                    encargo["panaderia_id"],
+                    encargo["sede_id"],
+                ),
+            )
+            conn.commit()
+        return cur.rowcount > 0
+    except Exception as exc:
+        logger.error(f"marcar_aviso_enviado: {exc}")
+        return False
+
+
+def listar_encargos_con_hora(hh_mm: str, fecha_minima: str | None = None) -> list[dict]:
+    hora = str(hh_mm or "").strip()[:5]
+    if not re.match(r"^\d{2}:\d{2}$", hora):
+        return []
+    fecha = str(fecha_minima or "").strip() or datetime.now().strftime("%Y-%m-%d")
+    filtros = [
+        "estado NOT IN ('entregado', 'cancelado')",
+        "fecha_entrega >= ?",
+        "SUBSTR(COALESCE(hora_entrega, ''), 1, 5) = ?",
+    ]
+    params: list = [fecha, hora]
+    _apply_tenant_scope(filtros, params)
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT id, panaderia_id, sede_id, fecha_entrega, hora_entrega, cliente,
+                   empresa, telefono, email, direccion_entrega, estado, total,
+                   anticipo, saldo_pendiente, registrado_por, notas
+            FROM encargos
+            WHERE {' AND '.join(filtros)}
+            ORDER BY fecha_entrega ASC, hora_entrega ASC, id ASC
+            """,
+            tuple(params),
+        ).fetchall()
+    return [_row_to_dict(row) for row in rows]
+
+
+def crear_notificacion_in_app(
+    usuario_destino: str,
+    tipo: str,
+    payload_json,
+    panaderia_id: int | None = None,
+    sede_id: int | None = None,
+) -> dict:
+    destino = str(usuario_destino or "").strip()
+    if not destino:
+        return {"ok": False, "error": "Destino requerido"}
+    payload = payload_json if isinstance(payload_json, dict) else {"description": str(payload_json or "")}
+    tipo_txt = str(tipo or payload.get("type") or "info").strip() or "info"
+    creado_en = str(payload.get("time") or payload.get("created_at") or "").strip() or _utc_iso_seconds()
+    if panaderia_id is None and sede_id is None:
+        panaderia_id, sede_id = _tenant_scope()
+    try:
+        payload_text = json.dumps(payload, ensure_ascii=True)
+        with get_connection() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO notificaciones_in_app (
+                    usuario_destino, tipo, payload_json, leida, creada_en,
+                    panaderia_id, sede_id
+                )
+                VALUES (?, ?, ?, 0, ?, ?, ?)
+                """,
+                (destino, tipo_txt, payload_text, creado_en, panaderia_id, sede_id),
+            )
+            notif_id = cur.lastrowid
+            conn.commit()
+        return {"ok": True, "notificacion_id": notif_id, "creada_en": creado_en}
+    except Exception as exc:
+        logger.error(f"crear_notificacion_in_app: {exc}")
+        return {"ok": False, "error": str(exc)}
+
+
+def _destinos_notificacion(usuario_destino: str = "", rol: str = "") -> list[str]:
+    destinos = {"*"}
+    usuario = str(usuario_destino or "").strip()
+    rol_txt = str(rol or "").strip()
+    if usuario:
+        destinos.add(usuario)
+        destinos.add(f"usuario:{usuario}")
+    if rol_txt:
+        destinos.add(f"rol:{rol_txt}")
+    return sorted(destinos)
+
+
+def listar_notificaciones_in_app(
+    usuario_destino: str = "",
+    rol: str = "",
+    limite: int = 10,
+    solo_pendientes: bool = False,
+) -> list[dict]:
+    destinos = _destinos_notificacion(usuario_destino, rol)
+    placeholders = ",".join("?" * len(destinos))
+    filtros = [f"usuario_destino IN ({placeholders})"]
+    params: list = list(destinos)
+    if solo_pendientes:
+        filtros.append("leida = 0")
+    _apply_tenant_scope(filtros, params)
+    limite = max(1, min(int(limite or 10), 100))
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT id, usuario_destino, tipo, payload_json, leida, creada_en, leida_en
+            FROM notificaciones_in_app
+            WHERE {' AND '.join(filtros)}
+            ORDER BY creada_en DESC, id DESC
+            LIMIT ?
+            """,
+            tuple([*params, limite]),
+        ).fetchall()
+
+    items: list[dict] = []
+    for row in rows:
+        data = _row_to_dict(row)
+        try:
+            payload = json.loads(data.get("payload_json") or "{}")
+            if not isinstance(payload, dict):
+                payload = {"description": str(payload)}
+        except Exception:
+            payload = {"description": str(data.get("payload_json") or "")}
+        payload.setdefault("id", f"in-app-{data['id']}")
+        payload.setdefault("type", data.get("tipo") or "info")
+        payload.setdefault("time", data.get("creada_en") or _utc_iso_seconds())
+        payload["read"] = bool(data.get("leida"))
+        payload["source"] = "in_app"
+        payload["server_id"] = data["id"]
+        items.append(payload)
+    return items
+
+
+def marcar_notificaciones_in_app_leidas(usuario_destino: str = "", rol: str = "") -> int:
+    destinos = _destinos_notificacion(usuario_destino, rol)
+    placeholders = ",".join("?" * len(destinos))
+    filtros = [f"usuario_destino IN ({placeholders})", "leida = 0"]
+    params: list = list(destinos)
+    _apply_tenant_scope(filtros, params)
+    leida_en = _utc_iso_seconds()
+    try:
+        with get_connection() as conn:
+            cur = conn.execute(
+                f"""
+                UPDATE notificaciones_in_app
+                SET leida = 1, leida_en = ?
+                WHERE {' AND '.join(filtros)}
+                """,
+                tuple([leida_en, *params]),
+            )
+            conn.commit()
+        return int(cur.rowcount or 0)
+    except Exception as exc:
+        logger.error(f"marcar_notificaciones_in_app_leidas: {exc}")
+        return 0
 
 
 # ──────────────────────────────────────────────
@@ -7673,6 +8121,99 @@ def _migrar_fase14(conn) -> None:
     _ejecutar_migracion_tolerante(conn, "UPDATE mesas SET eliminada = 0 WHERE eliminada IS NULL")
 
 
+def _migrar_fase15(conn) -> None:
+    """Fase 15: encargos documentales, checklist de entrega y mesas por atender."""
+    for stmt in (
+        "ALTER TABLE encargos ADD COLUMN tipo_doc TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE encargos ADD COLUMN numero_doc TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE encargos ADD COLUMN email TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE encargos ADD COLUMN direccion_documento TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE encargos ADD COLUMN fecha_produccion TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE encargos ADD COLUMN recordatorio_entrega_en TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE encargos ADD COLUMN recordatorio_visto_en TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE encargo_items ADD COLUMN precio_base REAL NOT NULL DEFAULT 0.0",
+        "ALTER TABLE encargo_items ADD COLUMN precio_aplicado REAL NOT NULL DEFAULT 0.0",
+        "ALTER TABLE encargo_items ADD COLUMN motivo_precio TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE encargo_items ADD COLUMN autorizado_por TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE pedido_items ADD COLUMN cantidad_entregada INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE pedido_items ADD COLUMN entregado_en TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE pedido_items ADD COLUMN entregado_por TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE mesas ADD COLUMN pendiente_atencion INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE mesas ADD COLUMN pendiente_atencion_en TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE mesas ADD COLUMN pendiente_atencion_por TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE mesas ADD COLUMN pendiente_atencion_motivo TEXT NOT NULL DEFAULT ''",
+        """
+        CREATE TABLE IF NOT EXISTS encargo_eventos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            encargo_id INTEGER NOT NULL,
+            tipo TEXT NOT NULL,
+            valor_anterior TEXT NOT NULL DEFAULT '',
+            valor_nuevo TEXT NOT NULL DEFAULT '',
+            notas TEXT NOT NULL DEFAULT '',
+            registrado_por TEXT NOT NULL DEFAULT '',
+            registrado_en TEXT NOT NULL,
+            panaderia_id INTEGER,
+            sede_id INTEGER,
+            FOREIGN KEY (encargo_id) REFERENCES encargos(id) ON DELETE CASCADE
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS encargo_avisos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            encargo_id INTEGER NOT NULL,
+            fecha_envio TEXT NOT NULL,
+            canal TEXT NOT NULL,
+            enviado_en TEXT NOT NULL,
+            panaderia_id INTEGER,
+            sede_id INTEGER,
+            UNIQUE(encargo_id, fecha_envio, canal),
+            FOREIGN KEY (encargo_id) REFERENCES encargos(id) ON DELETE CASCADE
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS notificaciones_in_app (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_destino TEXT NOT NULL DEFAULT '',
+            tipo TEXT NOT NULL DEFAULT 'info',
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            leida INTEGER NOT NULL DEFAULT 0,
+            creada_en TEXT NOT NULL,
+            leida_en TEXT NOT NULL DEFAULT '',
+            panaderia_id INTEGER,
+            sede_id INTEGER
+        )
+        """,
+    ):
+        _ejecutar_migracion_tolerante(conn, stmt)
+
+    _ejecutar_migracion_tolerante(
+        conn,
+        "UPDATE encargo_items SET precio_base = precio_unitario WHERE COALESCE(precio_base, 0) = 0",
+    )
+    _ejecutar_migracion_tolerante(
+        conn,
+        "UPDATE encargo_items SET precio_aplicado = precio_unitario WHERE COALESCE(precio_aplicado, 0) = 0",
+    )
+    _ejecutar_migracion_tolerante(
+        conn,
+        "UPDATE pedido_items SET cantidad_entregada = 0 WHERE cantidad_entregada IS NULL OR cantidad_entregada < 0",
+    )
+    _ejecutar_migracion_tolerante(
+        conn,
+        "UPDATE pedido_items SET cantidad_entregada = cantidad WHERE cantidad_entregada > cantidad",
+    )
+    _ejecutar_migracion_tolerante(
+        conn,
+        "UPDATE mesas SET pendiente_atencion = 0 WHERE pendiente_atencion IS NULL",
+    )
+    _ejecutar_migracion_tolerante(conn, "CREATE INDEX IF NOT EXISTS idx_encargos_recordatorio_entrega ON encargos(recordatorio_entrega_en)")
+    _ejecutar_migracion_tolerante(conn, "CREATE INDEX IF NOT EXISTS idx_pedido_items_entrega ON pedido_items(pedido_id, cantidad_entregada)")
+    _ejecutar_migracion_tolerante(conn, "CREATE INDEX IF NOT EXISTS idx_mesas_pendiente_atencion ON mesas(pendiente_atencion)")
+    _ejecutar_migracion_tolerante(conn, "CREATE INDEX IF NOT EXISTS idx_encargo_eventos_encargo_fecha ON encargo_eventos(encargo_id, registrado_en DESC)")
+    _ejecutar_migracion_tolerante(conn, "CREATE INDEX IF NOT EXISTS idx_encargo_avisos_fecha ON encargo_avisos(fecha_envio, canal)")
+    _ejecutar_migracion_tolerante(conn, "CREATE INDEX IF NOT EXISTS idx_notificaciones_destino_leida ON notificaciones_in_app(usuario_destino, leida, creada_en DESC)")
+
+
 def eliminar_usuario(usuario_id: int) -> bool:
     try:
         with get_connection() as conn:
@@ -8646,6 +9187,15 @@ def obtener_venta_header(venta_id: int) -> dict | None:
 
 _DOCUMENTO_TIPOS_VALIDOS = {"factura", "documento_venta", "remision"}
 _DOCUMENTO_ORIGENES_VALIDOS = {"venta", "pedido", "encargo"}
+_DOCUMENTO_CLIENTE_FINAL = {
+    "cliente_id": None,
+    "nombre": "Consumidor final",
+    "tipo_doc": "CC",
+    "numero_doc": "2222222",
+    "email": "",
+    "empresa": "",
+    "direccion": "",
+}
 
 
 def _tipo_documento_normalizado(tipo_documento: str | None) -> str:
@@ -8689,6 +9239,8 @@ def _resolver_snapshot_cliente(
     }
     if not snapshot["nombre"] and snapshot["empresa"]:
         snapshot["nombre"] = snapshot["empresa"]
+    if not any((snapshot["cliente_id"], snapshot["nombre"], snapshot["tipo_doc"], snapshot["numero_doc"])):
+        snapshot.update(_DOCUMENTO_CLIENTE_FINAL)
     return snapshot
 
 
@@ -9004,7 +9556,11 @@ def _build_documento_payload_desde_encargo_conn(
         cliente_base={
             **(cliente_base or {}),
             "nombre": (cliente_base or {}).get("nombre") or encargo.get("cliente"),
+            "tipo_doc": (cliente_base or {}).get("tipo_doc") or encargo.get("tipo_doc"),
+            "numero_doc": (cliente_base or {}).get("numero_doc") or encargo.get("numero_doc"),
+            "email": (cliente_base or {}).get("email") or encargo.get("email"),
             "empresa": (cliente_base or {}).get("empresa") or encargo.get("empresa"),
+            "direccion": (cliente_base or {}).get("direccion") or encargo.get("direccion_documento") or encargo.get("direccion_entrega"),
         },
         datos_cliente=datos_cliente,
     )
@@ -10074,7 +10630,7 @@ def guardar_registro(fecha: str, producto: str,
                     (fecha, dia_semana, producto, producido, vendido, observaciones,
                      sobrante_inicial, panaderia_id, sede_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(fecha, producto) DO UPDATE SET
+                ON CONFLICT(fecha, producto, panaderia_id, sede_id) DO UPDATE SET
                     producido     = excluded.producido,
                     vendido       = excluded.vendido,
                     observaciones = excluded.observaciones
@@ -10144,23 +10700,30 @@ def descartar_stock_produccion(
         "Saturday": "Sabado", "Sunday": "Domingo"
     }
     dia_semana = dias_es.get(dia_semana, dia_semana)
+    panaderia_id, sede_id = _tenant_scope()
 
     try:
         with get_connection() as conn:
-            ventas_row = conn.execute("""
+            ventas_filtros = ["fecha = ?", "producto = ?"]
+            ventas_params: list = [fecha, producto]
+            _apply_tenant_scope(ventas_filtros, ventas_params)
+            ventas_row = conn.execute(f"""
                 SELECT COALESCE(SUM(cantidad), 0) AS vendido_real
                 FROM ventas
-                WHERE fecha = ? AND producto = ?
-            """, (fecha, producto)).fetchone()
+                WHERE {' AND '.join(ventas_filtros)}
+            """, tuple(ventas_params)).fetchone()
             vendido_real = int(ventas_row["vendido_real"] or 0) if ventas_row else 0
 
             comprometido = int(_pedidos_comprometidos_producto_conn(conn, fecha).get(producto, 0) or 0)
 
-            registro = conn.execute("""
+            registro_filtros = ["fecha = ?", "producto = ?"]
+            registro_params: list = [fecha, producto]
+            _apply_tenant_scope(registro_filtros, registro_params)
+            registro = conn.execute(f"""
                 SELECT fecha, dia_semana, producto, producido, vendido, sobrante_inicial, observaciones
                 FROM registros_diarios
-                WHERE fecha = ? AND producto = ?
-            """, (fecha, producto)).fetchone()
+                WHERE {' AND '.join(registro_filtros)}
+            """, tuple(registro_params)).fetchone()
 
             if registro:
                 producido_actual = int(registro["producido"] or 0)
@@ -10168,13 +10731,16 @@ def descartar_stock_produccion(
                 sobrante_inicial_actual = int(registro["sobrante_inicial"] or 0)
                 observaciones_actuales = str(registro["observaciones"] or "").strip()
             else:
-                previo = conn.execute("""
+                previo_filtros = ["fecha < ?", "producto = ?"]
+                previo_params: list = [fecha, producto]
+                _apply_tenant_scope(previo_filtros, previo_params)
+                previo = conn.execute(f"""
                     SELECT fecha, producido, vendido, sobrante_inicial
                     FROM registros_diarios
-                    WHERE fecha < ? AND producto = ?
+                    WHERE {' AND '.join(previo_filtros)}
                     ORDER BY fecha DESC, id DESC
                     LIMIT 1
-                """, (fecha, producto)).fetchone()
+                """, tuple(previo_params)).fetchone()
                 sobrante_inicial_actual = 0
                 if previo:
                     sobrante_inicial_actual = max(
@@ -10208,9 +10774,10 @@ def descartar_stock_produccion(
 
             conn.execute("""
                 INSERT INTO registros_diarios
-                    (fecha, dia_semana, producto, producido, vendido, observaciones, sobrante_inicial)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(fecha, producto) DO UPDATE SET
+                    (fecha, dia_semana, producto, producido, vendido, observaciones,
+                     sobrante_inicial, panaderia_id, sede_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(fecha, producto, panaderia_id, sede_id) DO UPDATE SET
                     producido = excluded.producido,
                     vendido = excluded.vendido,
                     observaciones = excluded.observaciones,
@@ -10223,12 +10790,17 @@ def descartar_stock_produccion(
                 vendido_actual,
                 observaciones_finales,
                 max(nuevo_sobrante_inicial, 0),
+                panaderia_id,
+                sede_id,
             ))
 
             creado_en = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             conn.execute("""
-                INSERT INTO mermas (fecha, creado_en, producto, cantidad, tipo, registrado_por, notas)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO mermas (
+                    fecha, creado_en, producto, cantidad, tipo, registrado_por, notas,
+                    panaderia_id, sede_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 fecha,
                 creado_en,
@@ -10237,6 +10809,8 @@ def descartar_stock_produccion(
                 tipo_merma if tipo_merma in {"sobrante", "vencido", "danado", "consumo_interno", "cortesia", "otro"} else "otro",
                 str(registrado_por or ""),
                 motivo,
+                panaderia_id,
+                sede_id,
             ))
             conn.commit()
 
@@ -10320,7 +10894,10 @@ def _obtener_mesa_conn(conn, mesa_id: int, include_deleted: bool = False) -> dic
     row = conn.execute(
         f"""
         SELECT id, numero, nombre, activa, COALESCE(eliminada, 0) AS eliminada,
-               panaderia_id, sede_id
+               panaderia_id, sede_id, COALESCE(pendiente_atencion, 0) AS pendiente_atencion,
+               COALESCE(pendiente_atencion_en, '') AS pendiente_atencion_en,
+               COALESCE(pendiente_atencion_por, '') AS pendiente_atencion_por,
+               COALESCE(pendiente_atencion_motivo, '') AS pendiente_atencion_motivo
         FROM mesas
         WHERE {' AND '.join(filtros)}
         """,
@@ -10346,7 +10923,11 @@ def obtener_mesas(include_inactive: bool = False, include_deleted: bool = False)
     with get_connection() as conn:
         rows = conn.execute(
             f"""
-            SELECT id, numero, nombre, activa, COALESCE(eliminada, 0) AS eliminada
+            SELECT id, numero, nombre, activa, COALESCE(eliminada, 0) AS eliminada,
+                   COALESCE(pendiente_atencion, 0) AS pendiente_atencion,
+                   COALESCE(pendiente_atencion_en, '') AS pendiente_atencion_en,
+                   COALESCE(pendiente_atencion_por, '') AS pendiente_atencion_por,
+                   COALESCE(pendiente_atencion_motivo, '') AS pendiente_atencion_motivo
             FROM mesas
             WHERE {where}
             ORDER BY numero
@@ -10523,6 +11104,53 @@ def desactivar_mesa(mesa_id: int) -> dict:
     return _cambiar_estado_mesa(mesa_id, False)
 
 
+def marcar_mesa_pendiente_atencion(
+    mesa_id: int,
+    pendiente: bool,
+    marcado_por: str = "",
+    motivo: str = "",
+) -> dict:
+    try:
+        mesa_id = int(mesa_id or 0)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "Mesa invalida"}
+    if mesa_id <= 0:
+        return {"ok": False, "error": "Mesa invalida"}
+
+    try:
+        with get_connection() as conn:
+            mesa_actual = _obtener_mesa_conn(conn, mesa_id, include_deleted=False)
+            if not mesa_actual:
+                return {"ok": False, "error": "Mesa no encontrada"}
+            ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            conn.execute(
+                """
+                UPDATE mesas
+                SET pendiente_atencion = ?, pendiente_atencion_en = ?,
+                    pendiente_atencion_por = ?, pendiente_atencion_motivo = ?
+                WHERE id = ?
+                """,
+                (
+                    1 if pendiente else 0,
+                    ahora,
+                    str(marcado_por or "").strip(),
+                    str(motivo or "").strip(),
+                    mesa_id,
+                ),
+            )
+            conn.commit()
+            mesa = _obtener_mesa_conn(conn, mesa_id, include_deleted=False)
+        return {
+            "ok": True,
+            "accion": "pendiente_atencion" if pendiente else "atencion_resuelta",
+            "mesa": mesa,
+            "mesa_antes": mesa_actual,
+        }
+    except Exception as exc:
+        logger.error(f"marcar_mesa_pendiente_atencion: {exc}")
+        return {"ok": False, "error": str(exc)}
+
+
 def eliminar_mesa(mesa_id: int) -> dict:
     try:
         mesa_id = int(mesa_id or 0)
@@ -10689,6 +11317,26 @@ def _limpiar_items_pedido_conn(conn, pedido_id: int) -> None:
     conn.execute("DELETE FROM pedido_items WHERE pedido_id = ?", (pedido_id,))
 
 
+def _agregar_estado_entrega_item(item: dict) -> dict:
+    cantidad = max(int(item.get("cantidad", 0) or 0), 0)
+    entregada = max(int(item.get("cantidad_entregada", 0) or 0), 0)
+    entregada = min(entregada, cantidad)
+    item["cantidad_entregada"] = entregada
+    item["cantidad_pendiente_entrega"] = max(cantidad - entregada, 0)
+    item["entrega_completa"] = cantidad > 0 and entregada >= cantidad
+    return item
+
+
+def _agregar_estado_entrega_pedido(pedido: dict) -> dict:
+    items = pedido.get("items") or []
+    total = sum(max(int(item.get("cantidad", 0) or 0), 0) for item in items)
+    entregada = sum(max(int(item.get("cantidad_entregada", 0) or 0), 0) for item in items)
+    pedido["cantidad_total_entrega"] = total
+    pedido["cantidad_entregada_total"] = min(entregada, total)
+    pedido["entrega_completa"] = total > 0 and entregada >= total
+    return pedido
+
+
 def _crear_pedido_conn(conn, mesa_id: int, mesero: str, items: list[dict],
                        notas: str = "", estado: str = "listo",
                        detalle_historial: str = "Pedido recibido y listo para cobrar",
@@ -10807,6 +11455,10 @@ def unir_cuentas_mesa(mesa_id: int) -> dict:
 def _obtener_pedido_conn(conn, pedido_id: int) -> dict | None:
     pedido = conn.execute("""
         SELECT p.id, p.panaderia_id, p.sede_id, p.mesa_id, m.numero as mesa_numero, m.nombre as mesa_nombre,
+               COALESCE(m.pendiente_atencion, 0) AS mesa_pendiente_atencion,
+               COALESCE(m.pendiente_atencion_en, '') AS mesa_pendiente_atencion_en,
+               COALESCE(m.pendiente_atencion_por, '') AS mesa_pendiente_atencion_por,
+               COALESCE(m.pendiente_atencion_motivo, '') AS mesa_pendiente_atencion_motivo,
                p.mesero, p.estado, p.fecha, p.hora, p.hora_pagado, p.creado_en,
                p.pagado_en, p.pagado_por, p.metodo_pago, p.monto_recibido,
                p.cambio, p.notas, p.total, p.metodo_pago_2, p.monto_pago_2,
@@ -10819,7 +11471,8 @@ def _obtener_pedido_conn(conn, pedido_id: int) -> dict | None:
         return None
 
     items = conn.execute("""
-        SELECT id, producto_id, producto, cantidad, precio_unitario, subtotal, notas
+        SELECT id, producto_id, producto, cantidad, precio_unitario, subtotal, notas,
+               cantidad_entregada, entregado_en, entregado_por
         FROM pedido_items
         WHERE pedido_id = ?
         ORDER BY id
@@ -10835,6 +11488,7 @@ def _obtener_pedido_conn(conn, pedido_id: int) -> dict | None:
             ORDER BY tipo, id
         """, (item_dict["id"],)).fetchall()
         item_dict["modificaciones"] = [_row_to_dict(m) for m in mods]
+        _agregar_estado_entrega_item(item_dict)
         items_list.append(item_dict)
 
     historial = conn.execute("""
@@ -10847,6 +11501,7 @@ def _obtener_pedido_conn(conn, pedido_id: int) -> dict | None:
     result = _row_to_dict(pedido)
     result["items"] = items_list
     result["historial_estados"] = [_row_to_dict(h) for h in historial]
+    _agregar_estado_entrega_pedido(result)
     return result
 
 
@@ -11809,6 +12464,10 @@ def obtener_pedidos_con_detalle(fecha: str | None = None, estado: str | None = N
             params.append(mesero)
         query = f"""
             SELECT p.id, p.panaderia_id, p.sede_id, p.mesa_id, m.numero as mesa_numero, m.nombre as mesa_nombre,
+                   COALESCE(m.pendiente_atencion, 0) AS mesa_pendiente_atencion,
+                   COALESCE(m.pendiente_atencion_en, '') AS mesa_pendiente_atencion_en,
+                   COALESCE(m.pendiente_atencion_por, '') AS mesa_pendiente_atencion_por,
+                   COALESCE(m.pendiente_atencion_motivo, '') AS mesa_pendiente_atencion_motivo,
                    p.mesero, p.estado, p.fecha, p.hora, p.hora_pagado, p.creado_en,
                    p.pagado_en, p.pagado_por, p.metodo_pago, p.monto_recibido,
                    p.cambio, p.notas, p.total, p.unificado_en,
@@ -11830,7 +12489,8 @@ def obtener_pedidos_con_detalle(fecha: str | None = None, estado: str | None = N
         ph = ",".join("?" * len(pedido_ids))
 
         items_rows = conn.execute(
-            f"SELECT id, pedido_id, producto_id, producto, cantidad, precio_unitario, subtotal, notas "
+            f"SELECT id, pedido_id, producto_id, producto, cantidad, precio_unitario, subtotal, notas, "
+            f"cantidad_entregada, entregado_en, entregado_por "
             f"FROM pedido_items WHERE pedido_id IN ({ph}) ORDER BY pedido_id, id",
             pedido_ids
         ).fetchall()
@@ -11851,6 +12511,7 @@ def obtener_pedidos_con_detalle(fecha: str | None = None, estado: str | None = N
         for row in items_rows:
             item = dict(row)
             item["modificaciones"] = mods_by_item.get(item["id"], [])
+            _agregar_estado_entrega_item(item)
             items_by_pedido.setdefault(item["pedido_id"], []).append(item)
 
         hist_by_pedido: dict[int, list] = {}
@@ -11865,6 +12526,7 @@ def obtener_pedidos_con_detalle(fecha: str | None = None, estado: str | None = N
         for p in pedidos:
             p["items"] = items_by_pedido.get(p["id"], [])
             p["historial_estados"] = hist_by_pedido.get(p["id"], [])
+            _agregar_estado_entrega_pedido(p)
 
     return pedidos
 
@@ -11961,6 +12623,76 @@ def cambiar_estado_pedido(pedido_id: int, nuevo_estado: str,
     except Exception as e:
         logger.error(f"cambiar_estado_pedido: {e}")
         return False
+
+
+def actualizar_entrega_item_pedido(
+    pedido_id: int,
+    item_id: int,
+    cantidad_entregada: int,
+    cambiado_por: str = "",
+) -> dict:
+    try:
+        pedido_id = int(pedido_id or 0)
+        item_id = int(item_id or 0)
+        cantidad_entregada = int(cantidad_entregada or 0)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "Datos de entrega invalidos"}
+    if pedido_id <= 0 or item_id <= 0:
+        return {"ok": False, "error": "Datos de entrega invalidos"}
+    if cantidad_entregada < 0:
+        return {"ok": False, "error": "La cantidad entregada no puede ser negativa"}
+
+    try:
+        with get_connection() as conn:
+            pedido = _obtener_pedido_conn(conn, pedido_id)
+            if not pedido:
+                return {"ok": False, "error": "Pedido no encontrado"}
+            if str(pedido.get("estado") or "") in ("pagado", "cancelado"):
+                return {"ok": False, "error": "Este pedido ya no admite checklist de entrega"}
+
+            item = conn.execute(
+                """
+                SELECT id, producto, cantidad
+                FROM pedido_items
+                WHERE id = ? AND pedido_id = ?
+                """,
+                (item_id, pedido_id),
+            ).fetchone()
+            if not item:
+                return {"ok": False, "error": "Item no encontrado en el pedido"}
+            cantidad_total = int(item["cantidad"] or 0)
+            if cantidad_entregada > cantidad_total:
+                return {"ok": False, "error": "No puedes entregar mas unidades de las pedidas"}
+
+            ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            entregado_en = ahora if cantidad_entregada > 0 else ""
+            entregado_por = str(cambiado_por or "").strip() if cantidad_entregada > 0 else ""
+            conn.execute(
+                """
+                UPDATE pedido_items
+                SET cantidad_entregada = ?, entregado_en = ?, entregado_por = ?
+                WHERE id = ? AND pedido_id = ?
+                """,
+                (cantidad_entregada, entregado_en, entregado_por, item_id, pedido_id),
+            )
+            detalle = (
+                f"Entrega actualizada: {item['producto']} "
+                f"{cantidad_entregada}/{cantidad_total}"
+            )
+            _registrar_historial_estado_pedido(
+                conn,
+                pedido_id,
+                str(pedido.get("estado") or ""),
+                cambiado_por=cambiado_por,
+                detalle=detalle,
+                cambiado_en=ahora,
+            )
+            pedido_actualizado = _obtener_pedido_conn(conn, pedido_id)
+            conn.commit()
+        return {"ok": True, "pedido": pedido_actualizado}
+    except Exception as e:
+        logger.error(f"actualizar_entrega_item_pedido: {e}")
+        return {"ok": False, "error": str(e)}
 
 
 def pagar_pedido(pedido_id: int, registrado_por: str = "",
@@ -12599,12 +13331,19 @@ def _requerimiento_panaderia_items_conn(conn, items: list[dict]) -> dict[str, fl
 
 def _pedidos_comprometidos_panaderia_conn(conn, fecha: str,
                                           excluir_pedido_id: int | None = None) -> dict[str, float]:
+    panaderia_id, sede_id = _tenant_scope()
     query = """
         SELECT id
         FROM pedidos
         WHERE fecha = ? AND estado != 'cancelado'
     """
     params: list = [fecha]
+    if panaderia_id is not None:
+        query += " AND panaderia_id = ?"
+        params.append(panaderia_id)
+    if sede_id is not None:
+        query += " AND sede_id = ?"
+        params.append(sede_id)
     if excluir_pedido_id is not None:
         query += " AND id != ?"
         params.append(excluir_pedido_id)
@@ -12643,6 +13382,7 @@ def _pedidos_comprometidos_panaderia_conn(conn, fecha: str,
 
 def _pedidos_comprometidos_producto_conn(conn, fecha: str,
                                          excluir_pedido_id: int | None = None) -> dict[str, int]:
+    panaderia_id, sede_id = _tenant_scope()
     query = """
         SELECT pi.producto, COALESCE(SUM(pi.cantidad), 0) AS cantidad
         FROM pedido_items pi
@@ -12651,6 +13391,12 @@ def _pedidos_comprometidos_producto_conn(conn, fecha: str,
           AND p.estado IN ('pendiente', 'en_preparacion', 'listo')
     """
     params: list[object] = [fecha]
+    if panaderia_id is not None:
+        query += " AND p.panaderia_id = ?"
+        params.append(panaderia_id)
+    if sede_id is not None:
+        query += " AND p.sede_id = ?"
+        params.append(sede_id)
     if excluir_pedido_id is not None:
         query += " AND p.id != ?"
         params.append(excluir_pedido_id)
@@ -12666,12 +13412,15 @@ def _pedidos_comprometidos_producto_conn(conn, fecha: str,
 
 def _stock_operativo_detalle_conn(conn, fecha: str,
                                   excluir_pedido_id: int | None = None) -> dict[str, dict]:
-    registros = conn.execute("""
+    registro_filtros = ["fecha <= ?"]
+    registro_params: list = [fecha]
+    _apply_tenant_scope(registro_filtros, registro_params)
+    registros = conn.execute(f"""
         SELECT fecha, producto, producido, vendido, sobrante_inicial, observaciones, id
         FROM registros_diarios
-        WHERE fecha <= ?
+        WHERE {' AND '.join(registro_filtros)}
         ORDER BY producto ASC, fecha DESC, id DESC
-    """, (fecha,)).fetchall()
+    """, tuple(registro_params)).fetchall()
 
     detalle: dict[str, dict] = {}
     for row in registros:
@@ -12703,12 +13452,15 @@ def _stock_operativo_detalle_conn(conn, fecha: str,
     if not detalle:
         return {}
 
-    ventas_rows = conn.execute("""
+    ventas_filtros = ["fecha = ?"]
+    ventas_params: list = [fecha]
+    _apply_tenant_scope(ventas_filtros, ventas_params)
+    ventas_rows = conn.execute(f"""
         SELECT producto, COALESCE(SUM(cantidad), 0) AS vendido_real
         FROM ventas
-        WHERE fecha = ?
+        WHERE {' AND '.join(ventas_filtros)}
         GROUP BY producto
-    """, (fecha,)).fetchall()
+    """, tuple(ventas_params)).fetchall()
     ventas_totales = {
         str(row["producto"] or ""): int(row["vendido_real"] or 0)
         for row in ventas_rows
@@ -13611,7 +14363,6 @@ def obtener_top_productos_dia(fecha: str | None = None, limite: int = 3) -> list
     v_filtros = ["fecha = ?"]
     v_params: list = [fecha]
     _apply_tenant_scope(v_filtros, v_params)
-    panaderia_id, sede_id = _tenant_scope()
     with get_connection() as conn:
         # Ventas del cajero
         rows_ventas = conn.execute(f"""
@@ -13731,18 +14482,23 @@ def guardar_ajuste_pronostico(
 ) -> bool:
     """Guarda el ajuste manual del panadero al pronóstico del sistema."""
     creado_en = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    panaderia_id, sede_id = _tenant_scope()
     try:
         with get_connection() as conn:
             conn.execute("""
                 INSERT INTO ajustes_pronostico
-                    (fecha, creado_en, producto, sugerido, ajustado, motivo, registrado_por)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(fecha, producto) DO UPDATE SET
+                    (fecha, creado_en, producto, sugerido, ajustado, motivo, registrado_por,
+                     panaderia_id, sede_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(fecha, producto, panaderia_id, sede_id) DO UPDATE SET
                     ajustado = excluded.ajustado,
                     motivo = excluded.motivo,
                     registrado_por = excluded.registrado_por,
                     creado_en = excluded.creado_en
-            """, (fecha, creado_en, producto, sugerido, ajustado, motivo, registrado_por))
+            """, (
+                fecha, creado_en, producto, sugerido, ajustado, motivo, registrado_por,
+                panaderia_id, sede_id,
+            ))
             conn.commit()
         return True
     except Exception as e:
@@ -13977,7 +14733,7 @@ def obtener_resumen_cierre_diario(fecha: str | None = None) -> dict:
             SELECT COALESCE(SUM(producido), 0) as total_producido,
                    COALESCE(SUM(vendido), 0) as total_vendido,
                    COALESCE(SUM(CASE WHEN producido > vendido THEN producido - vendido ELSE 0 END), 0) as sobrante
-            FROM registros_diarios WHERE {' AND '.join(rd_filtros)}
+            FROM registros_diarios rd WHERE {' AND '.join(rd_filtros)}
         """, tuple(rd_params)).fetchone()
 
     total_ventas = float((ventas_row["total_ventas"] or 0)) + float((pedidos_row["total_pedidos"] or 0))

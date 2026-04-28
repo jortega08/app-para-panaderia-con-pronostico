@@ -74,6 +74,22 @@ class HardeningFlowsTestCase(unittest.TestCase):
             self.assertTrue(csrf_token)
         return {"X-CSRF-Token": csrf_token}
 
+    def _login_as_mesero(self) -> dict:
+        response = self.client.post(
+            "/login",
+            data={
+                "modo": "password",
+                "username": "mesero",
+                "password": "1111",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302, response.get_data(as_text=True))
+        with self.client.session_transaction() as session:
+            csrf_token = session.get("_csrf_token") or session.get("csrf_token")
+            self.assertTrue(csrf_token)
+        return {"X-CSRF-Token": csrf_token}
+
     def _start_sale(self, headers: dict, tipo_venta: str = "rapida") -> int:
         response = self.client.post(
             "/api/venta/iniciar",
@@ -109,6 +125,61 @@ class HardeningFlowsTestCase(unittest.TestCase):
         response = self.client.get("/cajero/pos")
         self.assertEqual(response.status_code, 200)
         self.assertIn("POS", response.get_data(as_text=True))
+
+    def test_public_cliente_pedido_page_renders(self) -> None:
+        response = self.client.get("/cliente/pedido")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Tu pedido", response.get_data(as_text=True))
+
+    def test_cierre_diario_api_responds_after_fresh_init(self) -> None:
+        self._login_as_cajero()
+
+        response = self.client.get("/api/cierre-diario")
+
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        payload = response.get_json()
+        self.assertTrue(payload["ok"])
+        self.assertIn("produccion", payload)
+
+    def test_bulk_production_lots_use_tenant_unique_constraint(self) -> None:
+        headers = self._login_as_cajero()
+
+        first_response = self.client.post(
+            "/api/produccion/lotes-masivos",
+            json={
+                "fecha": "2026-04-27",
+                "lotes": [{"producto": "Pan Frances", "cantidad": 44}],
+            },
+            headers=headers,
+        )
+        self.assertEqual(first_response.status_code, 200, first_response.get_data(as_text=True))
+        self.assertTrue(first_response.get_json()["ok"])
+
+        second_response = self.client.post(
+            "/api/produccion/lotes-masivos",
+            json={
+                "fecha": "2026-04-27",
+                "lotes": [{"producto": "Pan Frances", "cantidad": 6}],
+            },
+            headers=headers,
+        )
+        self.assertEqual(second_response.status_code, 200, second_response.get_data(as_text=True))
+        self.assertTrue(second_response.get_json()["ok"])
+
+        with self.app_module.get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT producido, panaderia_id, sede_id
+                FROM registros_diarios
+                WHERE fecha = ? AND producto = ?
+                """,
+                ("2026-04-27", "Pan Frances"),
+            ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(int(row["producido"]), 50)
+        self.assertEqual(int(row["panaderia_id"]), 1)
+        self.assertEqual(int(row["sede_id"]), 1)
 
     def test_suspend_and_resume_sale_flow(self) -> None:
         headers = self._login_as_cajero()
@@ -195,6 +266,150 @@ class HardeningFlowsTestCase(unittest.TestCase):
         fetch_response = self.client.get(f"/api/documento/{document_payload['documento_id']}")
         self.assertEqual(fetch_response.status_code, 200)
         self.assertTrue(fetch_response.get_json()["ok"])
+
+    def test_generate_document_without_customer_uses_consumidor_final(self) -> None:
+        headers = self._login_as_cajero()
+        venta_id = self._start_sale(headers, tipo_venta="con_documento")
+        self._attach_basic_items(venta_id, headers)
+
+        pay_response = self.client.post(
+            f"/api/venta/{venta_id}/pagar",
+            json={"metodo": "efectivo", "monto": 5000, "recibido": 5000},
+            headers=headers,
+        )
+        self.assertEqual(pay_response.status_code, 200, pay_response.get_data(as_text=True))
+        self.assertTrue(pay_response.get_json()["ok"])
+
+        close_response = self.client.post(
+            f"/api/venta/{venta_id}/cerrar",
+            json={},
+            headers=headers,
+        )
+        self.assertEqual(close_response.status_code, 200, close_response.get_data(as_text=True))
+        self.assertTrue(close_response.get_json()["ok"])
+
+        document_response = self.client.post(
+            f"/api/documento/generar-desde-venta/{venta_id}",
+            json={"tipo_documento": "factura"},
+            headers=headers,
+        )
+        self.assertEqual(document_response.status_code, 200, document_response.get_data(as_text=True))
+        document_payload = document_response.get_json()
+        self.assertTrue(document_payload["ok"])
+
+        fetch_response = self.client.get(f"/api/documento/{document_payload['documento_id']}")
+        self.assertEqual(fetch_response.status_code, 200, fetch_response.get_data(as_text=True))
+        documento = fetch_response.get_json()["documento"]
+        self.assertEqual(documento["cliente_nombre_snapshot"], "Consumidor final")
+        self.assertEqual(documento["cliente_tipo_doc_snapshot"], "CC")
+        self.assertEqual(documento["cliente_numero_doc_snapshot"], "2222222")
+        self.assertIsNone(documento["cliente_id"])
+
+        with self.app_module.get_connection() as conn:
+            total_clientes = conn.execute(
+                "SELECT COUNT(*) AS total FROM clientes WHERE numero_doc = ?",
+                ("2222222",),
+            ).fetchone()["total"]
+        self.assertEqual(int(total_clientes), 0)
+
+    def test_encargo_accepts_document_fields_custom_price_and_reminder(self) -> None:
+        headers = self._login_as_cajero()
+
+        response = self.client.post(
+            "/api/encargo/v2",
+            json={
+                "cliente": "Cliente Encargo",
+                "tipo_doc": "NIT",
+                "numero_doc": "900222333",
+                "email": "encargo@example.com",
+                "empresa": "Cliente Encargo SAS",
+                "fecha_entrega": "2030-05-01",
+                "fecha_produccion": "2030-04-30",
+                "recordatorio_entrega_en": "2030-04-30T14:00",
+                "direccion_documento": "Calle Encargo 1",
+                "anticipo": 9000,
+                "items": [
+                    {
+                        "producto_id": 1,
+                        "producto": "Pan Frances",
+                        "cantidad": 1,
+                        "precio_base": 5000,
+                        "precio_aplicado": 9000,
+                        "precio_unitario": 9000,
+                        "motivo_precio": "Decoracion especial",
+                    }
+                ],
+            },
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        payload = response.get_json()
+        self.assertTrue(payload["ok"])
+
+        detalle = self.client.get(f"/api/encargo/v2/{payload['encargo_id']}", headers=headers)
+        self.assertEqual(detalle.status_code, 200, detalle.get_data(as_text=True))
+        encargo = detalle.get_json()["encargo"]
+        self.assertEqual(encargo["tipo_doc"], "NIT")
+        self.assertEqual(encargo["numero_doc"], "900222333")
+        self.assertEqual(encargo["fecha_produccion"], "2030-04-30")
+        self.assertEqual(encargo["recordatorio_entrega_en"], "2030-04-30T14:00")
+        self.assertEqual(float(encargo["total"]), 9000.0)
+        self.assertEqual(float(encargo["items"][0]["precio_base"]), 5000.0)
+        self.assertEqual(float(encargo["items"][0]["precio_aplicado"]), 9000.0)
+
+    def test_order_delivery_checklist_and_table_attention_marker(self) -> None:
+        headers = self._login_as_mesero()
+
+        create_response = self.client.post(
+            "/api/pedido",
+            json={
+                "mesa_id": 1,
+                "items": [
+                    {
+                        "producto_id": 1,
+                        "producto": "Pan Frances",
+                        "cantidad": 2,
+                    }
+                ],
+            },
+            headers=headers,
+        )
+        self.assertEqual(create_response.status_code, 200, create_response.get_data(as_text=True))
+        pedido_id = int(create_response.get_json()["pedido_id"])
+
+        pedido_response = self.client.get(f"/api/pedido/{pedido_id}", headers=headers)
+        self.assertEqual(pedido_response.status_code, 200, pedido_response.get_data(as_text=True))
+        pedido = pedido_response.get_json()
+        item_id = int(pedido["items"][0]["id"])
+
+        entrega_response = self.client.put(
+            f"/api/pedido/{pedido_id}/items/{item_id}/entrega",
+            json={"cantidad_entregada": 1},
+            headers=headers,
+        )
+        self.assertEqual(entrega_response.status_code, 200, entrega_response.get_data(as_text=True))
+        item_actualizado = entrega_response.get_json()["pedido"]["items"][0]
+        self.assertEqual(int(item_actualizado["cantidad_entregada"]), 1)
+        self.assertEqual(int(item_actualizado["cantidad_pendiente_entrega"]), 1)
+
+        exceso_response = self.client.put(
+            f"/api/pedido/{pedido_id}/items/{item_id}/entrega",
+            json={"cantidad_entregada": 3},
+            headers=headers,
+        )
+        self.assertEqual(exceso_response.status_code, 400)
+
+        mesa_response = self.client.put(
+            "/api/mesa/1/pendiente-atencion",
+            json={"pendiente": True, "motivo": "Cliente pide la cuenta"},
+            headers=headers,
+        )
+        self.assertEqual(mesa_response.status_code, 200, mesa_response.get_data(as_text=True))
+        self.assertTrue(mesa_response.get_json()["mesa"]["pendiente_atencion"])
+
+        mesas_page = self.client.get("/mesero/mesas")
+        self.assertEqual(mesas_page.status_code, 200)
+        self.assertIn("Por atender", mesas_page.get_data(as_text=True))
 
     def test_create_credit_and_register_abono(self) -> None:
         headers = self._login_as_cajero()

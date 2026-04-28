@@ -1,0 +1,310 @@
+{% extends "base.html" %}
+{% block title_extra %} - Pedido Cliente{% endblock %}
+{% block content %}
+<style>
+.cliente-menu-shell {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 22px 16px 42px;
+}
+.cliente-menu-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 22px;
+}
+.cliente-menu-title {
+  margin: 0 0 6px;
+  color: var(--text);
+  font-size: clamp(28px, 5vw, 52px);
+  line-height: 1;
+}
+.cliente-menu-copy {
+  max-width: 620px;
+  margin: 0;
+  color: var(--text-sec);
+  font-size: 16px;
+}
+.cliente-menu-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.cliente-menu-search {
+  width: min(360px, 100%);
+}
+.cliente-menu-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 18px;
+  align-items: start;
+}
+.cliente-product-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+}
+.cliente-product-card {
+  min-height: 196px;
+  text-align: left;
+  border: 1px solid rgba(139, 85, 19, 0.14);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 15px;
+  display: grid;
+  gap: 9px;
+  cursor: pointer;
+  box-shadow: 0 10px 22px rgba(44, 24, 16, 0.08);
+}
+.cliente-product-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 28px rgba(44, 24, 16, 0.12);
+}
+.cliente-product-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+.cliente-product-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--prod-color, #8b5513) 18%, #fff);
+  color: var(--prod-color, #8b5513);
+}
+.cliente-product-name {
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+.cliente-product-meta {
+  min-height: 38px;
+  color: var(--text-sec);
+  font-size: 13px;
+  line-height: 1.35;
+}
+.cliente-product-price {
+  align-self: end;
+  color: var(--accent);
+  font-size: 19px;
+  font-weight: 900;
+}
+.cliente-cart {
+  position: sticky;
+  top: 18px;
+  border: 1px solid rgba(139, 85, 19, 0.14);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 12px 28px rgba(44, 24, 16, 0.1);
+  overflow: hidden;
+}
+.cliente-cart-header,
+.cliente-cart-footer {
+  padding: 16px;
+}
+.cliente-cart-title {
+  margin: 0;
+  font-size: 19px;
+}
+.cliente-cart-items {
+  display: grid;
+  gap: 0;
+  max-height: 420px;
+  overflow: auto;
+  border-top: 1px solid rgba(139, 85, 19, 0.1);
+  border-bottom: 1px solid rgba(139, 85, 19, 0.1);
+}
+.cliente-cart-empty {
+  padding: 18px 16px;
+  color: var(--text-sec);
+}
+.cliente-cart-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(139, 85, 19, 0.08);
+}
+.cliente-cart-row:last-child {
+  border-bottom: 0;
+}
+.cliente-cart-name {
+  font-weight: 800;
+}
+.cliente-cart-line {
+  color: var(--text-sec);
+  font-size: 13px;
+}
+.cliente-cart-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.cliente-cart-controls button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(139, 85, 19, 0.18);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  font-weight: 900;
+  cursor: pointer;
+}
+.cliente-total-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  font-weight: 900;
+  font-size: 18px;
+  margin-bottom: 12px;
+}
+.cliente-order-text {
+  width: 100%;
+  min-height: 110px;
+  resize: vertical;
+  font-family: inherit;
+}
+@media (max-width: 880px) {
+  .cliente-menu-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .cliente-menu-layout {
+    grid-template-columns: 1fr;
+  }
+  .cliente-cart {
+    position: static;
+  }
+}
+</style>
+
+<div class="cliente-menu-shell">
+  <header class="cliente-menu-header">
+    <div>
+      <h1 class="cliente-menu-title">{{ brand_context.brand_name }}</h1>
+      <p class="cliente-menu-copy">Arma tu pedido y muestra el resumen en caja o a la persona que atiende tu mesa.</p>
+    </div>
+    <div class="cliente-menu-toolbar">
+      <input id="clienteSearch" class="form-input cliente-menu-search" type="search" placeholder="Buscar producto..." oninput="filtrarProductosCliente()">
+    </div>
+  </header>
+
+  <div class="cliente-menu-layout">
+    <section class="cliente-product-grid" id="clienteProductGrid">
+      {% for p in productos %}
+      <button type="button"
+              class="cliente-product-card"
+              style="--prod-color: {{ p.color }}"
+              data-product-card
+              data-name="{{ p.nombre|lower }}"
+              data-search="{{ (p.nombre ~ ' ' ~ p.categoria ~ ' ' ~ (p.menu or '') ~ ' ' ~ (p.descripcion or ''))|lower }}"
+              onclick='agregarProductoCliente({{ p.id }}, {{ p.nombre|tojson }}, {{ p.precio or 0 }})'>
+        <div class="cliente-product-top">
+          <span class="material-symbols-outlined cliente-product-icon">{{ p.icono }}</span>
+          <span class="chip">{{ p.categoria }}</span>
+        </div>
+        <div class="cliente-product-name">{{ p.nombre }}</div>
+        <div class="cliente-product-meta">
+          {% if p.descripcion %}{{ p.descripcion }}{% elif p.menu %}{{ p.menu|replace('|', ' / ') }}{% else %}&nbsp;{% endif %}
+        </div>
+        <div class="cliente-product-price">${{ '{:,.0f}'.format(p.precio or 0) }}</div>
+      </button>
+      {% endfor %}
+    </section>
+
+    <aside class="cliente-cart">
+      <div class="cliente-cart-header">
+        <h2 class="cliente-cart-title">Tu pedido</h2>
+      </div>
+      <div class="cliente-cart-items" id="clienteCartItems">
+        <div class="cliente-cart-empty">Aun no has agregado productos.</div>
+      </div>
+      <div class="cliente-cart-footer">
+        <div class="cliente-total-row">
+          <span>Total</span>
+          <span id="clienteCartTotal">$0</span>
+        </div>
+        <textarea id="clienteOrderText" class="form-input cliente-order-text" readonly placeholder="El resumen aparecera aqui."></textarea>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+const clienteCart = new Map();
+
+function fmtClienteMoney(value) {
+  return '$' + Number(value || 0).toLocaleString('es-CO', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
+}
+
+function agregarProductoCliente(id, nombre, precio) {
+  const key = Number(id || 0) || nombre;
+  const actual = clienteCart.get(key) || { nombre, precio: Number(precio || 0), cantidad: 0 };
+  actual.cantidad += 1;
+  clienteCart.set(key, actual);
+  renderClienteCart();
+}
+
+function cambiarCantidadCliente(key, delta) {
+  const item = clienteCart.get(key);
+  if (!item) return;
+  item.cantidad += delta;
+  if (item.cantidad <= 0) {
+    clienteCart.delete(key);
+  } else {
+    clienteCart.set(key, item);
+  }
+  renderClienteCart();
+}
+
+function renderClienteCart() {
+  const items = [...clienteCart.entries()];
+  const container = document.getElementById('clienteCartItems');
+  const total = items.reduce((sum, [, item]) => sum + item.precio * item.cantidad, 0);
+
+  if (!items.length) {
+    container.innerHTML = '<div class="cliente-cart-empty">Aun no has agregado productos.</div>';
+    document.getElementById('clienteCartTotal').textContent = fmtClienteMoney(0);
+    document.getElementById('clienteOrderText').value = '';
+    return;
+  }
+
+  container.innerHTML = items.map(([key, item]) => `
+    <div class="cliente-cart-row">
+      <div>
+        <div class="cliente-cart-name">${item.nombre}</div>
+        <div class="cliente-cart-line">${item.cantidad} x ${fmtClienteMoney(item.precio)}</div>
+      </div>
+      <div class="cliente-cart-controls">
+        <button type="button" onclick="cambiarCantidadCliente(${JSON.stringify(key)}, -1)">-</button>
+        <strong>${item.cantidad}</strong>
+        <button type="button" onclick="cambiarCantidadCliente(${JSON.stringify(key)}, 1)">+</button>
+      </div>
+    </div>
+  `).join('');
+  document.getElementById('clienteCartTotal').textContent = fmtClienteMoney(total);
+  document.getElementById('clienteOrderText').value = items
+    .map(([, item]) => `${item.cantidad} x ${item.nombre} - ${fmtClienteMoney(item.precio * item.cantidad)}`)
+    .concat([`Total: ${fmtClienteMoney(total)}`])
+    .join('\n');
+}
+
+function filtrarProductosCliente() {
+  const term = document.getElementById('clienteSearch').value.trim().toLowerCase();
+  document.querySelectorAll('[data-product-card]').forEach((card) => {
+    card.hidden = term && !card.dataset.search.includes(term);
+  });
+}
+</script>
+{% endblock %}

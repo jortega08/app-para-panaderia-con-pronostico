@@ -2677,11 +2677,6 @@ async function confirmPayment() {
         tipo_documento: document.getElementById('compradorTipoDocumento')?.value || 'factura',
     };
 
-    if (tipoVentaActual === 'con_documento' && !datosDocumento.nombre) {
-        Toast.warning('Ingresa el nombre o razon social para emitir el documento.');
-        return;
-    }
-
     let metodo2 = null, monto2 = null;
     if (mixto) {
         metodo2 = document.getElementById('paymentMethod2')?.value || null;

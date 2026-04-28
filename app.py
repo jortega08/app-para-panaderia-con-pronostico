@@ -1,5 +1,6 @@
 import csv
 import base64
+import html
 import io
 import json
 import os
@@ -119,6 +120,7 @@ from data.database import (
     actualizar_mesa,
     activar_mesa,
     desactivar_mesa,
+    marcar_mesa_pendiente_atencion,
     eliminar_mesa,
     crear_pedido,
     actualizar_pedido,
@@ -148,6 +150,7 @@ from data.database import (
     obtener_pedido_activo_mesa,
     obtener_pedido_activo_mesa_mesero,
     cambiar_estado_pedido,
+    actualizar_entrega_item_pedido,
     dividir_pedido_y_cobrar,
     pagar_pedido,
     validar_items_contra_produccion_panaderia,
@@ -186,10 +189,19 @@ from data.database import (
     crear_encargo_v2,
     actualizar_encargo,
     actualizar_estado_encargo_v2,
+    marcar_recordatorio_encargo_visto,
     registrar_pago_encargo,
     obtener_pagos_encargo,
     obtener_encargos_v2,
     obtener_encargo_v2,
+    registrar_evento_encargo,
+    listar_eventos_encargo,
+    listar_encargos_con_hora,
+    aviso_encargo_ya_enviado,
+    marcar_aviso_enviado,
+    crear_notificacion_in_app,
+    listar_notificaciones_in_app,
+    marcar_notificaciones_in_app_leidas,
     obtener_cuenta_por_cobrar,
     obtener_cuentas_por_cobrar,
     obtener_cuentas_por_cobrar_paginadas,
@@ -1542,29 +1554,31 @@ def _registrar_auditoria_mesa(resultado: dict, accion: str, detalle: str) -> Non
 
 def _pedido_pertenece_filtro_mesero(pedido: dict, filtro: str) -> bool:
     estado = str((pedido or {}).get("estado", "") or "").strip().lower()
-    if filtro == "cancelado":
-        return estado == "cancelado"
-    if filtro == "pendiente":
+    if filtro == "historial_turno":
+        return estado in {"pagado", "cancelado"}
+    if filtro == "pendientes":
         return estado in {"pendiente", "en_preparacion"}
+    if filtro == "todos":
+        return True
     return estado == "listo"
 
 
 def _meta_filtros_mesero(pedidos: list[dict], filtro_actual: str) -> list[dict]:
     filtros = [
         {
-            "key": "listo",
-            "label": "Listos para caja",
+            "key": "por_cobrar",
+            "label": "Por cobrar",
             "copy": "Pedidos que ya pueden pasar a cobro.",
         },
         {
-            "key": "pendiente",
+            "key": "pendientes",
             "label": "Pendientes",
             "copy": "Incluye pedidos recibidos y en preparacion.",
         },
         {
-            "key": "cancelado",
-            "label": "Cancelados",
-            "copy": "Pedidos anulados por operacion o por el cliente.",
+            "key": "historial_turno",
+            "label": "Historial del turno",
+            "copy": "Pedidos pagados y cancelados de hoy.",
         },
     ]
     for filtro in filtros:
@@ -1846,9 +1860,11 @@ def mesero_editar_pedido(pedido_id):
 @login_required
 @roles_required("mesero", "tenant_admin", "platform_superadmin")
 def mesero_pedidos():
-    filtro_estado = str(request.args.get("estado", "listo") or "listo").strip().lower()
-    if filtro_estado not in {"listo", "pendiente", "cancelado"}:
-        filtro_estado = "listo"
+    filtro_estado = str(request.args.get("estado", "por_cobrar") or "por_cobrar").strip().lower()
+    aliases = {"listo": "por_cobrar", "pendiente": "pendientes", "cancelado": "historial_turno"}
+    filtro_estado = aliases.get(filtro_estado, filtro_estado)
+    if filtro_estado not in {"por_cobrar", "pendientes", "historial_turno", "todos"}:
+        filtro_estado = "por_cobrar"
 
     pedidos_todos = obtener_pedidos_con_detalle(mesero=_nombre_usuario_actual())
     for pedido in pedidos_todos:
@@ -2246,7 +2262,7 @@ def cliente_pedido():
     for p in productos:
         p["icono"] = icono(p["nombre"], p.get("categoria"))
         p["color"] = color_prod(p["nombre"])
-    return render_template("cliente_pedido.html", productos=productos)
+    return render_template("cliente_pedido.html", productos=productos, layout="public")
 
 
 # ══════════════════════════════════════════════
@@ -3844,6 +3860,14 @@ def api_crear_pedido():
                 entidad_id=str(pedido_id),
                 detalle=f"Pedido #{pedido_id} ajustado. Motivo: {motivo_actualizacion}",
             )
+            limpieza = marcar_mesa_pendiente_atencion(
+                mesa_id,
+                False,
+                marcado_por=usuario_actual,
+                motivo="Pedido actualizado para la mesa",
+            )
+            if not limpieza.get("ok"):
+                app.logger.warning("No se pudo limpiar aviso de mesa %s: %s", mesa_id, limpieza.get("error"))
         return jsonify(resultado), status
 
     if rol_actual != "mesero":
@@ -3853,6 +3877,14 @@ def api_crear_pedido():
     if not resultado.get("ok"):
         status = 400 if "mesa" in str(resultado.get("error", "")).lower() else 500
         return jsonify(resultado), status
+    limpieza = marcar_mesa_pendiente_atencion(
+        mesa_id,
+        False,
+        marcado_por=usuario_actual,
+        motivo="Pedido registrado para la mesa",
+    )
+    if not limpieza.get("ok"):
+        app.logger.warning("No se pudo limpiar aviso de mesa %s: %s", mesa_id, limpieza.get("error"))
     return jsonify(resultado)
 
 
@@ -4010,6 +4042,34 @@ def api_obtener_pedido(pedido_id):
         pedido["trazabilidad"] = pedido.get("trazabilidad") or obtener_trazabilidad_pedido(pedido_id)
         return jsonify(pedido)
     return jsonify({"error": "Pedido no encontrado"}), 404
+
+
+@app.route("/api/pedido/<int:pedido_id>/items/<int:item_id>/entrega", methods=["PUT"])
+@login_required
+def api_actualizar_entrega_item_pedido(pedido_id: int, item_id: int):
+    if _rol_usuario_actual() not in {"mesero", "cajero", "tenant_admin", PLATFORM_ADMIN_ROLE}:
+        return jsonify({"ok": False, "error": "No autorizado"}), 403
+
+    pedido = obtener_pedido(pedido_id)
+    if not pedido:
+        return jsonify({"ok": False, "error": "Pedido no encontrado"}), 404
+    if not _pedido_visible_para_usuario(pedido):
+        return jsonify({"ok": False, "error": "No autorizado"}), 403
+
+    data = request.get_json(silent=True) or {}
+    try:
+        cantidad_entregada = int(data.get("cantidad_entregada", 0) or 0)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Cantidad entregada invalida"}), 400
+
+    resultado = actualizar_entrega_item_pedido(
+        pedido_id,
+        item_id,
+        cantidad_entregada,
+        cambiado_por=_nombre_usuario_actual(),
+    )
+    status = 200 if resultado.get("ok") else 400
+    return jsonify(resultado), status
 
 
 @app.route("/api/pedido/<int:pedido_id>/comandas")
@@ -4217,6 +4277,142 @@ def _smtp_config() -> dict:
 def _smtp_disponible() -> bool:
     config = _smtp_config()
     return bool(config["host"] and config["from"])
+
+
+_SMTP_RECORDATORIO_WARNING_EMITIDO = False
+_ROLES_RECORDATORIOS_ENCARGOS = ("cajero", "panadero", "tenant_admin")
+
+
+def _encargo_recordatorio_payload(encargo: dict, fecha_envio: str) -> dict:
+    hora = str(encargo.get("hora_entrega") or "").strip()[:5]
+    cliente = str(encargo.get("cliente") or "Cliente").strip()
+    total = _format_display_number(encargo.get("total", 0), 0)
+    return {
+        "id": f"encargo-recordatorio-{encargo.get('id')}-{fecha_envio}",
+        "title": f"Recordatorio de encargo #{encargo.get('id')}",
+        "description": f"{cliente} · entrega {encargo.get('fecha_entrega')} {hora} · ${total}",
+        "type": "alert",
+        "time": datetime.now().isoformat(timespec="seconds"),
+        "sound": "alert",
+        "encargo_id": encargo.get("id"),
+        "fecha_envio": fecha_envio,
+    }
+
+
+def _enviar_correo_recordatorio_encargo(encargo: dict) -> None:
+    config = _smtp_config()
+    if not _smtp_disponible():
+        raise RuntimeError("Correo no configurado. Define SMTP_HOST y SMTP_FROM para habilitar envios.")
+
+    cliente = str(encargo.get("cliente") or "cliente").strip()
+    fecha = str(encargo.get("fecha_entrega") or "").strip()
+    hora = str(encargo.get("hora_entrega") or "").strip()[:5]
+    total = _format_display_number(encargo.get("total", 0), 0)
+    try:
+        negocio = getattr(g, "brand_context", None)
+        marca = getattr(negocio, "brand_name", None) or "Panaderia"
+    except RuntimeError:
+        marca = "Panaderia"
+
+    message = EmailMessage()
+    message["Subject"] = f"Recordatorio de tu encargo #{encargo.get('id')}"
+    message["From"] = config["from"]
+    message["To"] = str(encargo.get("email") or "").strip()
+    cliente_html = html.escape(cliente)
+    fecha_html = html.escape(fecha)
+    hora_html = html.escape(hora)
+    marca_html = html.escape(marca)
+    texto = "\n".join([
+        f"Hola {cliente},",
+        "",
+        f"Te recordamos tu encargo #{encargo.get('id')} programado para {fecha} a las {hora}.",
+        f"Total: ${total}",
+        "",
+        str(encargo.get("notas") or "").strip(),
+        "",
+        marca,
+    ]).strip()
+    html = f"""
+    <html>
+      <body style="font-family:Segoe UI,Arial,sans-serif;color:#23160d;">
+        <p>Hola {cliente_html},</p>
+        <p>Te recordamos tu encargo <strong>#{encargo.get('id')}</strong> programado para <strong>{fecha_html} {hora_html}</strong>.</p>
+        <p>Total: <strong>${total}</strong></p>
+        <p>{marca_html}</p>
+      </body>
+    </html>
+    """
+    message.set_content(texto)
+    message.add_alternative(html, subtype="html")
+
+    with smtplib.SMTP(config["host"], config["port"], timeout=20) as server:
+        if config["use_tls"]:
+            server.starttls()
+        if config["user"]:
+            server.login(config["user"], config["password"])
+        server.send_message(message)
+
+
+def _notificar_encargo_recordatorio(
+    encargo: dict,
+    canales: list[str] | tuple[str, ...] = ("in_app", "email"),
+    fecha_envio: str | None = None,
+) -> dict:
+    global _SMTP_RECORDATORIO_WARNING_EMITIDO
+    fecha = fecha_envio or datetime.now().strftime("%Y-%m-%d")
+    encargo_id = int(encargo.get("id") or 0)
+    enviados: list[str] = []
+    errores: list[str] = []
+
+    if "in_app" in canales and not aviso_encargo_ya_enviado(encargo_id, fecha, "in_app"):
+        if marcar_aviso_enviado(encargo_id, fecha, "in_app"):
+            payload = _encargo_recordatorio_payload(encargo, fecha)
+            for rol in _ROLES_RECORDATORIOS_ENCARGOS:
+                crear_notificacion_in_app(
+                    f"rol:{rol}",
+                    "alert",
+                    payload,
+                    panaderia_id=encargo.get("panaderia_id"),
+                    sede_id=encargo.get("sede_id"),
+                )
+            enviados.append("in_app")
+
+    email_destino = str(encargo.get("email") or "").strip()
+    if "email" in canales and email_destino and not aviso_encargo_ya_enviado(encargo_id, fecha, "email"):
+        if not _smtp_disponible():
+            if not _SMTP_RECORDATORIO_WARNING_EMITIDO:
+                app.logger.warning("SMTP no configurado; recordatorios de encargos saldran solo in-app.")
+                _SMTP_RECORDATORIO_WARNING_EMITIDO = True
+        else:
+            try:
+                _enviar_correo_recordatorio_encargo(encargo)
+                if marcar_aviso_enviado(encargo_id, fecha, "email"):
+                    enviados.append("email")
+            except Exception as exc:
+                errores.append(f"email: {exc}")
+                app.logger.warning("No se pudo enviar recordatorio de encargo #%s: %s", encargo_id, exc)
+
+    if enviados:
+        registrar_evento_encargo(
+            encargo_id,
+            "recordatorio",
+            "",
+            ", ".join(enviados),
+            notas=f"Recordatorio diario {fecha}",
+            usuario="Sistema",
+        )
+    return {"ok": not errores, "canales": enviados, "errores": errores}
+
+
+def ejecutar_recordatorios_encargos() -> dict:
+    ahora = datetime.now()
+    hh_mm = ahora.strftime("%H:%M")
+    fecha = ahora.strftime("%Y-%m-%d")
+    encargos = listar_encargos_con_hora(hh_mm, fecha_minima=fecha)
+    resultados = []
+    for encargo in encargos:
+        resultados.append(_notificar_encargo_recordatorio(encargo, fecha_envio=fecha))
+    return {"ok": True, "hora": hh_mm, "fecha": fecha, "procesados": len(encargos), "resultados": resultados}
 
 
 def _documento_logo_data_uri(payload: dict) -> str:
@@ -4560,11 +4756,45 @@ def api_notificaciones_feed():
         usuario=_nombre_usuario_actual(),
         limite=limite,
     )
+    items.extend(listar_notificaciones_in_app(
+        usuario_destino=_nombre_usuario_actual(),
+        rol=_rol_usuario_actual(),
+        limite=limite,
+    ))
+    items.sort(key=lambda item: str(item.get("time", "")), reverse=True)
     return jsonify({
         "ok": True,
-        "items": items,
+        "items": items[:limite],
         "generated_at": datetime.now().isoformat(timespec="seconds"),
     })
+
+
+@app.route("/api/notificaciones/pendientes")
+@login_required
+def api_notificaciones_pendientes():
+    rol = _rol_usuario_actual()
+    if rol not in {"cajero", "panadero", "tenant_admin", PLATFORM_ADMIN_ROLE}:
+        return jsonify({"ok": True, "conteo": 0, "items": []})
+    items = listar_notificaciones_in_app(
+        usuario_destino=_nombre_usuario_actual(),
+        rol=rol,
+        limite=100,
+        solo_pendientes=True,
+    )
+    return jsonify({"ok": True, "conteo": len(items), "items": items[:10]})
+
+
+@app.route("/api/notificaciones/marcar-leidas", methods=["POST"])
+@login_required
+def api_notificaciones_marcar_leidas():
+    rol = _rol_usuario_actual()
+    if rol not in {"cajero", "panadero", "tenant_admin", PLATFORM_ADMIN_ROLE}:
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    total = marcar_notificaciones_in_app_leidas(
+        usuario_destino=_nombre_usuario_actual(),
+        rol=rol,
+    )
+    return jsonify({"ok": True, "marcadas": total})
 
 
 @app.route("/api/adicionales")
@@ -4786,6 +5016,52 @@ def api_desactivar_mesa(mesa_id: int):
     mesa = resultado.get("mesa") or {}
     _registrar_auditoria_mesa(resultado, "desactivar_mesa", f"Mesa {mesa.get('numero')} desactivada")
     return jsonify(resultado)
+
+
+@app.route("/api/mesa/<int:mesa_id>/pendiente-atencion", methods=["PUT"])
+@login_required
+def api_mesa_pendiente_atencion(mesa_id: int):
+    if _rol_usuario_actual() not in {"cajero", "mesero", "tenant_admin", PLATFORM_ADMIN_ROLE}:
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    data = request.get_json(silent=True) or {}
+    pendiente = bool(data.get("pendiente"))
+    motivo = str(data.get("motivo") or "").strip()
+    resultado = marcar_mesa_pendiente_atencion(
+        mesa_id,
+        pendiente,
+        marcado_por=_nombre_usuario_actual(),
+        motivo=motivo,
+    )
+    if not resultado.get("ok"):
+        return jsonify(resultado), 400
+    mesa = resultado.get("mesa") or {}
+    detalle = (
+        f"Mesa {mesa.get('numero')} marcada pendiente por atender"
+        if pendiente else
+        f"Mesa {mesa.get('numero')} marcada como atendida"
+    )
+    if motivo:
+        detalle = f"{detalle}. Motivo: {motivo}"
+    _registrar_auditoria_mesa(resultado, resultado.get("accion") or "pendiente_atencion_mesa", detalle)
+    return jsonify(resultado)
+
+
+@app.route("/api/mesas/avisos")
+@login_required
+def api_mesas_avisos():
+    if _rol_usuario_actual() not in {"cajero", "mesero", "tenant_admin", PLATFORM_ADMIN_ROLE}:
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    mesas = obtener_mesas()
+    avisos = [
+        {
+            "mesa_id": mesa.get("id"),
+            "pendiente_atencion_en": mesa.get("pendiente_atencion_en") or "",
+            "motivo": mesa.get("pendiente_atencion_motivo") or "",
+        }
+        for mesa in mesas
+        if int(mesa.get("pendiente_atencion", 0) or 0) == 1
+    ]
+    return jsonify({"ok": True, "avisos": avisos})
 
 
 @app.route("/api/mesa/<int:mesa_id>", methods=["DELETE"])
@@ -5577,16 +5853,10 @@ def utility_processor():
 # ══════════════════════════════════════════════
 
 def _iniciar_scheduler():
+    """Inicia el scheduler embebido de recordatorios y backups."""
     if not _env_bool("ENABLE_IN_APP_SCHEDULER", False):
         app.logger.info(
             "Scheduler embebido desactivado. Usa `python jobs_runner.py daemon` para correr jobs fuera del proceso web.",
-        )
-        return None
-    """Inicia el scheduler de backups automáticos diarios."""
-    if not _supports_app_file_backups():
-        app.logger.info(
-            "Backups automáticos en la app desactivados para %s. Usa backups del proveedor.",
-            _database_engine(),
         )
         return None
     try:
@@ -5603,15 +5873,25 @@ def _iniciar_scheduler():
                 app.logger.error(f"Backup automático falló: {result.get('error', 'Error desconocido')}")
 
         scheduler = BackgroundScheduler(daemon=True)
-        scheduler.add_job(_backup_diario, "cron", hour=backup_hour, minute=0)
+        scheduler.add_job(
+            ejecutar_recordatorios_encargos,
+            "cron",
+            minute="*",
+            id="recordatorios_encargos",
+            replace_existing=True,
+        )
+        if _supports_app_file_backups():
+            scheduler.add_job(_backup_diario, "cron", hour=backup_hour, minute=0, id="backup_diario", replace_existing=True)
         scheduler.start()
-        app.logger.info(f"Backup automático programado a las {backup_hour:02d}:00")
+        app.logger.info("Recordatorios de encargos programados cada minuto")
+        if _supports_app_file_backups():
+            app.logger.info(f"Backup automático programado a las {backup_hour:02d}:00")
         return scheduler
     except ImportError:
-        app.logger.debug("APScheduler no instalado. Backups automáticos desactivados.")
+        app.logger.debug("APScheduler no instalado. Jobs embebidos desactivados.")
         return None
     except Exception as e:
-        app.logger.error(f"No se pudo iniciar scheduler de backups: {e}")
+        app.logger.error(f"No se pudo iniciar scheduler embebido: {e}")
         return None
 
 
@@ -5908,6 +6188,38 @@ def api_cartera_abono(cuenta_id: int):
     return jsonify(resultado), 200 if resultado.get("ok") else 400
 
 
+def _registrar_eventos_edicion_encargo(encargo_id: int, previo: dict | None, nuevo: dict | None, usuario: str) -> None:
+    if not previo or not nuevo:
+        return
+    campos = {
+        "fecha_entrega": "fecha_entrega",
+        "hora_entrega": "edicion",
+        "fecha_produccion": "fecha_produccion",
+        "total": "edicion",
+        "notas": "edicion",
+        "direccion_entrega": "edicion",
+        "cliente": "edicion",
+        "telefono": "edicion",
+        "email": "edicion",
+    }
+    for campo, tipo in campos.items():
+        anterior = previo.get(campo, "")
+        actual = nuevo.get(campo, "")
+        if campo == "total":
+            anterior = f"{float(anterior or 0):.2f}"
+            actual = f"{float(actual or 0):.2f}"
+        if str(anterior or "") == str(actual or ""):
+            continue
+        registrar_evento_encargo(
+            encargo_id,
+            tipo,
+            anterior,
+            actual,
+            notas=f"Campo actualizado: {campo}",
+            usuario=usuario,
+        )
+
+
 @app.route("/api/encargo/v2", methods=["POST"])
 @login_required
 def api_crear_encargo_v2():
@@ -5931,7 +6243,23 @@ def api_crear_encargo_v2():
         direccion_entrega=data.get("direccion_entrega", ""),
         cliente_id=data.get("cliente_id"),
         estado_inicial=data.get("estado_inicial", "confirmado"),
+        tipo_doc=data.get("tipo_doc", ""),
+        numero_doc=data.get("numero_doc", ""),
+        email=data.get("email", ""),
+        direccion_documento=data.get("direccion_documento", ""),
+        fecha_produccion=data.get("fecha_produccion", ""),
+        recordatorio_entrega_en=data.get("recordatorio_entrega_en", ""),
     )
+    if resultado.get("ok"):
+        encargo_creado = obtener_encargo_v2(int(resultado.get("encargo_id") or 0))
+        registrar_evento_encargo(
+            resultado.get("encargo_id"),
+            "estado",
+            "",
+            (encargo_creado or {}).get("estado") or data.get("estado_inicial", "confirmado"),
+            notas="Encargo creado",
+            usuario=usuario.get("nombre", ""),
+        )
     return jsonify(resultado), 200 if resultado.get("ok") else 400
 
 
@@ -5942,6 +6270,8 @@ def api_actualizar_encargo_v2(encargo_id: int):
     if _rol_usuario_actual() not in roles_ok:
         return jsonify({"ok": False, "error": "Sin permiso"}), 403
     data = request.get_json(silent=True) or {}
+    previo = obtener_encargo_v2(encargo_id)
+    usuario = session.get("usuario", {})
     resultado = actualizar_encargo(
         encargo_id,
         fecha_entrega=data.get("fecha_entrega", ""),
@@ -5955,7 +6285,16 @@ def api_actualizar_encargo_v2(encargo_id: int):
         tipo_encargo=data.get("tipo_encargo", "orden"),
         direccion_entrega=data.get("direccion_entrega", ""),
         cliente_id=data.get("cliente_id"),
+        tipo_doc=data.get("tipo_doc", ""),
+        numero_doc=data.get("numero_doc", ""),
+        email=data.get("email", ""),
+        direccion_documento=data.get("direccion_documento", ""),
+        fecha_produccion=data.get("fecha_produccion", ""),
+        recordatorio_entrega_en=data.get("recordatorio_entrega_en", ""),
     )
+    if resultado.get("ok"):
+        nuevo = obtener_encargo_v2(encargo_id)
+        _registrar_eventos_edicion_encargo(encargo_id, previo, nuevo, usuario.get("nombre", ""))
     return jsonify(resultado), 200 if resultado.get("ok") else 400
 
 
@@ -5967,9 +6306,28 @@ def api_estado_encargo_v2(encargo_id: int):
         return jsonify({"ok": False, "error": "Sin permiso"}), 403
     data = request.get_json(silent=True) or {}
     usuario = session.get("usuario", {})
+    previo = obtener_encargo_v2(encargo_id)
     resultado = actualizar_estado_encargo_v2(
         encargo_id, data.get("estado", ""), usuario.get("nombre", "")
     )
+    if resultado.get("ok"):
+        registrar_evento_encargo(
+            encargo_id,
+            "estado",
+            (previo or {}).get("estado", ""),
+            data.get("estado", ""),
+            usuario=usuario.get("nombre", ""),
+        )
+    return jsonify(resultado), 200 if resultado.get("ok") else 400
+
+
+@app.route("/api/encargo/v2/<int:encargo_id>/recordatorio-visto", methods=["PUT"])
+@login_required
+def api_recordatorio_encargo_visto(encargo_id: int):
+    roles_ok = {"cajero", "panadero", "tenant_admin", PLATFORM_ADMIN_ROLE}
+    if _rol_usuario_actual() not in roles_ok:
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    resultado = marcar_recordatorio_encargo_visto(encargo_id, usuario=_nombre_usuario_actual())
     return jsonify(resultado), 200 if resultado.get("ok") else 400
 
 
@@ -5985,6 +6343,7 @@ def api_pago_encargo_v2(encargo_id: int):
         monto = float(data.get("monto") or 0)
     except (ValueError, TypeError):
         return jsonify({"ok": False, "error": "monto invalido"}), 400
+    previo = obtener_encargo_v2(encargo_id)
     resultado = registrar_pago_encargo(
         encargo_id,
         metodo=data.get("metodo", "efectivo"),
@@ -5994,6 +6353,15 @@ def api_pago_encargo_v2(encargo_id: int):
         notas=data.get("notas", ""),
         usuario_id=usuario.get("id"),
     )
+    if resultado.get("ok"):
+        registrar_evento_encargo(
+            encargo_id,
+            "pago",
+            f"{float((previo or {}).get('saldo_pendiente') or 0):.2f}",
+            f"{monto:.2f} {data.get('metodo', 'efectivo')}",
+            notas=data.get("notas", "") or data.get("referencia", ""),
+            usuario=usuario.get("nombre", ""),
+        )
     return jsonify(resultado), 200 if resultado.get("ok") else 400
 
 
@@ -6002,6 +6370,19 @@ def api_pago_encargo_v2(encargo_id: int):
 def api_pagos_encargo_v2(encargo_id: int):
     pagos = obtener_pagos_encargo(encargo_id)
     return jsonify({"ok": True, "pagos": pagos})
+
+
+@app.route("/api/encargo/v2/<int:encargo_id>/eventos", methods=["GET"])
+@login_required
+def api_eventos_encargo_v2(encargo_id: int):
+    roles_ok = {"cajero", "panadero", "tenant_admin", PLATFORM_ADMIN_ROLE}
+    if _rol_usuario_actual() not in roles_ok:
+        return jsonify({"ok": False, "error": "Sin permiso"}), 403
+    encargo = obtener_encargo_v2(encargo_id)
+    if not encargo:
+        return jsonify({"ok": False, "error": "Encargo no encontrado"}), 404
+    eventos = listar_eventos_encargo(encargo_id)
+    return jsonify({"ok": True, "eventos": eventos})
 
 
 @app.route("/api/encargo/v2/<int:encargo_id>", methods=["GET"])

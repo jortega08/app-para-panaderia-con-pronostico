@@ -15,7 +15,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/core.css', v='20260416-platform') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/layout.css', v='20260416-platform') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css', v='20260416-platform') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/pages.css', v='20260416-platform') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/pages.css', v='20260427-trazabilidad') }}">
     <script src="{{ url_for('static', filename='js/charts/echarts.min.js') }}"
             onerror="window._echartsLocalFailed=true"></script>
     <script src="{{ url_for('static', filename='js/charts/echarts-helpers.js', v='20260419-echarts') }}"></script>
@@ -73,6 +73,7 @@
     {% set brand_name = brand_context.brand_name %}
     {% set brand_tagline = brand_context.tagline %}
     {% set brand_support = brand_context.support_label %}
+    {% set puede_ver_notificaciones = session.usuario and session.usuario.rol in ['cajero', 'panadero', 'tenant_admin', 'platform_superadmin'] %}
 
     {% if layout == 'panadero' %}
     <header class="mobile-shell-header">
@@ -227,10 +228,12 @@
                 <span class="topbar-user">{{ session.usuario.nombre }}</span>
             </div>
             <div style="display:flex;align-items:center;gap:10px;">
+                {% if puede_ver_notificaciones %}
                 <button class="notif-bell" onclick="toggleNotifPanel()" aria-label="Notificaciones">
                     <span class="material-symbols-outlined">notifications</span>
                     <span class="notif-bell-badge" id="notifBadgeMesero" hidden>0</span>
                 </button>
+                {% endif %}
                 <a href="{{ url_for('auth.logout') }}" class="topbar-logout">Salir</a>
             </div>
         </div>
@@ -337,11 +340,13 @@
             <span>Pedidos</span>
             <span class="mobile-bottom-badge" id="meseroOrdersBottomBadge" data-pending-orders-badge hidden>0</span>
         </a>
+        {% if puede_ver_notificaciones %}
         <button type="button" class="mobile-bottom-link mobile-bottom-link-button" onclick="toggleNotifPanel()" aria-label="Alertas">
             <span class="material-symbols-outlined">notifications</span>
             <span>Alertas</span>
             <span class="notif-bell-badge mobile-bottom-badge" id="notifBadgeBottomMesero" hidden>0</span>
         </button>
+        {% endif %}
     </nav>
     {% endif %}
 
@@ -792,7 +797,7 @@
             var self = this;
             this.pollingTimer = setInterval(function() {
                 self.fetchFeed(false);
-            }, 6000);
+            }, 30000);
         },
 
         markAllRead() {
@@ -800,6 +805,7 @@
             this.save();
             this.render();
             this.updateBadges();
+            fetch('/api/notificaciones/marcar-leidas', { method: 'POST' }).catch(function() {});
         },
 
         clear() {
@@ -1330,6 +1336,7 @@
     </script>
     {% endif %}
 
+    <script src="{{ url_for('static', filename='js/pages/notifications.js', v='20260427-recordatorios') }}"></script>
 </body>
 
 </html>

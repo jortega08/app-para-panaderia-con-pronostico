@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import sqlite3
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -130,6 +131,125 @@ class DocumentoConsecutivoQueryTestCase(unittest.TestCase):
         sql, params = conn.calls[0]
         self.assertIn("WHERE sede_id IS NULL AND tipo_documento = ?", " ".join(sql.split()))
         self.assertEqual(params, ("factura",))
+
+
+class SQLiteTemporaryForeignKeyRepairTestCase(unittest.TestCase):
+    def test_repairs_recetas_reference_to_renamed_insumos_table(self) -> None:
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = OFF")
+        conn.execute(
+            """
+            CREATE TABLE insumos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute("INSERT INTO insumos (id, nombre) VALUES (1, 'Harina')")
+        conn.execute(
+            """
+            CREATE TABLE recetas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                producto TEXT NOT NULL,
+                insumo_id INTEGER NOT NULL,
+                cantidad REAL NOT NULL DEFAULT 1.0,
+                unidad_receta TEXT NOT NULL DEFAULT 'unidad',
+                panaderia_id INTEGER,
+                UNIQUE(producto, insumo_id, panaderia_id),
+                FOREIGN KEY (insumo_id) REFERENCES _ins_old(id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO recetas (producto, insumo_id, cantidad, unidad_receta, panaderia_id)
+            VALUES ('Pan Frances', 1, 150.0, 'g', 1)
+            """
+        )
+        conn.commit()
+
+        conn.execute("PRAGMA foreign_keys = ON")
+        with self.assertRaises(sqlite3.OperationalError):
+            conn.execute(
+                """
+                INSERT INTO recetas (producto, insumo_id, cantidad, unidad_receta, panaderia_id)
+                VALUES ('Pan Dulce', 1, 120.0, 'g', 1)
+                """
+            )
+        conn.rollback()
+
+        with patch.object(db_module, "DB_TYPE", "sqlite"):
+            db_module._reparar_foreign_keys_tablas_temporales(conn)
+
+        schema = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='recetas'"
+        ).fetchone()["sql"]
+        self.assertNotIn("_ins_old", schema)
+        fk_rows = conn.execute("PRAGMA foreign_key_list(recetas)").fetchall()
+        self.assertEqual(fk_rows[0]["table"], "insumos")
+
+        conn.execute(
+            """
+            INSERT INTO recetas (producto, insumo_id, cantidad, unidad_receta, panaderia_id)
+            VALUES ('Pan Dulce', 1, 120.0, 'g', 1)
+            """
+        )
+
+
+class Phase15MigrationTestCase(unittest.TestCase):
+    def test_adds_columns_and_backfills_custom_price_fields(self) -> None:
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("CREATE TABLE encargos (id INTEGER PRIMARY KEY AUTOINCREMENT)")
+        conn.execute(
+            """
+            CREATE TABLE encargo_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                encargo_id INTEGER,
+                precio_unitario REAL NOT NULL DEFAULT 0
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE pedido_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pedido_id INTEGER,
+                cantidad INTEGER NOT NULL DEFAULT 1
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE mesas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                numero INTEGER,
+                nombre TEXT
+            )
+            """
+        )
+        conn.execute("INSERT INTO encargo_items (encargo_id, precio_unitario) VALUES (1, 7500)")
+        conn.commit()
+
+        db_module._migrar_fase15(conn)
+
+        encargo_cols = {row["name"] for row in conn.execute("PRAGMA table_info(encargos)").fetchall()}
+        self.assertIn("tipo_doc", encargo_cols)
+        self.assertIn("fecha_produccion", encargo_cols)
+        self.assertIn("recordatorio_entrega_en", encargo_cols)
+
+        item = conn.execute("SELECT precio_base, precio_aplicado FROM encargo_items").fetchone()
+        self.assertEqual(float(item["precio_base"]), 7500.0)
+        self.assertEqual(float(item["precio_aplicado"]), 7500.0)
+
+        pedido_cols = {row["name"] for row in conn.execute("PRAGMA table_info(pedido_items)").fetchall()}
+        self.assertIn("cantidad_entregada", pedido_cols)
+        self.assertIn("entregado_por", pedido_cols)
+
+        mesa_cols = {row["name"] for row in conn.execute("PRAGMA table_info(mesas)").fetchall()}
+        self.assertIn("pendiente_atencion", mesa_cols)
+        self.assertIn("pendiente_atencion_motivo", mesa_cols)
 
 
 if __name__ == "__main__":

@@ -189,6 +189,8 @@ class _PGCursor:
             "cuentas_por_cobrar",
             "documento_envios",
             "documentos_emitidos",
+            "encargo_eventos",
+            "notificaciones_in_app",
             "encargos",
             "mesas",
             "movimientos_caja",
