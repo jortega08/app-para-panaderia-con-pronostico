@@ -19,6 +19,42 @@
   color: #fff;
 }
 
+.mesa-card-open {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+
+.mesa-alert-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 100%;
+  min-height: 42px;
+  margin-top: 12px;
+  border: 1px solid rgba(220, 38, 38, 0.24);
+  border-radius: 8px;
+  background: #fff;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.mesa-alert-action .material-symbols-outlined {
+  font-size: 17px;
+}
+
+.mesa-alert-action.is-active,
+.mesa-alert-action:disabled {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #fff;
+  cursor: default;
+  opacity: 1;
+}
+
 .mesero-checklist {
   display: grid;
   gap: 10px;

@@ -113,33 +113,41 @@
 
     <div class="mesas-grid">
         {% for mesa in mesas %}
-        <a href="{{ url_for('mesero_pedido', mesa_id=mesa.id) }}"
-           class="mesa-card mesa-{{ mesa.estado_mesa }}{% if mesa.pendiente_atencion %} mesa-card--alerta{% endif %}"
-           data-mesa-card="{{ mesa.id }}">
-            <div class="mesa-numero">{{ mesa.numero }}</div>
-            <div class="mesa-nombre">{{ mesa.nombre }}</div>
-            {% if mesa.estado_mesa == 'libre' %}
-            <span class="mesa-badge mesa-badge-libre">Libre</span>
-            {% elif mesa.estado_mesa == 'pendiente' %}
-            <span class="mesa-badge mesa-badge-pendiente">Recibido</span>
-            <div class="mesa-info">{{ mesa.num_pedidos }} pedido{{ 's' if mesa.num_pedidos != 1 else '' }}</div>
-            <div class="mesa-total">${{ '{:,.0f}'.format(mesa.total_mesa or 0) }}</div>
-            {% elif mesa.estado_mesa == 'en_preparacion' %}
-            <span class="mesa-badge mesa-badge-preparacion">En Preparacion</span>
-            <div class="mesa-info">{{ mesa.num_pedidos }} pedido{{ 's' if mesa.num_pedidos != 1 else '' }}</div>
-            <div class="mesa-total">${{ '{:,.0f}'.format(mesa.total_mesa or 0) }}</div>
-            {% elif mesa.estado_mesa == 'listo' %}
-            <span class="mesa-badge mesa-badge-listo">Listo para caja</span>
-            <div class="mesa-info">{{ mesa.num_pedidos }} pedido{{ 's' if mesa.num_pedidos != 1 else '' }}</div>
-            <div class="mesa-total">${{ '{:,.0f}'.format(mesa.total_mesa or 0) }}</div>
-            {% endif %}
-            {% if mesa.pendiente_atencion %}
-            <span class="mesa-atencion-badge" data-mesa-alert-badge>
-                <span class="material-symbols-outlined" style="font-size:14px;">notifications_active</span>
-                Por atender
-            </span>
-            {% endif %}
-        </a>
+        <div class="mesa-card mesa-{{ mesa.estado_mesa }}{% if mesa.pendiente_atencion %} mesa-card--alerta{% endif %}"
+             data-mesa-card="{{ mesa.id }}">
+            <a href="{{ url_for('mesero_pedido', mesa_id=mesa.id) }}" class="mesa-card-open">
+                <div class="mesa-numero">{{ mesa.numero }}</div>
+                <div class="mesa-nombre">{{ mesa.nombre }}</div>
+                {% if mesa.estado_mesa == 'libre' %}
+                <span class="mesa-badge mesa-badge-libre">Libre</span>
+                {% elif mesa.estado_mesa == 'pendiente' %}
+                <span class="mesa-badge mesa-badge-pendiente">Recibido</span>
+                <div class="mesa-info">{{ mesa.num_pedidos }} pedido{{ 's' if mesa.num_pedidos != 1 else '' }}</div>
+                <div class="mesa-total">${{ '{:,.0f}'.format(mesa.total_mesa or 0) }}</div>
+                {% elif mesa.estado_mesa == 'en_preparacion' %}
+                <span class="mesa-badge mesa-badge-preparacion">En Preparacion</span>
+                <div class="mesa-info">{{ mesa.num_pedidos }} pedido{{ 's' if mesa.num_pedidos != 1 else '' }}</div>
+                <div class="mesa-total">${{ '{:,.0f}'.format(mesa.total_mesa or 0) }}</div>
+                {% elif mesa.estado_mesa == 'listo' %}
+                <span class="mesa-badge mesa-badge-listo">Listo para caja</span>
+                <div class="mesa-info">{{ mesa.num_pedidos }} pedido{{ 's' if mesa.num_pedidos != 1 else '' }}</div>
+                <div class="mesa-total">${{ '{:,.0f}'.format(mesa.total_mesa or 0) }}</div>
+                {% endif %}
+                {% if mesa.pendiente_atencion %}
+                <span class="mesa-atencion-badge" data-mesa-alert-badge>
+                    <span class="material-symbols-outlined" style="font-size:14px;">notifications_active</span>
+                    Por atender
+                </span>
+                {% endif %}
+            </a>
+            <button type="button"
+                    class="mesa-alert-action{% if mesa.pendiente_atencion %} is-active{% endif %}"
+                    data-mesa-alert-trigger="{{ mesa.id }}"
+                    {% if mesa.pendiente_atencion %}disabled{% endif %}>
+                <span class="material-symbols-outlined">notifications_active</span>
+                <span data-mesa-alert-trigger-text>{% if mesa.pendiente_atencion %}Aviso activo{% else %}Marcar mesa{% endif %}</span>
+            </button>
+        </div>
         {% endfor %}
     </div>
 
@@ -273,5 +281,5 @@ document.addEventListener('keydown', (event) => {
     }
 });
 </script>
-<script src="{{ url_for('static', filename='js/pages/mesero_mesas.js', v='20260427-avisos') }}"></script>
+<script src="{{ url_for('static', filename='js/pages/mesero_mesas.js', v='20260428-mesa-alerta') }}"></script>
 {% endblock %}

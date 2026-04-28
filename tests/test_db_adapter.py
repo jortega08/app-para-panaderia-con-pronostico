@@ -47,6 +47,38 @@ class _CapturingConnection:
         return _FakeExecuteResult(self._row)
 
 
+class _FakeFetchAllResult:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def fetchall(self):
+        return self._rows
+
+
+class _TopProductosConnection:
+    def __init__(self):
+        self.calls = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def execute(self, sql, params=()):
+        self.calls.append((" ".join(sql.split()), params))
+        if "FROM ventas" in sql:
+            return _FakeFetchAllResult([
+                {"producto": "Pan Frances", "unidades": 2, "ingresos": 5000.0},
+            ])
+        if "FROM pedido_items" in sql:
+            return _FakeFetchAllResult([
+                {"producto": "Pan Frances", "unidades": 3, "ingresos": 7500.0},
+                {"producto": "Croissant", "unidades": 1, "ingresos": 4500.0},
+            ])
+        return _FakeFetchAllResult([])
+
+
 class PGCursorAdapterTestCase(unittest.TestCase):
     def test_execute_without_params_keeps_percent_literals_safe(self) -> None:
         cursor = _FakeCursor()
@@ -93,6 +125,28 @@ class PGCursorAdapterTestCase(unittest.TestCase):
                 self.assertEqual(len(cursor.calls), 1)
                 self.assertIn("RETURNING id", cursor.calls[0][0])
                 self.assertEqual(wrapped.lastrowid, 321)
+
+
+class TopProductosDiaTestCase(unittest.TestCase):
+    def test_uses_tenant_scope_for_pedido_filters(self) -> None:
+        conn = _TopProductosConnection()
+        db_module.set_query_context(169, 169)
+        try:
+            with patch.object(db_module, "get_connection", return_value=conn):
+                top = db_module.obtener_top_productos_dia("2026-04-28", limite=5)
+        finally:
+            db_module.set_query_context(None, None)
+
+        self.assertEqual(top[0], {"producto": "Pan Frances", "unidades": 5, "ingresos": 12500.0})
+        self.assertEqual(top[1], {"producto": "Croissant", "unidades": 1, "ingresos": 4500.0})
+        ventas_sql, ventas_params = conn.calls[0]
+        pedidos_sql, pedidos_params = conn.calls[1]
+        self.assertIn("panaderia_id = ?", ventas_sql)
+        self.assertIn("sede_id = ?", ventas_sql)
+        self.assertEqual(ventas_params, ("2026-04-28", 169, 169))
+        self.assertIn("p.panaderia_id = ?", pedidos_sql)
+        self.assertIn("p.sede_id = ?", pedidos_sql)
+        self.assertEqual(pedidos_params, ("2026-04-28", 169, 169))
 
 
 class DocumentoConsecutivoQueryTestCase(unittest.TestCase):

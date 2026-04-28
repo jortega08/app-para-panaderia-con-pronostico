@@ -74,10 +74,10 @@
     </div>
 </div>
 
-{% if puede_crear_encargos %}
+{% if puede_crear_encargos or puede_cambiar_estado_encargo %}
 <!-- Formulario de nuevo encargo (v2) -->
 <div class="encargo-form-card" id="formNuevoEncargo" style="display:none;">
-    <div class="encargo-form-title">Nuevo Encargo</div>
+    <div class="encargo-form-title" id="encFormTitle">Nuevo encargo</div>
 
     <div class="two-col-form" style="gap:12px;">
         <div>
@@ -130,10 +130,6 @@
             <input id="encFechaProduccion" type="date" class="form-input">
         </div>
         <div>
-            <label class="form-label">Recordatorio entrega</label>
-            <input id="encRecordatorio" type="datetime-local" class="form-input">
-        </div>
-        <div>
             <label class="form-label">Canal de venta</label>
             <select id="encCanal" class="form-input">
                 <option value="tienda">Tienda</option>
@@ -165,7 +161,7 @@
         <button type="button" class="btn btn-outline" onclick="agregarFilaProducto()">+ Agregar producto</button>
     </div>
 
-    <div style="margin-top:14px; border-top:1px solid var(--border); padding-top:14px;">
+    <div id="encAnticipoBlock" style="margin-top:14px; border-top:1px solid var(--border); padding-top:14px;">
         <label class="form-label">Anticipo (pago inicial)</label>
         <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
             <input id="encAnticipo" type="number" min="0" step="1000" class="form-input" style="max-width:160px;" placeholder="0" oninput="recalcularTotal()">
@@ -181,7 +177,7 @@
     <div style="margin-top:16px; display:flex; gap:10px; justify-content:flex-end; align-items:center;">
         <span id="encTotalPreview" style="font-size:15px;font-weight:700;"></span>
         <button class="btn btn-outline" onclick="cerrarFormEncargo()">Cancelar</button>
-        <button class="btn btn-success" onclick="guardarEncargo()">Guardar encargo</button>
+        <button class="btn btn-success" id="encGuardarBtn" onclick="guardarEncargo()">Guardar encargo</button>
     </div>
 </div>
 {% endif %}
@@ -274,17 +270,6 @@
                     Produccion {{ enc.fecha_produccion }}
                 </span>
                 {% endif %}
-                {% if enc.recordatorio_entrega_en %}
-                <span class="encargo-meta-item">
-                    <span class="material-symbols-outlined" style="font-size:14px;">notifications_active</span>
-                    Recordatorio {{ enc.recordatorio_entrega_en | replace('T', ' ') }}
-                </span>
-                {% if not enc.recordatorio_visto_en and puede_cambiar_estado_encargo %}
-                <button type="button" class="btn btn-outline btn-sm" onclick="marcarRecordatorioVisto({{ enc.id }})">
-                    Marcar visto
-                </button>
-                {% endif %}
-                {% endif %}
                 {% if enc.telefono %}
                 <span class="encargo-meta-item">
                     <span class="material-symbols-outlined" style="font-size:14px;">call</span>
@@ -370,6 +355,9 @@
                 {% set e = enc.estado %}
                 {% if puede_cambiar_estado_encargo %}
                     <button class="btn btn-outline btn-sm" onclick="abrirModalDocumentoEncargo({{ enc.id }})">Emitir documento</button>
+                    {% if e not in ('entregado', 'cancelado') %}
+                    <button class="btn btn-outline btn-sm" onclick="abrirEditarEncargo({{ enc.id }})">Editar encargo</button>
+                    {% endif %}
                     {% if e == 'cotizacion' %}
                     <button class="btn btn-primary btn-sm" onclick="cambiarEstado({{ enc.id }}, 'confirmado')">Confirmar</button>
                     <button class="btn btn-danger-outline btn-sm" onclick="cambiarEstado({{ enc.id }}, 'cancelado')">Cancelar</button>
@@ -560,6 +548,7 @@
 const PRODUCTOS_ENCARGO = {{ productos | tojson }};
 const ENCARGOS_DATA = {{ encargos | tojson }};
 let filasProducto = [];
+let encargoEditandoId = null;
 let _pagoEncId = null;
 let _docEncargoId = null;
 let _clientesBuscados = [];
@@ -651,8 +640,12 @@ function filtrarEncargos() {
 // ── Formulario nuevo encargo ──────────────────────────────────────────────────
 
 function abrirFormEncargo() {
+    encargoEditandoId = null;
     document.getElementById('formNuevoEncargo').style.display = '';
-    ['encCliente','encTelefono','encEmpresa','encEmail','encNotas','encHora','encDireccion','encNumeroDoc','encFechaProduccion','encRecordatorio','encDireccionDocumento'].forEach(id => {
+    document.getElementById('encFormTitle').textContent = 'Nuevo encargo';
+    document.getElementById('encGuardarBtn').textContent = 'Guardar encargo';
+    document.getElementById('encAnticipoBlock').style.display = '';
+    ['encCliente','encTelefono','encEmpresa','encEmail','encNotas','encHora','encDireccion','encNumeroDoc','encFechaProduccion','encDireccionDocumento'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
     });
@@ -671,6 +664,45 @@ function abrirFormEncargo() {
 
 function cerrarFormEncargo() {
     document.getElementById('formNuevoEncargo').style.display = 'none';
+    encargoEditandoId = null;
+}
+
+function abrirEditarEncargo(id) {
+    const enc = obtenerEncargoData(id);
+    if (!enc) {
+        Toast.error('No se encontro el encargo para editar.');
+        return;
+    }
+    encargoEditandoId = Number(id);
+    document.getElementById('formNuevoEncargo').style.display = '';
+    document.getElementById('encFormTitle').textContent = `Editar encargo #${id}`;
+    document.getElementById('encGuardarBtn').textContent = 'Guardar cambios';
+    document.getElementById('encAnticipoBlock').style.display = 'none';
+
+    document.getElementById('encCliente').value = enc.cliente || '';
+    document.getElementById('encClienteId').value = enc.cliente_id || '';
+    document.getElementById('encTelefono').value = enc.telefono || '';
+    document.getElementById('encEmpresa').value = enc.empresa || '';
+    document.getElementById('encEmail').value = enc.email || '';
+    document.getElementById('encNotas').value = enc.notas || '';
+    document.getElementById('encFecha').value = enc.fecha_entrega || '';
+    document.getElementById('encHora').value = String(enc.hora_entrega || '').slice(0, 5);
+    document.getElementById('encFechaProduccion').value = enc.fecha_produccion || '';
+    document.getElementById('encCanal').value = enc.canal_venta || 'tienda';
+    document.getElementById('encTipo').value = enc.tipo_encargo || (enc.estado === 'cotizacion' ? 'cotizacion' : 'orden');
+    document.getElementById('encDireccion').value = enc.direccion_entrega || '';
+    document.getElementById('encDireccionDocumento').value = enc.direccion_documento || '';
+    document.getElementById('encTipoDoc').value = enc.tipo_doc || '';
+    document.getElementById('encNumeroDoc').value = enc.numero_doc || '';
+    document.getElementById('encAnticipo').value = '';
+
+    document.getElementById('encProductRows').innerHTML = '';
+    filasProducto = [];
+    (enc.items || []).forEach(item => agregarFilaProducto(item));
+    if (!filasProducto.filter(Boolean).length) agregarFilaProducto();
+    recalcularTotal();
+    document.getElementById('formNuevoEncargo').scrollIntoView({ behavior: 'smooth' });
+    document.getElementById('encFecha').focus();
 }
 
 function opcionesProductoEncargo(query) {
@@ -694,9 +726,26 @@ function filtrarProductosFila(idx, query) {
     }
 }
 
-function agregarFilaProducto() {
+function agregarFilaProducto(item = null) {
     const idx = filasProducto.length;
-    filasProducto.push({ producto_id: null, producto: '', cantidad: 1, precio_unitario: 0, precio_base: 0, precio_aplicado: 0, motivo_precio: '' });
+    const itemData = item ? {
+        producto_id: Number(item.producto_id || 0) || null,
+        producto: item.producto || '',
+        cantidad: Number(item.cantidad || 1),
+        precio_unitario: Number(item.precio_aplicado ?? item.precio_unitario ?? 0),
+        precio_base: Number(item.precio_base ?? item.precio_unitario ?? 0),
+        precio_aplicado: Number(item.precio_aplicado ?? item.precio_unitario ?? 0),
+        motivo_precio: item.motivo_precio || '',
+    } : {
+        producto_id: null,
+        producto: '',
+        cantidad: 1,
+        precio_unitario: 0,
+        precio_base: 0,
+        precio_aplicado: 0,
+        motivo_precio: '',
+    };
+    filasProducto.push(itemData);
     const options = opcionesProductoEncargo(''); /*
         .filter(p => p.activo !== 0)
         .map(p => `<option value="${p.id}" data-precio="${p.precio}" data-nombre="${p.nombre}">${p.nombre} — ${money(p.precio)}</option>`)
@@ -708,18 +757,28 @@ function agregarFilaProducto() {
         <input type="text" class="form-input" placeholder="Buscar producto"
                oninput="filtrarProductosFila(${idx}, this.value)">
         <select class="form-input" onchange="onProductoChange(${idx}, this)">
-            <option value="">— Selecciona producto —</option>
+            <option value="">-- Selecciona producto --</option>
             ${options}
         </select>
-        <input type="number" min="1" step="1" value="1" class="form-input qty-input"
+        <input type="number" min="1" step="1" value="${itemData.cantidad || 1}" class="form-input qty-input"
                oninput="onCantidadChange(${idx}, this)" placeholder="Cant.">
-        <input type="number" min="0" step="100" value="0" class="form-input price-input"
+        <input type="number" min="0" step="100" value="${itemData.precio_aplicado || 0}" class="form-input price-input"
                oninput="onPrecioChange(${idx}, this)" placeholder="Precio">
-        <input type="text" class="form-input motivo-precio" placeholder="Motivo si cambia"
+        <input type="text" class="form-input motivo-precio" value="${escapeHtml(itemData.motivo_precio || '')}" placeholder="Motivo si cambia"
                oninput="onMotivoPrecioChange(${idx}, this)">
-        <button type="button" class="btn btn-danger-outline btn-sm" onclick="quitarFila(${idx})" style="flex:none;">✕</button>
+        <button type="button" class="btn btn-danger-outline btn-sm" onclick="quitarFila(${idx})" style="flex:none;">Quitar</button>
     `;
     document.getElementById('encProductRows').appendChild(row);
+    const select = row.querySelector('select');
+    if (itemData.producto_id && !Array.from(select.options).some(opt => Number(opt.value) === Number(itemData.producto_id))) {
+        const opt = new Option(`${itemData.producto} - ${money(itemData.precio_base || itemData.precio_unitario)}`, String(itemData.producto_id));
+        opt.dataset.precio = String(itemData.precio_base || itemData.precio_unitario || 0);
+        opt.dataset.nombre = itemData.producto;
+        select.appendChild(opt);
+    }
+    if (itemData.producto_id) {
+        select.value = String(itemData.producto_id);
+    }
     recalcularTotal();
 }
 
@@ -791,42 +850,46 @@ async function guardarEncargo() {
     const anticipo = parseFloat(document.getElementById('encAnticipo')?.value || 0);
     const clienteId = document.getElementById('encClienteId')?.value || null;
     const tipoEnc = document.getElementById('encTipo')?.value || 'orden';
+    const editando = Number(encargoEditandoId || 0) > 0;
+    const payload = {
+        cliente,
+        cliente_id: clienteId ? parseInt(clienteId) : null,
+        empresa: document.getElementById('encEmpresa').value.trim(),
+        telefono: document.getElementById('encTelefono').value.trim(),
+        tipo_doc: document.getElementById('encTipoDoc').value,
+        numero_doc: document.getElementById('encNumeroDoc').value.trim(),
+        email: document.getElementById('encEmail').value.trim(),
+        fecha_entrega: fecha,
+        hora_entrega: document.getElementById('encHora').value.trim(),
+        fecha_produccion: document.getElementById('encFechaProduccion').value,
+        recordatorio_entrega_en: '',
+        notas: document.getElementById('encNotas').value.trim(),
+        canal_venta: document.getElementById('encCanal').value,
+        tipo_encargo: tipoEnc,
+        direccion_entrega: document.getElementById('encDireccion').value.trim(),
+        direccion_documento: document.getElementById('encDireccionDocumento').value.trim(),
+        anticipo: editando ? 0 : anticipo,
+        items: items.map(f => ({
+            producto_id: f.producto_id, producto: f.producto,
+            cantidad: f.cantidad,
+            precio_unitario: f.precio_aplicado,
+            precio_base: f.precio_base,
+            precio_aplicado: f.precio_aplicado,
+            motivo_precio: f.motivo_precio,
+        })),
+    };
+    if (!editando) {
+        payload.estado_inicial = tipoEnc === 'cotizacion' ? 'cotizacion' : 'confirmado';
+    }
     try {
-        const res = await fetch('/api/encargo/v2', {
-            method: 'POST',
+        const res = await fetch(editando ? `/api/encargo/v2/${encargoEditandoId}` : '/api/encargo/v2', {
+            method: editando ? 'PUT' : 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                cliente,
-                cliente_id: clienteId ? parseInt(clienteId) : null,
-                empresa: document.getElementById('encEmpresa').value.trim(),
-                telefono: document.getElementById('encTelefono').value.trim(),
-                tipo_doc: document.getElementById('encTipoDoc').value,
-                numero_doc: document.getElementById('encNumeroDoc').value.trim(),
-                email: document.getElementById('encEmail').value.trim(),
-                fecha_entrega: fecha,
-                hora_entrega: document.getElementById('encHora').value.trim(),
-                fecha_produccion: document.getElementById('encFechaProduccion').value,
-                recordatorio_entrega_en: document.getElementById('encRecordatorio').value,
-                notas: document.getElementById('encNotas').value.trim(),
-                canal_venta: document.getElementById('encCanal').value,
-                tipo_encargo: tipoEnc,
-                direccion_entrega: document.getElementById('encDireccion').value.trim(),
-                direccion_documento: document.getElementById('encDireccionDocumento').value.trim(),
-                anticipo: anticipo,
-                estado_inicial: tipoEnc === 'cotizacion' ? 'cotizacion' : 'confirmado',
-                items: items.map(f => ({
-                    producto_id: f.producto_id, producto: f.producto,
-                    cantidad: f.cantidad,
-                    precio_unitario: f.precio_aplicado,
-                    precio_base: f.precio_base,
-                    precio_aplicado: f.precio_aplicado,
-                    motivo_precio: f.motivo_precio,
-                })),
-            }),
+            body: JSON.stringify(payload),
         });
         const data = await res.json();
         if (!data.ok) throw new Error(data.error || 'No se pudo guardar');
-        Toast.success('Encargo registrado correctamente.');
+        Toast.success(editando ? 'Encargo actualizado correctamente.' : 'Encargo registrado correctamente.');
         cerrarFormEncargo();
         setTimeout(() => location.reload(), 700);
     } catch (err) {

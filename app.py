@@ -5995,7 +5995,7 @@ def panadero_encargos():
         layout="panadero",
         active_page="encargos",
         puede_crear_encargos=False,
-        puede_cambiar_estado_encargo=False,
+        puede_cambiar_estado_encargo=True,
         puede_eliminar_encargo=False,
         titulo="Encargos de Caja",
         descripcion="Consulta los encargos registrados por caja para organizar la produccion y las entregas.",
@@ -6191,6 +6191,17 @@ def api_cartera_abono(cuenta_id: int):
 def _registrar_eventos_edicion_encargo(encargo_id: int, previo: dict | None, nuevo: dict | None, usuario: str) -> None:
     if not previo or not nuevo:
         return
+
+    def _resumen_items(encargo: dict) -> str:
+        partes = []
+        for item in encargo.get("items") or []:
+            producto = str(item.get("producto") or "").strip()
+            cantidad = int(item.get("cantidad") or 0)
+            precio = float(item.get("precio_aplicado") or item.get("precio_unitario") or 0)
+            motivo = str(item.get("motivo_precio") or "").strip()
+            partes.append(f"{producto} x{cantidad} @ {precio:.2f}{' (' + motivo + ')' if motivo else ''}")
+        return " | ".join(partes)
+
     campos = {
         "fecha_entrega": "fecha_entrega",
         "hora_entrega": "edicion",
@@ -6216,6 +6227,18 @@ def _registrar_eventos_edicion_encargo(encargo_id: int, previo: dict | None, nue
             anterior,
             actual,
             notas=f"Campo actualizado: {campo}",
+            usuario=usuario,
+        )
+
+    items_previos = _resumen_items(previo)
+    items_nuevos = _resumen_items(nuevo)
+    if items_previos != items_nuevos:
+        registrar_evento_encargo(
+            encargo_id,
+            "edicion",
+            items_previos,
+            items_nuevos,
+            notas="Productos actualizados",
             usuario=usuario,
         )
 

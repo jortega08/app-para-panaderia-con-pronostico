@@ -14363,6 +14363,7 @@ def obtener_top_productos_dia(fecha: str | None = None, limite: int = 3) -> list
     v_filtros = ["fecha = ?"]
     v_params: list = [fecha]
     _apply_tenant_scope(v_filtros, v_params)
+    panaderia_id, sede_id = _tenant_scope()
     with get_connection() as conn:
         # Ventas del cajero
         rows_ventas = conn.execute(f"""
