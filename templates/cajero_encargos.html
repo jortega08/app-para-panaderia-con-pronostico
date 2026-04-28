@@ -161,6 +161,14 @@
         <button type="button" class="btn btn-outline" onclick="agregarFilaProducto()">+ Agregar producto</button>
     </div>
 
+    <div style="margin-top:14px; border-top:1px solid var(--border); padding-top:14px;">
+        <label class="form-label">Total acordado</label>
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            <input id="encTotalManual" type="number" min="0" step="100" class="form-input" style="max-width:180px;" placeholder="Total final" oninput="onTotalManualChange()">
+            <span id="encSubtotalPreview" style="font-size:13px; color:var(--text-muted);"></span>
+        </div>
+    </div>
+
     <div id="encAnticipoBlock" style="margin-top:14px; border-top:1px solid var(--border); padding-top:14px;">
         <label class="form-label">Anticipo (pago inicial)</label>
         <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
@@ -549,6 +557,7 @@ const PRODUCTOS_ENCARGO = {{ productos | tojson }};
 const ENCARGOS_DATA = {{ encargos | tojson }};
 let filasProducto = [];
 let encargoEditandoId = null;
+let totalManualTocado = false;
 let _pagoEncId = null;
 let _docEncargoId = null;
 let _clientesBuscados = [];
@@ -645,7 +654,8 @@ function abrirFormEncargo() {
     document.getElementById('encFormTitle').textContent = 'Nuevo encargo';
     document.getElementById('encGuardarBtn').textContent = 'Guardar encargo';
     document.getElementById('encAnticipoBlock').style.display = '';
-    ['encCliente','encTelefono','encEmpresa','encEmail','encNotas','encHora','encDireccion','encNumeroDoc','encFechaProduccion','encDireccionDocumento'].forEach(id => {
+    totalManualTocado = false;
+    ['encCliente','encTelefono','encEmpresa','encEmail','encNotas','encHora','encDireccion','encNumeroDoc','encFechaProduccion','encDireccionDocumento','encTotalManual'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
     });
@@ -674,6 +684,7 @@ function abrirEditarEncargo(id) {
         return;
     }
     encargoEditandoId = Number(id);
+    totalManualTocado = true;
     document.getElementById('formNuevoEncargo').style.display = '';
     document.getElementById('encFormTitle').textContent = `Editar encargo #${id}`;
     document.getElementById('encGuardarBtn').textContent = 'Guardar cambios';
@@ -695,6 +706,7 @@ function abrirEditarEncargo(id) {
     document.getElementById('encTipoDoc').value = enc.tipo_doc || '';
     document.getElementById('encNumeroDoc').value = enc.numero_doc || '';
     document.getElementById('encAnticipo').value = '';
+    document.getElementById('encTotalManual').value = Number(enc.total || 0);
 
     document.getElementById('encProductRows').innerHTML = '';
     filasProducto = [];
@@ -826,11 +838,34 @@ function onMotivoPrecioChange(idx, input) {
     if (filasProducto[idx]) filasProducto[idx].motivo_precio = input.value.trim();
 }
 
+function subtotalItemsEncargo() {
+    return filasProducto.filter(Boolean).reduce((s, f) => s + (Number(f.precio_unitario || 0) * Number(f.cantidad || 0)), 0);
+}
+
+function totalFinalEncargo() {
+    const manual = document.getElementById('encTotalManual');
+    const valorManual = Number(manual?.value || 0);
+    return manual && manual.value !== '' ? Math.max(valorManual, 0) : subtotalItemsEncargo();
+}
+
+function onTotalManualChange() {
+    const manual = document.getElementById('encTotalManual');
+    totalManualTocado = Boolean(manual && manual.value !== '');
+    recalcularTotal();
+}
+
 function recalcularTotal() {
-    const total = filasProducto.filter(Boolean).reduce((s, f) => s + (f.precio_unitario * f.cantidad), 0);
+    const subtotal = subtotalItemsEncargo();
+    const manual = document.getElementById('encTotalManual');
+    if (manual && !totalManualTocado) {
+        manual.value = subtotal > 0 ? Math.round(subtotal) : '';
+    }
+    const total = totalFinalEncargo();
     const anticipo = parseFloat(document.getElementById('encAnticipo')?.value || 0);
     const saldo = Math.max(total - anticipo, 0);
-    document.getElementById('encTotalPreview').textContent = total > 0 ? `Total: ${money(total)}` : '';
+    const subtotalEl = document.getElementById('encSubtotalPreview');
+    if (subtotalEl) subtotalEl.textContent = subtotal > 0 && Math.abs(total - subtotal) > 0.005 ? `Subtotal productos: ${money(subtotal)}` : '';
+    document.getElementById('encTotalPreview').textContent = total > 0 ? `Total acordado: ${money(total)}` : '';
     const saldoEl = document.getElementById('encSaldoPreview');
     if (saldoEl) saldoEl.textContent = total > 0 && anticipo > 0 ? `Saldo: ${money(saldo)}` : '';
 }
@@ -851,6 +886,7 @@ async function guardarEncargo() {
     const clienteId = document.getElementById('encClienteId')?.value || null;
     const tipoEnc = document.getElementById('encTipo')?.value || 'orden';
     const editando = Number(encargoEditandoId || 0) > 0;
+    const totalManual = totalFinalEncargo();
     const payload = {
         cliente,
         cliente_id: clienteId ? parseInt(clienteId) : null,
@@ -869,6 +905,7 @@ async function guardarEncargo() {
         direccion_entrega: document.getElementById('encDireccion').value.trim(),
         direccion_documento: document.getElementById('encDireccionDocumento').value.trim(),
         anticipo: editando ? 0 : anticipo,
+        total_manual: totalManual,
         items: items.map(f => ({
             producto_id: f.producto_id, producto: f.producto,
             cantidad: f.cantidad,

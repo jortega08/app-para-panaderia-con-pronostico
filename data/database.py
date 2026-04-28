@@ -5088,7 +5088,7 @@ def crear_encargo_v2(
     estado_inicial: str = "confirmado",
     tipo_doc: str = "", numero_doc: str = "", email: str = "",
     direccion_documento: str = "", fecha_produccion: str = "",
-    recordatorio_entrega_en: str = "",
+    recordatorio_entrega_en: str = "", total_manual: float | None = None,
 ) -> dict:
     cliente = str(cliente or "").strip()
     if not fecha_entrega or not cliente:
@@ -5103,12 +5103,17 @@ def crear_encargo_v2(
 
     creado_en = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     panaderia_id, sede_id = _tenant_scope()
-    total = round(sum(
+    total_items = round(sum(
         float(it.get("precio_unitario", 0) or 0) * int(it.get("cantidad", 1) or 1)
         for it in items_normalizados
     ), 2)
+    try:
+        total_manual_valor = round(float(total_manual), 2) if total_manual not in (None, "") else None
+    except (TypeError, ValueError):
+        total_manual_valor = None
+    total = total_manual_valor if total_manual_valor is not None and total_manual_valor >= 0 else total_items
     anticipo = max(0.0, round(float(anticipo or 0), 2))
-    saldo = round(total - anticipo, 2)
+    saldo = round(max(total - anticipo, 0), 2)
     if saldo > 0.005 and not int(cliente_id or 0):
         return {"ok": False, "error": "Debes asociar un cliente para dejar saldo pendiente en cartera"}
     panaderia_id, sede_id = _tenant_scope()
@@ -5184,7 +5189,7 @@ def actualizar_encargo(
     direccion_entrega: str = "", cliente_id: int | None = None,
     tipo_doc: str = "", numero_doc: str = "", email: str = "",
     direccion_documento: str = "", fecha_produccion: str = "",
-    recordatorio_entrega_en: str = "",
+    recordatorio_entrega_en: str = "", total_manual: float | None = None,
 ) -> dict:
     cliente = str(cliente or "").strip()
     if not fecha_entrega or not cliente:
@@ -5192,10 +5197,15 @@ def actualizar_encargo(
     items_normalizados, error_items = _normalizar_items_encargo(items)
     if error_items:
         return {"ok": False, "error": error_items}
-    total = round(sum(
+    total_items = round(sum(
         float(it.get("precio_unitario", 0) or 0) * int(it.get("cantidad", 1) or 1)
         for it in items_normalizados
     ), 2)
+    try:
+        total_manual_valor = round(float(total_manual), 2) if total_manual not in (None, "") else None
+    except (TypeError, ValueError):
+        total_manual_valor = None
+    total = total_manual_valor if total_manual_valor is not None and total_manual_valor >= 0 else total_items
     try:
         cliente_id_resuelto = int(cliente_id or 0) or None
     except (TypeError, ValueError):

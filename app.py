@@ -6272,6 +6272,7 @@ def api_crear_encargo_v2():
         direccion_documento=data.get("direccion_documento", ""),
         fecha_produccion=data.get("fecha_produccion", ""),
         recordatorio_entrega_en=data.get("recordatorio_entrega_en", ""),
+        total_manual=data.get("total_manual"),
     )
     if resultado.get("ok"):
         encargo_creado = obtener_encargo_v2(int(resultado.get("encargo_id") or 0))
@@ -6314,6 +6315,7 @@ def api_actualizar_encargo_v2(encargo_id: int):
         direccion_documento=data.get("direccion_documento", ""),
         fecha_produccion=data.get("fecha_produccion", ""),
         recordatorio_entrega_en=data.get("recordatorio_entrega_en", ""),
+        total_manual=data.get("total_manual"),
     )
     if resultado.get("ok"):
         nuevo = obtener_encargo_v2(encargo_id)
